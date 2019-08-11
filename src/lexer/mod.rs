@@ -1,8 +1,8 @@
 mod token;
 
-use std::process::exit;
-use util::FileReader;
 pub use self::token::Token;
+use crate::util::FileReader;
+use std::process::exit;
 
 pub struct TokenPos(pub Token, pub usize);
 
@@ -86,10 +86,7 @@ impl<'a> Lexer<'a> {
                     return Ok(Token::Comma);
                 }
                 ':' => {
-                    if self.next_char() == ':' {
-                        self.bump(2);
-                        return Ok(Token::ColonColon);
-                    } else if self.next_char() == '<' {
+                    if self.next_char() == '<' {
                         self.bump(2);
                         return Ok(Token::ColonLt);
                     } else {
@@ -121,38 +118,26 @@ impl<'a> Lexer<'a> {
                     self.bump(1);
                     return Ok(Token::RParen);
                 }
-                '<' => {
-                    match self.next_char() {
-                        '=' => {
-                            self.bump(2);
-                            return Ok(Token::LessEqual);
-                        }
-                        '<' => {
-                            self.bump(2);
-                            return Ok(Token::ShiftLeft);
-                        }
-                        _ => {
-                            self.bump(1);
-                            return Ok(Token::Lt);
-                        }
+                '<' => match self.next_char() {
+                    '=' => {
+                        self.bump(2);
+                        return Ok(Token::LessEqual);
                     }
-                }
-                '>' => {
-                    match self.next_char() {
-                        '=' => {
-                            self.bump(2);
-                            return Ok(Token::GreaterEqual);
-                        }
-                        '>' => {
-                            self.bump(2);
-                            return Ok(Token::ShiftRight);
-                        }
-                        _ => {
-                            self.bump(1);
-                            return Ok(Token::Gt);
-                        }
+                    _ => {
+                        self.bump(1);
+                        return Ok(Token::Lt);
                     }
-                }
+                },
+                '>' => match self.next_char() {
+                    '=' => {
+                        self.bump(2);
+                        return Ok(Token::GreaterEqual);
+                    }
+                    _ => {
+                        self.bump(1);
+                        return Ok(Token::Gt);
+                    }
+                },
                 '!' => {
                     if self.next_char() == '=' {
                         self.bump(2);
@@ -203,10 +188,6 @@ impl<'a> Lexer<'a> {
                 '%' => {
                     self.bump(1);
                     return Ok(Token::Modulo);
-                }
-                '^' => {
-                    self.bump(1);
-                    return Ok(Token::Caret);
                 }
                 c => {
                     return Err(format!("Unknown symbol '{}'", c));
@@ -298,14 +279,14 @@ impl<'a> Lexer<'a> {
             self.bump(1);
         }
 
-        if self.current_char() == '.' && is_numeric(self.next_char()) {
+        /*if self.current_char() == '.' && is_numeric(self.next_char()) {
             string += ".";
             self.bump(1);
 
             loop {
                 // EOF
                 match self.current_char() {
-                    c @ '0'...'9' => {
+                    c @ '0'..='9' => {
                         self.bump(1);
                         string.push(c);
                     }
@@ -321,7 +302,9 @@ impl<'a> Lexer<'a> {
             Ok(Token::UIntLiteral(string))
         } else {
             Ok(Token::IntLiteral(string))
-        }
+        }*/
+
+        Ok(Token::IntLiteral(string))
     }
 
     // Scans an identifier, unless it matches a keyword.
@@ -336,7 +319,7 @@ impl<'a> Lexer<'a> {
             self.bump(1);
         }
 
-        Ok(match string.as_ref() {
+        let token = match &*string {
             "fn" => Token::Fn,
             "export" => Token::Export,
             "trait" => Token::Trait,
@@ -362,25 +345,34 @@ impl<'a> Lexer<'a> {
             "allocate" => Token::Allocate,
 
             "Int" => Token::Int,
-            "UInt" => Token::UInt,
             "Bool" => Token::Bool,
             "String" => Token::StringType,
-            "Float" => Token::Float,
             "Char" => Token::Char,
             "_" => Token::Infer,
             "Self" => Token::SelfType,
 
-            _ => Token::Identifier(string),
-        })
-    }
+            _ => match string.chars().nth(0).unwrap() {
+                '_' => Token::GenericName(string[1..].to_string()),
+                'A'..='Z' => Token::TypeName(string),
+                'a'..='z' => Token::VariableName(string),
+                _ => {
+                    return Err(format!(
+                        "TODO: This should never happen, ever. `{}`",
+                        string
+                    ))
+                }
+            },
+        };
 
+        Ok(token)
+    }
 
     fn discard_whitespace_or_comments(&mut self) -> Result<(), (usize, String)> {
         loop {
             // Consume any whitespace or comments before a real token
             match self.current_char() {
                 '/' => {
-                    // May be a comment or division...
+                    // May be a comment or division..=
                     if self.next_char() == '/' || self.next_char() == '*' {
                         self.scan_comment()?;
                     } else {
@@ -403,8 +395,10 @@ impl<'a> Lexer<'a> {
             '/' => {
                 // Read until end of line.
                 self.bump(2); // Read //.
-                while self.current_char() != '\r' && self.current_char() != '\n' &&
-                      self.current_char() != EOF {
+                while self.current_char() != '\r'
+                    && self.current_char() != '\n'
+                    && self.current_char() != EOF
+                {
                     self.bump(1);
                 }
                 self.bump(1);
@@ -444,7 +438,7 @@ impl<'a> Lexer<'a> {
 /// Returns whether the character is a valid part of a number.
 fn is_numeric(c: char) -> bool {
     match c {
-        '0'...'9' => true,
+        '0'..='9' => true,
         _ => false,
     }
 }
@@ -452,8 +446,8 @@ fn is_numeric(c: char) -> bool {
 /// Returns whether the character is a valid beginning of an identifier.
 fn is_identifier_start(c: char) -> bool {
     match c {
-        'a'...'z' => true,
-        'A'...'Z' => true,
+        'a'..='z' => true,
+        'A'..='Z' => true,
         '_' => true,
         _ => false,
     }
@@ -462,9 +456,9 @@ fn is_identifier_start(c: char) -> bool {
 /// Returns whether the character is a valid non-initial part of an identifier.
 fn is_identifier_continuer(c: char) -> bool {
     match c {
-        'a'...'z' => true,
-        'A'...'Z' => true,
-        '0'...'9' => true,
+        'a'..='z' => true,
+        'A'..='Z' => true,
+        '0'..='9' => true,
         '_' => true,
         _ => false,
     }

@@ -1,19 +1,19 @@
 pub struct Counter {
-    i: u32,
+    i: usize,
 }
 
 impl Counter {
-    pub fn new(start: u32) -> Counter {
+    pub fn new(start: usize) -> Counter {
         Counter { i: start }
     }
 
-    pub fn next(&mut self) -> u32 {
+    pub fn next(&mut self) -> usize {
         self.i += 1;
 
         self.i - 1
     }
 
-    pub fn current(&self) -> u32 {
+    pub fn current(&self) -> usize {
         self.i
     }
 }

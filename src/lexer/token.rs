@@ -3,38 +3,34 @@ use std::fmt::{Display, Formatter, Result};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Token {
     // Language symbols
-    Dot,            //    .
-    Comma,          //    ,
-    Colon,          //    :
-    ColonColon,     //    ::
-    ColonLt,        //    :<
-    LBrace,         //    {
-    RBrace,         //    }
-    LSqBracket,     //    [
-    RSqBracket,     //    ]
-    Lt,             //    <
-    Gt,             //    >
-    LParen,         //    (
-    RParen,         //    )
-    RArrow,         //    ->
+    Dot,        //    .
+    Comma,      //    ,
+    Colon,      //    :
+    ColonLt,    //    :<
+    LBrace,     //    {
+    RBrace,     //    }
+    LSqBracket, //    [
+    RSqBracket, //    ]
+    Lt,         //    <
+    Gt,         //    >
+    LParen,     //    (
+    RParen,     //    )
+    RArrow,     //    ->
 
     // Mathematical operators (excluding LSquare, RSquare)
-    LessEqual,      //    <=
-    GreaterEqual,   //    >=
-    EqualsEquals,   //    ==
-    NotEquals,      //    !=
-    And,            //    &
-    Pipe,           //    |
-    Equals,         //    =
-    Not,            //    !
-    Plus,           //    +
-    Minus,          //    -
-    ShiftLeft,      //    <<
-    ShiftRight,     //    >>
-    Star,           //    *
-    Slash,          //    /
-    Modulo,         //    %
-    Caret,          //    ^
+    LessEqual,    //    <=
+    GreaterEqual, //    >=
+    EqualsEquals, //    ==
+    NotEquals,    //    !=
+    And,          //    &
+    Pipe,         //    |
+    Equals,       //    =
+    Not,          //    !
+    Plus,         //    +
+    Minus,        //    -
+    Star,         //    *
+    Slash,        //    /
+    Modulo,       //    %
 
     // Special keywords -- all are lowercase
     Fn,
@@ -62,21 +58,20 @@ pub enum Token {
 
     // Privileged Types
     Int,
-    UInt,
     Bool,
     StringType,
-    Float,
     Char,
     Infer,
     SelfType,
 
     // Literals
-    String(String, u32),
+    String(String, usize),
     IntLiteral(String),
-    UIntLiteral(String),
-    FloatLiteral(String),
     CharLiteral(char),
-    Identifier(String),
+
+    VariableName(String),
+    TypeName(String),
+    GenericName(String),
 
     /// End of file
     EOF,
@@ -90,7 +85,6 @@ impl Display for Token {
             &Token::Dot => write!(f, "."),
             &Token::Comma => write!(f, ","),
             &Token::Colon => write!(f, ":"),
-            &Token::ColonColon => write!(f, "::"),
             &Token::ColonLt => write!(f, ":<"),
             &Token::LBrace => write!(f, "{{"),
             &Token::RBrace => write!(f, "}}"),
@@ -111,12 +105,9 @@ impl Display for Token {
             &Token::Not => write!(f, "!"),
             &Token::Plus => write!(f, "+"),
             &Token::Minus => write!(f, "-"),
-            &Token::ShiftLeft => write!(f, "<<"),
-            &Token::ShiftRight => write!(f, ">>"),
             &Token::Star => write!(f, "*"),
             &Token::Slash => write!(f, "/"),
             &Token::Modulo => write!(f, "%"),
-            &Token::Caret => write!(f, "^"),
             &Token::Fn => write!(f, "fn"),
             &Token::Export => write!(f, "export"),
             &Token::Trait => write!(f, "trait"),
@@ -139,19 +130,17 @@ impl Display for Token {
             &Token::SelfRef => write!(f, "self"),
             &Token::Allocate => write!(f, "allocate"),
             &Token::Int => write!(f, "Type (Int)"),
-            &Token::UInt => write!(f, "Type (UInt)"),
             &Token::Bool => write!(f, "Type (Bool)"),
-            &Token::Float => write!(f, "Type (Float)"),
             &Token::Char => write!(f, "Type (Char)"),
             &Token::StringType => write!(f, "Type (String)"),
             &Token::Infer => write!(f, "Type (_)"),
             &Token::SelfType => write!(f, "Type (Self)"),
             &Token::String(..) => write!(f, "String"),
             &Token::IntLiteral(_) => write!(f, "Number"),
-            &Token::UIntLiteral(_) => write!(f, "Number"),
-            &Token::FloatLiteral(_) => write!(f, "Number"),
-            &Token::CharLiteral(_) => write!(f, "Char Literal"),
-            &Token::Identifier(_) => write!(f, "Identifier"),
+            &Token::CharLiteral(_) => write!(f, "CharLiteral"),
+            &Token::VariableName(_) => write!(f, "VariableName"),
+            &Token::TypeName(_) => write!(f, "TypeName"),
+            &Token::GenericName(_) => write!(f, "GenericName"),
             &Token::EOF => write!(f, "EOF"),
             &Token::BOF => write!(f, "BOF"),
         }

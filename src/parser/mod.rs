@@ -1,10 +1,12 @@
 mod ast;
+mod ast_visitor;
 
+pub use self::ast::*;
+pub use self::ast_visitor::*;
+use crate::lexer::{Lexer, Token};
+use crate::util::FileReader;
 use std::process::exit;
 use std::str::FromStr;
-use lexer::{Lexer, Token};
-use util::FileReader;
-pub use self::ast::*;
 
 type ParseResult<T> = Result<T, ParseError>;
 
@@ -50,11 +52,6 @@ impl<'a> Parser<'a> {
         Err(ParseError::new(self.pos, s))
     }
 
-    /// Report an error at another position
-    fn error_at<T>(&self, loc: usize, s: String) -> ParseResult<T> {
-        Err(ParseError::new(loc, s))
-    }
-
     /// Move the parser forward one token
     fn bump(&mut self) {
         self.lexer.bump_token();
@@ -68,7 +65,10 @@ impl<'a> Parser<'a> {
         if self.check(token) {
             Ok(())
         } else {
-            self.error(format!("Expected token `{}`, found `{}`.", err_tok, self.next_token))
+            self.error(format!(
+                "Expected token `{}`, found `{}`.",
+                err_tok, self.next_token
+            ))
         }
     }
 
@@ -93,8 +93,24 @@ impl<'a> Parser<'a> {
         x
     }
 
-    fn check_identififer(&self) -> bool {
-        if let Token::Identifier(_) = self.next_token {
+    fn check_identifier(&self) -> bool {
+        if let Token::VariableName(_) = self.next_token {
+            true
+        } else {
+            false
+        }
+    }
+
+    fn check_typename(&self) -> bool {
+        if let Token::TypeName(_) = self.next_token {
+            true
+        } else {
+            false
+        }
+    }
+
+    fn check_generic(&self) -> bool {
+        if let Token::GenericName(_) = self.next_token {
             true
         } else {
             false
@@ -109,10 +125,38 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn expect_colon_push_lt(&mut self) -> ParseResult<()> {
+        self.expect(Token::ColonLt)?;
+        self.next_token = Token::Lt;
+        Ok(())
+    }
+
     /// `check_consume` but for an Identifier token.
-    fn expect_get_identifier(&mut self) -> ParseResult<String> {
+    fn expect_consume_identifier(&mut self) -> ParseResult<String> {
         let tok = self.next_token.clone();
-        if let Token::Identifier(ident) = tok {
+        if let Token::VariableName(ident) = tok {
+            self.bump();
+            Ok(ident)
+        } else {
+            self.error(format!("Expected token `Identifier`, found `{}`.", tok))
+        }
+    }
+
+    /// `check_consume` but for an Identifier token.
+    fn expect_consume_typename(&mut self) -> ParseResult<String> {
+        let tok = self.next_token.clone();
+        if let Token::TypeName(ident) = tok {
+            self.bump();
+            Ok(ident)
+        } else {
+            self.error(format!("Expected token `Identifier`, found `{}`.", tok))
+        }
+    }
+
+    /// `check_consume` but for an Identifier token.
+    fn expect_consume_generic(&mut self) -> ParseResult<String> {
+        let tok = self.next_token.clone();
+        if let Token::GenericName(ident) = tok {
             self.bump();
             Ok(ident)
         } else {
@@ -121,11 +165,11 @@ impl<'a> Parser<'a> {
     }
 
     /// `check_consume` but for a Number token.
-    fn expect_get_number(&mut self) -> ParseResult<u32> {
+    fn expect_consume_number(&mut self) -> ParseResult<usize> {
         let tok = self.next_token.clone();
         if let Token::IntLiteral(num) = tok {
             self.bump();
-            Ok(u32::from_str(&num).unwrap())
+            Ok(usize::from_str(&num).unwrap())
         } else {
             self.error(format!("Expected token `IntLiteral`, found `{}`.", tok))
         }
@@ -185,38 +229,43 @@ impl<'a> Parser<'a> {
                 impls.push(impl_result.unwrap());
             } else {
                 // TODO: wonky
-                let err =
-                    self.error::<()>(format!("Expected `fn`, `export` or `object`, found `{}`",
-                                             self.next_token))
-                        .unwrap_err();
+                let err = self
+                    .error::<()>(format!(
+                        "Expected `fn`, `export` or `object`, found `{}`",
+                        self.next_token
+                    ))
+                    .unwrap_err();
                 report_parse_err_at(&self.lexer.file, err);
             }
         }
 
-        ParseFile::new(self.lexer.file,
-                       functions,
-                       export_fns,
-                       objects,
-                       traits,
-                       impls)
+        ParseFile::new(
+            self.lexer.file,
+            functions,
+            export_fns,
+            objects,
+            traits,
+            impls,
+        )
     }
 
     fn parse_function_signature(&mut self) -> ParseResult<AstFnSignature> {
         let pos = self.pos;
         self.expect_consume(Token::Fn)?;
         let generics = self.try_parse_decl_generics()?;
-        let fn_name = self.expect_get_identifier()?;
+        let fn_name = self.expect_consume_identifier()?;
         let parameter_list = self.parse_fn_parameter_list()?;
         let return_type = self.try_parse_return_type()?;
         let restrictions = self.try_parse_restrictions()?;
         self.expect_consume(Token::Dot)?;
 
-        Ok(AstFnSignature::new(pos,
-                               fn_name,
-                               generics,
-                               parameter_list,
-                               return_type,
-                               restrictions))
+        Ok(AstFnSignature::new(
+            fn_name,
+            generics,
+            parameter_list,
+            return_type,
+            restrictions,
+        ))
     }
 
     /// Parse a single function from the file.
@@ -225,23 +274,24 @@ impl<'a> Parser<'a> {
         let pos = self.pos;
         self.expect_consume(Token::Fn)?;
         let generics = self.try_parse_decl_generics()?;
-        let fn_name = self.expect_get_identifier()?;
+        let fn_name = self.expect_consume_identifier()?;
         let parameter_list = self.parse_fn_parameter_list()?;
         let return_type = self.try_parse_return_type()?;
         let restrictions = self.try_parse_restrictions()?;
         let definition = self.parse_block()?;
 
-        Ok(AstFunction::new(pos,
-                            fn_name,
-                            generics,
-                            parameter_list,
-                            return_type,
-                            restrictions,
-                            definition))
+        Ok(AstFunction::new(
+            fn_name,
+            generics,
+            parameter_list,
+            return_type,
+            restrictions,
+            definition,
+        ))
     }
 
     fn try_parse_decl_generics(&mut self) -> ParseResult<Vec<String>> {
-        if !self.check_consume(Token::Lt) && !self.check_consume(Token::ColonLt) {
+        if !self.check_consume(Token::Lt) {
             return Ok(Vec::new());
         }
 
@@ -252,10 +302,14 @@ impl<'a> Parser<'a> {
                 self.expect_consume(Token::Comma)?;
             }
 
-            generics.push(self.expect_get_identifier()?);
+            generics.push(self.expect_consume_generic()?);
         }
 
-        Ok(generics)
+        if generics.len() == 0 {
+            self.error(format!("Expected generics, got `<>`"))
+        } else {
+            Ok(generics)
+        }
     }
 
     fn try_parse_restrictions(&mut self) -> ParseResult<Vec<AstTypeRestriction>> {
@@ -275,14 +329,14 @@ impl<'a> Parser<'a> {
             let ty = self.parse_type()?;
             self.expect_consume(Token::Colon)?;
             let trt = self.parse_type()?;
-            restrictions.push(AstTypeRestriction::new(pos, ty, trt));
+            restrictions.push(AstTypeRestriction::new(ty, trt));
         }
 
         Ok(restrictions)
     }
 
     /// Parse a parameter list (including LParen and RParen) following a function.
-    fn parse_fn_parameter_list(&mut self) -> ParseResult<Vec<AstFnParameter>> {
+    fn parse_fn_parameter_list(&mut self) -> ParseResult<Vec<AstNamedVariable>> {
         self.expect_consume(Token::LParen)?;
         let mut parameters = Vec::new();
 
@@ -294,13 +348,13 @@ impl<'a> Parser<'a> {
 
             // name colon type
             let param_pos = self.pos;
-            let param_name = self.expect_get_identifier()?;
+            let param_name = self.expect_consume_identifier()?;
             self.expect_consume(Token::Colon)?;
             let type_pos = self.pos;
             let param_type = self.parse_type()?;
             // parameter types can't have infer(s) in them
-            self.ensure_not_infer(&param_type, type_pos)?;
-            parameters.push(AstFnParameter::new(param_name, param_type, param_pos));
+            self.ensure_not_infer(&param_type)?;
+            parameters.push(AstNamedVariable::new(param_name, param_type));
         }
 
         Ok(parameters)
@@ -314,10 +368,10 @@ impl<'a> Parser<'a> {
             let type_pos = self.pos;
             let ret = self.parse_type()?;
             // Also make the return type is not a `_`
-            self.ensure_not_infer(&ret, type_pos)?;
+            self.ensure_not_infer(&ret)?;
             Ok(ret)
         } else {
-            Ok(AstType::None)
+            Ok(AstType::none())
         }
     }
 
@@ -331,28 +385,31 @@ impl<'a> Parser<'a> {
         } else if self.check(Token::LParen) {
             // (A, B, C)
             self.parse_tuple_type()
-        } else if self.check_identififer() {
+        } else if self.check_typename() {
             self.parse_object_type()
+        } else if self.check_generic() {
+            self.parse_generic_type()
         } else {
-            self.error(format!("Expected built-in type, `identifier` or `(`, found `{}`",
-                               self.next_token))
+            self.error(format!(
+                "Expected built-in type, `identifier` or `(`, found `{}`",
+                self.next_token
+            ))
         }
     }
 
     fn try_parse_builtin_type(&mut self) -> Option<AstType> {
         let ty = match &self.next_token {
             &Token::Int => Some(AstType::Int),
-            &Token::UInt => Some(AstType::UInt),
-            &Token::Float => Some(AstType::Float),
             &Token::Bool => Some(AstType::Bool),
             &Token::Char => Some(AstType::Char),
             &Token::StringType => Some(AstType::String),
             &Token::Infer => Some(AstType::Infer),
+            &Token::SelfType => Some(AstType::SelfType),
             _ => None,
         };
 
         if ty.is_some() {
-            /// If we got something, then consume it
+            // If we got something, then consume it
             self.bump();
         }
 
@@ -370,7 +427,7 @@ impl<'a> Parser<'a> {
         self.expect_consume(Token::LParen)?;
 
         if self.check_consume(Token::RParen) {
-            Ok(AstType::None)
+            Ok(AstType::none())
         } else {
             let mut types = Vec::new();
 
@@ -398,13 +455,19 @@ impl<'a> Parser<'a> {
 
     fn parse_object_type(&mut self) -> ParseResult<AstType> {
         let pos = self.pos;
-        let obj = self.expect_get_identifier()?;
-        let generics = if self.check_consume(Token::ColonColon) {
-            self.try_parse_expr_generics()?
+        let obj = self.expect_consume_typename()?;
+        let generics = if self.check(Token::Lt) {
+            self.parse_expr_generics()?
         } else {
             Vec::new()
         };
-        Ok(AstType::object(obj, generics, pos))
+
+        Ok(AstType::object(obj, generics))
+    }
+
+    fn parse_generic_type(&mut self) -> ParseResult<AstType> {
+        let generic = self.expect_consume_generic()?;
+        Ok(AstType::generic(generic))
     }
 
     // Parse a block of statements including LBrace and RBrace.
@@ -430,18 +493,18 @@ impl<'a> Parser<'a> {
             &Token::Break => {
                 self.bump();
                 self.expect_consume(Token::Dot)?;
-                Ok(AstStatement::break_stmt(pos))
+                Ok(AstStatement::break_stmt())
             }
             &Token::Continue => {
                 self.bump();
                 self.expect_consume(Token::Dot)?;
-                Ok(AstStatement::continue_stmt(pos))
+                Ok(AstStatement::continue_stmt())
             }
             &Token::Return => self.parse_return_statement(),
             &Token::Assert => self.parse_assert_statement(),
             &Token::Dot => {
                 self.expect_consume(Token::Dot)?;
-                Ok(AstStatement::noop(pos))
+                Ok(AstStatement::noop())
             }
             _ => self.parse_expression_statement(),
         }
@@ -450,13 +513,13 @@ impl<'a> Parser<'a> {
     fn parse_block_statement(&mut self) -> ParseResult<AstStatement> {
         let pos = self.pos;
         let block = self.parse_block()?;
-        Ok(AstStatement::block(block, pos))
+        Ok(AstStatement::block(block))
     }
 
     fn parse_let_statement(&mut self) -> ParseResult<AstStatement> {
         let pos = self.pos;
         self.expect_consume(Token::Let)?;
-        let var_name = self.expect_get_identifier()?;
+        let var_name = self.expect_consume_identifier()?;
 
         let ty = if self.check_consume(Token::Colon) {
             self.parse_type()?
@@ -470,7 +533,7 @@ impl<'a> Parser<'a> {
 
         let value = self.parse_expression()?;
         self.expect_consume(Token::Dot)?;
-        Ok(AstStatement::let_statement(var_name, ty, value, pos))
+        Ok(AstStatement::let_statement(var_name, ty, value))
     }
 
     fn parse_if_statement(&mut self) -> ParseResult<AstStatement> {
@@ -488,7 +551,7 @@ impl<'a> Parser<'a> {
             AstBlock::empty()
         };
 
-        Ok(AstStatement::if_statement(condition, block, else_block, pos))
+        Ok(AstStatement::if_statement(condition, block, else_block))
     }
 
     fn parse_while_loop(&mut self) -> ParseResult<AstStatement> {
@@ -497,7 +560,7 @@ impl<'a> Parser<'a> {
         let condition = self.parse_expression()?;
         let block = self.parse_block()?;
 
-        Ok(AstStatement::while_loop(condition, block, pos))
+        Ok(AstStatement::while_loop(condition, block))
     }
 
     fn parse_return_statement(&mut self) -> ParseResult<AstStatement> {
@@ -506,11 +569,11 @@ impl<'a> Parser<'a> {
 
         if self.check(Token::Dot) {
             self.expect_consume(Token::Dot)?;
-            Ok(AstStatement::return_nothing(pos))
+            Ok(AstStatement::return_nothing())
         } else {
             let value = self.parse_expression()?;
             self.expect_consume(Token::Dot)?;
-            Ok(AstStatement::return_statement(value, pos))
+            Ok(AstStatement::return_statement(value))
         }
     }
 
@@ -519,23 +582,24 @@ impl<'a> Parser<'a> {
         self.expect_consume(Token::Assert)?;
         let condition = self.parse_expression()?;
         self.expect_consume(Token::Dot)?;
-        Ok(AstStatement::assert_statement(condition, pos))
+        Ok(AstStatement::assert_statement(condition))
     }
 
     fn parse_expression_statement(&mut self) -> ParseResult<AstStatement> {
         let expr = self.parse_expression()?;
-        match &expr.expr {
-            &AstExpressionData::BinOp { ref kind, .. } => {
+
+        match &expr {
+            &AstExpression::BinOp { ref kind, .. } => {
                 if *kind != BinOpKind::Set {
-                    return self.error_at(expr.pos, format!("Expected expression statement."));
+                    return self.error(format!("Expected expression statement."));
                 }
             }
-            &AstExpressionData::Call { .. } |
-            &AstExpressionData::ObjectCall { .. } => {}
+            &AstExpression::Call { .. } | &AstExpression::ObjectCall { .. } => {}
             _ => {
-                return self.error_at(expr.pos, format!("Expected expression statement."));
+                return self.error(format!("Expected expression statement."));
             }
         }
+
         self.expect_consume(Token::Dot)?;
         Ok(AstStatement::expression_statement(expr))
     }
@@ -546,26 +610,23 @@ impl<'a> Parser<'a> {
 
     fn check_operator(&self) -> bool {
         match &self.next_token {
-            &Token::Star |
-            &Token::Slash |
-            &Token::Modulo |
-            &Token::Plus |
-            &Token::Minus |
-            &Token::ShiftLeft |
-            &Token::ShiftRight |
-            &Token::Lt |
-            &Token::Gt |
-            &Token::LessEqual |
-            &Token::GreaterEqual |
-            &Token::EqualsEquals |
-            &Token::NotEquals |
-            &Token::Caret |
-            &Token::And |
-            &Token::Pipe |
-            &Token::Equals |
-            &Token::Colon |
-            &Token::LSqBracket |
-            &Token::LParen => true,
+            &Token::Star
+            | &Token::Slash
+            | &Token::Modulo
+            | &Token::Plus
+            | &Token::Minus
+            | &Token::Lt
+            | &Token::Gt
+            | &Token::LessEqual
+            | &Token::GreaterEqual
+            | &Token::EqualsEquals
+            | &Token::NotEquals
+            | &Token::And
+            | &Token::Pipe
+            | &Token::Equals
+            | &Token::Colon
+            | &Token::LSqBracket
+            | &Token::LParen => true,
             _ => false,
         }
     }
@@ -574,15 +635,12 @@ impl<'a> Parser<'a> {
         match token {
             &Token::Star | &Token::Slash | &Token::Modulo => 7,
             &Token::Plus | &Token::Minus => 6,
-            &Token::ShiftLeft |
-            &Token::ShiftRight => 5,
-            &Token::Lt |
-            &Token::Gt |
-            &Token::LessEqual |
-            &Token::GreaterEqual |
-            &Token::EqualsEquals |
-            &Token::NotEquals => 4,
-            &Token::Caret => 3,
+            &Token::Lt
+            | &Token::Gt
+            | &Token::LessEqual
+            | &Token::GreaterEqual
+            | &Token::EqualsEquals
+            | &Token::NotEquals => 4,
             &Token::And => 2,
             &Token::Pipe => 1,
             &Token::Equals => 0,
@@ -602,32 +660,35 @@ impl<'a> Parser<'a> {
                     self.bump();
                     let idx = self.parse_expr(0)?;
                     self.expect_consume(Token::RSqBracket)?;
-                    lhs = AstExpression::access(lhs, idx, pos);
+                    lhs = AstExpression::access(lhs, idx);
                     continue;
                 }
                 Token::Colon => {
                     self.bump();
-                    if self.check_identififer() {
-                        let name = self.expect_get_identifier()?;
+                    if self.check_identifier() {
+                        let name = self.expect_consume_identifier()?;
                         if self.check(Token::ColonLt) {
-                            let generics = self.try_parse_expr_generics()?;
+                            self.expect_colon_push_lt()?;
+                            let generics = self.parse_expr_generics()?;
                             let params = self.parse_expr_args()?;
-                            lhs = AstExpression::object_call(lhs, name, generics, params, pos);
+                            lhs = AstExpression::object_call(lhs, name, generics, params);
                         } else if self.check(Token::LParen) {
                             let params = self.parse_expr_args()?;
-                            lhs = AstExpression::object_call(lhs, name, Vec::new(), params, pos);
+                            lhs = AstExpression::object_call(lhs, name, Vec::new(), params);
                         } else {
-                            lhs = AstExpression::object_access(lhs, name, pos);
+                            lhs = AstExpression::object_access(lhs, name);
                         }
                         continue;
                     } else if self.check_number() {
-                        let idx = self.expect_get_number()?;
-                        lhs = AstExpression::tuple_access(lhs, idx, pos);
+                        let idx = self.expect_consume_number()?;
+                        lhs = AstExpression::tuple_access(lhs, idx);
                         continue;
                     } else {
-                        self.error(format!("Expected either number or identifier after `:`, \
-                                            found {}",
-                                           self.next_token))?;
+                        self.error(format!(
+                            "Expected either number or identifier after `:`, \
+                             found {}",
+                            self.next_token
+                        ))?;
                     }
                 }
                 _ => {}
@@ -647,7 +708,7 @@ impl<'a> Parser<'a> {
             }?;
 
             let op_kind = get_kind(op);
-            lhs = AstExpression::binop(lhs, rhs, op_kind, pos);
+            lhs = AstExpression::binop(lhs, rhs, op_kind);
         }
 
         Ok(lhs)
@@ -659,101 +720,117 @@ impl<'a> Parser<'a> {
             &Token::Not => {
                 self.bump();
                 let e = self.parse_expr(9)?;
-                Ok(AstExpression::not(e, pos))
+                Ok(AstExpression::not(e))
             }
             &Token::Minus => {
                 self.bump();
                 let e = self.parse_expr(9)?;
-                Ok(AstExpression::neg(e, pos))
+                Ok(AstExpression::neg(e))
             }
             &Token::Allocate => {
                 self.bump();
                 let obj = self.parse_object_type()?;
-                Ok(AstExpression::allocate(obj, pos))
+                Ok(AstExpression::allocate(obj))
             }
             &Token::LParen => self.parse_paren_expr(),
             &Token::LSqBracket => self.parse_array_literal(),
-            &Token::Identifier(_) => self.parse_identifier_expr(),
+            &Token::VariableName(_) => self.parse_identifier_expr(),
+            &Token::TypeName(_) => self.parse_typename_expr(),
             &Token::True => {
                 self.bump();
-                Ok(AstExpression::true_lit(pos))
+                Ok(AstExpression::true_lit())
             }
             &Token::False => {
                 self.bump();
-                Ok(AstExpression::false_lit(pos))
+                Ok(AstExpression::false_lit())
             }
             &Token::Null => {
                 self.bump();
-                Ok(AstExpression::null_lit(pos))
+                Ok(AstExpression::null_lit())
             }
             &Token::SelfRef => {
                 self.bump();
-                Ok(AstExpression::self_ref(pos))
+                Ok(AstExpression::self_ref())
             }
             _ => {
                 // This is wonky, but we don't want to ALWAYS clone...
                 match self.next_token.clone() {
                     Token::String(ref string, len) => {
                         self.bump();
-                        Ok(AstExpression::string_literal(string.clone(), len, pos))
+                        Ok(AstExpression::string_literal(string.clone(), len))
                     }
                     Token::IntLiteral(ref num) => {
                         self.bump();
-                        Ok(AstExpression::int_literal(num.clone(), pos))
-                    }
-                    Token::UIntLiteral(ref num) => {
-                        self.bump();
-                        Ok(AstExpression::uint_literal(num.clone(), pos))
-                    }
-                    Token::FloatLiteral(ref num) => {
-                        self.bump();
-                        Ok(AstExpression::float_literal(num.clone(), pos))
+                        Ok(AstExpression::int_literal(num.clone()))
                     }
                     Token::CharLiteral(ch) => {
                         self.bump();
-                        Ok(AstExpression::char_literal(ch, pos))
+                        Ok(AstExpression::char_literal(ch))
                     }
-                    _ => {
-                        self.error(format!("Expected literal, identifier, `new` or `(`, found \
-                                            `{}`",
-                                           self.next_token))
-                    }
+                    _ => self.error(format!(
+                        "Expected literal, identifier, `new` or `(`, found \
+                         `{}`",
+                        self.next_token
+                    )),
                 }
             }
         }
     }
 
     fn parse_identifier_expr(&mut self) -> ParseResult<AstExpression> {
-        // N::<T>::new:<T>()
         let pos = self.pos;
-        let identifier = self.expect_get_identifier()?;
+        let identifier = self.expect_consume_identifier()?;
+
         if self.check(Token::LParen) {
             let args = self.parse_expr_args()?;
-            Ok(AstExpression::call(identifier, Vec::new(), args, pos))
+            Ok(AstExpression::call(identifier, Vec::new(), args))
         } else if self.check(Token::ColonLt) {
-            let generics = self.try_parse_expr_generics()?;
+            self.expect_colon_push_lt()?;
+            let generics = self.parse_expr_generics()?;
             let args = self.parse_expr_args()?;
-            Ok(AstExpression::call(identifier, generics, args, pos))
-        } else if self.check(Token::ColonColon) {
-            self.bump();
-
-            let obj_generics = self.try_parse_expr_generics()?;
-
-            if obj_generics.len() > 0 {
-                self.expect_consume(Token::ColonColon)?;
-            }
-
-            let fn_name = self.expect_get_identifier()?;
-            let call_generics = self.try_parse_expr_generics()?;
-            let args = self.parse_expr_args()?;
-            Ok(AstExpression::static_call(identifier,
-                                          obj_generics,
-                                          fn_name,
-                                          call_generics,
-                                          args,
-                                          pos))
+            Ok(AstExpression::call(identifier, generics, args))
         } else {
-            Ok(AstExpression::identifier(identifier, pos))
+            Ok(AstExpression::identifier(identifier))
+        }
+    }
+
+    fn parse_typename_expr(&mut self) -> ParseResult<AstExpression> {
+        let pos = self.pos;
+        let typename = self.expect_consume_typename()?;
+
+        let obj_generics = if self.check(Token::Colon) {
+            self.expect_consume(Token::Colon)?;
+            Vec::new()
+        } else if self.check(Token::Lt) {
+            self.parse_expr_generics()?
+        } else {
+            self.error(format!("Expected `:` or `<`, found `{}`", self.next_token))?
+        };
+
+        let identifier = self.expect_consume_identifier()?;
+
+        if self.check(Token::LParen) {
+            let args = self.parse_expr_args()?;
+            Ok(AstExpression::static_call(
+                typename,
+                obj_generics,
+                identifier,
+                Vec::new(),
+                args,
+            ))
+        } else if self.check(Token::ColonLt) {
+            self.expect_colon_push_lt()?;
+            let fn_generics = self.parse_expr_generics()?;
+            let args = self.parse_expr_args()?;
+            Ok(AstExpression::static_call(
+                typename,
+                obj_generics,
+                identifier,
+                fn_generics,
+                args,
+            ))
+        } else {
+            self.error(format!("Expected `(` or `:<`, found `{}`", self.next_token))
         }
     }
 
@@ -762,7 +839,7 @@ impl<'a> Parser<'a> {
         self.expect_consume(Token::LSqBracket)?;
 
         if self.check_consume(Token::RSqBracket) {
-            return Ok(AstExpression::empty_array_literal(pos));
+            return Ok(AstExpression::empty_array_literal());
         }
 
         let first = self.parse_expr(0)?;
@@ -775,10 +852,10 @@ impl<'a> Parser<'a> {
                 elements.push(self.parse_expr(0)?);
             }
 
-            Ok(AstExpression::array_literal(elements, pos))
+            Ok(AstExpression::array_literal(elements))
         } else if self.check_consume(Token::RSqBracket) {
             let elements = vec![first];
-            Ok(AstExpression::array_literal(elements, pos))
+            Ok(AstExpression::array_literal(elements))
         } else {
             self.error(format!("Expected `]` or `,`, found `{}`", self.next_token))
         }
@@ -789,7 +866,7 @@ impl<'a> Parser<'a> {
         self.expect_consume(Token::LParen)?;
 
         if self.check_consume(Token::RParen) {
-            return Ok(AstExpression::nothing(pos));
+            return Ok(AstExpression::nothing());
         }
 
         let first = self.parse_expr(0)?;
@@ -809,7 +886,7 @@ impl<'a> Parser<'a> {
                 first = false;
             }
 
-            Ok(AstExpression::tuple_literal(elements, pos))
+            Ok(AstExpression::tuple_literal(elements))
         } else {
             // Expected ) , or ..
             self.error(format!("Expected `)` or `,`, found `{}`", self.next_token))
@@ -831,10 +908,8 @@ impl<'a> Parser<'a> {
         Ok(args)
     }
 
-    fn try_parse_expr_generics(&mut self) -> ParseResult<Vec<AstType>> {
-        if !self.check_consume(Token::Lt) && !self.check_consume(Token::ColonLt) {
-            return Ok(Vec::new());
-        }
+    fn parse_expr_generics(&mut self) -> ParseResult<Vec<AstType>> {
+        self.expect_consume(Token::Lt)?;
 
         let mut generics = Vec::new();
 
@@ -846,35 +921,39 @@ impl<'a> Parser<'a> {
             generics.push(self.parse_type()?);
         }
 
-        Ok(generics)
+        if generics.len() == 0 {
+            self.error(format!("Expected generics, got `<>`"))
+        } else {
+            Ok(generics)
+        }
     }
 
     fn ensure_lval(&self, expr: &AstExpression) -> ParseResult<()> {
-        match &expr.expr {
-            &AstExpressionData::Identifier { .. } |
-            &AstExpressionData::Access { .. } => Ok(()),
-            &AstExpressionData::TupleAccess { ref accessible, .. } => self.ensure_lval(accessible),
-            &AstExpressionData::ObjectAccess { ref object, .. } => {
-                if object.expr == AstExpressionData::SelfRef {
+        match expr {
+            &AstExpression::Identifier { .. } | &AstExpression::Access { .. } => Ok(()),
+            &AstExpression::TupleAccess { ref accessible, .. } => self.ensure_lval(accessible),
+            &AstExpression::ObjectAccess { ref object, .. } => {
+                if **object == AstExpression::SelfRef {
+                    // Because self itself cannot be an lval, but it can be inside an lval...
                     Ok(())
                 } else {
                     self.ensure_lval(object)
                 }
             }
-            _ => self.error_at(expr.pos, format!("Expected lval for left of `=`")),
+            _ => self.error(format!("Expected lval for left of `=`")),
         }
     }
 
-    fn ensure_not_infer(&mut self, ty: &AstType, pos: usize) -> ParseResult<()> {
+    fn ensure_not_infer(&mut self, ty: &AstType) -> ParseResult<()> {
         match ty {
-            &AstType::Array { ref ty } => self.ensure_not_infer(ty, pos),
+            &AstType::Array { ref ty } => self.ensure_not_infer(ty),
             &AstType::Tuple { ref types } => {
                 for ty in types {
-                    self.ensure_not_infer(ty, pos)?;
+                    self.ensure_not_infer(ty)?;
                 }
                 Ok(())
             }
-            &AstType::Infer => self.error_at(pos, format!("Infer `_` type not expected")),
+            &AstType::Infer => self.error(format!("Infer `_` type not expected")),
             _ => Ok(()),
         }
     }
@@ -883,21 +962,21 @@ impl<'a> Parser<'a> {
         let pos = self.pos;
         self.expect_consume(Token::Object)?;
         let generics = self.try_parse_decl_generics()?;
-        let name = self.expect_get_identifier()?;
+        let name = self.expect_consume_typename()?;
         let restrictions = self.try_parse_restrictions()?;
         self.expect_consume(Token::LBrace)?;
         let mut members = Vec::new();
 
         while !self.check_consume(Token::RBrace) {
             let mem_pos = self.pos;
-            let mem_name = self.expect_get_identifier()?;
+            let mem_name = self.expect_consume_identifier()?;
             self.expect_consume(Token::Colon)?;
             let ty = self.parse_type()?;
-            members.push(AstObjectMember::new(mem_name, ty, mem_pos));
+            members.push(AstObjectMember::new(mem_name, ty));
             self.expect_consume(Token::Dot)?;
         }
 
-        Ok(AstObject::new(pos, generics, name, members, restrictions))
+        Ok(AstObject::new(generics, name, members, restrictions))
     }
 
     fn parse_object_function(&mut self) -> ParseResult<AstObjectFunction> {
@@ -911,7 +990,7 @@ impl<'a> Parser<'a> {
         let pos = self.pos;
         self.expect_consume(Token::Fn)?;
         let generics = self.try_parse_decl_generics()?;
-        let name = self.expect_get_identifier()?;
+        let name = self.expect_consume_identifier()?;
         self.expect_consume(Token::LParen)?;
         let has_self = self.check_consume(Token::SelfRef);
         let mut parameters = Vec::new();
@@ -924,32 +1003,33 @@ impl<'a> Parser<'a> {
 
             // name colon type
             let param_pos = self.pos;
-            let param_name = self.expect_get_identifier()?;
+            let param_name = self.expect_consume_identifier()?;
             self.expect_consume(Token::Colon)?;
             let type_pos = self.pos;
             let param_type = self.parse_type()?;
             // parameter types can't have infer(s) in them
-            self.ensure_not_infer(&param_type, type_pos)?;
-            parameters.push(AstFnParameter::new(param_name, param_type, param_pos));
+            self.ensure_not_infer(&param_type)?;
+            parameters.push(AstNamedVariable::new(param_name, param_type));
         }
 
         let return_type = self.try_parse_return_type()?;
         let restrictions = self.try_parse_restrictions()?;
 
-        Ok(AstObjectFnSignature::new(pos,
-                                     name,
-                                     generics,
-                                     has_self,
-                                     parameters,
-                                     return_type,
-                                     restrictions))
+        Ok(AstObjectFnSignature::new(
+            name,
+            generics,
+            has_self,
+            parameters,
+            return_type,
+            restrictions,
+        ))
     }
 
     fn parse_trait(&mut self) -> ParseResult<AstTrait> {
         let pos = self.pos;
         self.expect_consume(Token::Trait)?;
         let generics = self.try_parse_decl_generics()?;
-        let name = self.expect_get_identifier()?;
+        let name = self.expect_consume_typename()?;
         let restrictions = self.try_parse_restrictions()?;
         self.expect_consume(Token::LBrace)?;
 
@@ -960,7 +1040,7 @@ impl<'a> Parser<'a> {
             fns.push(fun);
         }
 
-        Ok(AstTrait::new(pos, name, generics, fns, restrictions))
+        Ok(AstTrait::new(name, generics, fns, restrictions))
     }
 
     fn parse_impl(&mut self) -> ParseResult<AstImpl> {
@@ -977,13 +1057,18 @@ impl<'a> Parser<'a> {
         while !self.check_consume(Token::RBrace) {
             let obj_fn = self.parse_object_function()?;
             if obj_fn.signature.restrictions.len() != 0 {
-                self.error_at(obj_fn.signature.pos,
-                              format!("Impl functions cannot have restrictions"))?;
+                self.error(format!("Impl functions cannot have restrictions"))?;
             }
             fns.push(obj_fn);
         }
 
-        Ok(AstImpl::new(pos, impl_generics, trait_ty, impl_ty, fns, restrictions))
+        Ok(AstImpl::new(
+            impl_generics,
+            trait_ty,
+            impl_ty,
+            fns,
+            restrictions,
+        ))
     }
 }
 
@@ -994,15 +1079,12 @@ fn get_kind(t: Token) -> BinOpKind {
         Token::Modulo => BinOpKind::Modulo,
         Token::Plus => BinOpKind::Add,
         Token::Minus => BinOpKind::Subtract,
-        Token::ShiftLeft => BinOpKind::ShiftLeft,
-        Token::ShiftRight => BinOpKind::ShiftRight,
         Token::Lt => BinOpKind::Less,
         Token::Gt => BinOpKind::Greater,
         Token::GreaterEqual => BinOpKind::GreaterEqual,
         Token::LessEqual => BinOpKind::LessEqual,
         Token::NotEquals => BinOpKind::NotEqual,
         Token::EqualsEquals => BinOpKind::EqualsEquals,
-        Token::Caret => BinOpKind::Xor,
         Token::And => BinOpKind::And,
         Token::Pipe => BinOpKind::Or,
         Token::Equals => BinOpKind::Set,
