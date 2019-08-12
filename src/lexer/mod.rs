@@ -1,6 +1,8 @@
 mod token;
 
 pub use self::token::Token;
+use crate::util::result::*;
+use crate::util::result::*;
 use crate::util::FileReader;
 use std::process::exit;
 
@@ -12,15 +14,15 @@ const EOF: char = '\x00';
 /// A `Lexer` is a stream of relevant tokens that can be used by
 /// the Cheshire parser.
 pub struct Lexer<'a> {
-    pub file: FileReader<'a>,
+    pub file: &'a mut FileReader,
     next_token_pos: usize,
     next_token: Token,
 }
 
 impl<'a> Lexer<'a> {
-    pub fn new(file: FileReader<'a>) -> Lexer<'a> {
+    pub fn new(file: &'a mut FileReader) -> Lexer<'a> {
         let lexer = Lexer {
-            file: file,
+            file,
             next_token_pos: 0,
             next_token: Token::BOF,
         };
@@ -45,24 +47,20 @@ impl<'a> Lexer<'a> {
     /// Retrieves _and consumes_ the next token.
     ///
     /// Caches the next token so it may be retrieved by `peek_token`.
-    pub fn bump_token(&mut self) -> TokenPos {
+    pub fn bump_token(&mut self) -> PResult<TokenPos> {
         let last_token = self.next_token.clone();
         let last_token_pos = self.next_token_pos;
 
-        if let Err((pos, string)) = self.discard_whitespace_or_comments() {
-            report_lex_err_at(&self.file, pos, string);
-        }
+        self.discard_whitespace_or_comments()?;
 
         self.next_token_pos = self.file.current_pos();
-        self.next_token = self.get_token_internal().unwrap_or_else(|err| {
-            report_lex_err_at(&self.file, self.next_token_pos, err);
-        });
+        self.next_token = self.get_token_internal()?;
 
-        TokenPos(last_token, last_token_pos)
+        Ok(TokenPos(last_token, last_token_pos))
     }
 
     /// Returns the next lookahead token.
-    fn get_token_internal(&mut self) -> Result<Token, String> {
+    fn get_token_internal(&mut self) -> PResult<Token> {
         let c = self.current_char();
 
         if c == EOF {
@@ -190,14 +188,14 @@ impl<'a> Lexer<'a> {
                     return Ok(Token::Modulo);
                 }
                 c => {
-                    return Err(format!("Unknown symbol '{}'", c));
+                    return self.error(format!("Unknown symbol '{}'", c));
                 }
             }
         }
     }
 
     /// Scans a new parsed string token.
-    fn scan_string(&mut self) -> Result<Token, String> {
+    fn scan_string(&mut self) -> PResult<Token> {
         self.bump(1); // Blindly consume the quote character
         let mut len = 0;
         let mut string = "".to_string();
@@ -213,7 +211,8 @@ impl<'a> Lexer<'a> {
                         '\'' => string += "'",
                         '\\' => string += "\\\\",
                         c => {
-                            return Err(format!("Unknown escaped character in string '\\{}'", c));
+                            return self
+                                .error(format!("Unknown escaped character in string '\\{}'", c));
                         }
                     }
                     len += 1;
@@ -224,7 +223,7 @@ impl<'a> Lexer<'a> {
                     break;
                 }
                 '\r' | '\n' | EOF => {
-                    return Err("Reached end of line in string".to_string());
+                    return self.error("Reached end of line in string".to_string());
                 }
                 c => {
                     string.push(c);
@@ -238,7 +237,7 @@ impl<'a> Lexer<'a> {
     }
 
     /// Scans a single character literal token.
-    fn scan_char_literal(&mut self) -> Result<Token, String> {
+    fn scan_char_literal(&mut self) -> PResult<Token> {
         self.bump(1);
 
         let c = match self.current_char() {
@@ -250,7 +249,8 @@ impl<'a> Lexer<'a> {
                     '\'' => '\'',
                     '\\' => '\\',
                     c => {
-                        return Err(format!("Unknown escaped character in literal '\\{}'", c));
+                        return self
+                            .error(format!("Unknown escaped character in literal '\\{}'", c));
                     }
                 };
                 self.bump(2);
@@ -263,7 +263,7 @@ impl<'a> Lexer<'a> {
         };
 
         if self.current_char() != '\'' {
-            return Err("Unclosed character literal".to_string());
+            return self.error("Unclosed character literal".to_string());
         }
 
         self.bump(1);
@@ -271,7 +271,7 @@ impl<'a> Lexer<'a> {
     }
 
     /// Scans a numeric literal, consuming it and converting it to a token in the process.
-    fn scan_numeric_literal(&mut self) -> Result<Token, String> {
+    fn scan_numeric_literal(&mut self) -> PResult<Token> {
         let mut string = "".to_string();
 
         while is_numeric(self.current_char()) {
@@ -308,7 +308,7 @@ impl<'a> Lexer<'a> {
     }
 
     // Scans an identifier, unless it matches a keyword.
-    fn scan_identifier_or_keyword(&mut self) -> Result<Token, String> {
+    fn scan_identifier_or_keyword(&mut self) -> PResult<Token> {
         let mut string = "".to_string();
 
         string.push(self.current_char());
@@ -356,10 +356,10 @@ impl<'a> Lexer<'a> {
                 'A'..='Z' => Token::TypeName(string),
                 'a'..='z' => Token::VariableName(string),
                 _ => {
-                    return Err(format!(
+                    return self.error(format!(
                         "TODO: This should never happen, ever. `{}`",
                         string
-                    ))
+                    ));
                 }
             },
         };
@@ -367,7 +367,7 @@ impl<'a> Lexer<'a> {
         Ok(token)
     }
 
-    fn discard_whitespace_or_comments(&mut self) -> Result<(), (usize, String)> {
+    fn discard_whitespace_or_comments(&mut self) -> PResult<()> {
         loop {
             // Consume any whitespace or comments before a real token
             match self.current_char() {
@@ -389,7 +389,7 @@ impl<'a> Lexer<'a> {
         Ok(())
     }
 
-    fn scan_comment(&mut self) -> Result<(), (usize, String)> {
+    fn scan_comment(&mut self) -> PResult<()> {
         let pos = self.file.current_pos();
         match self.next_char() {
             '/' => {
@@ -409,7 +409,7 @@ impl<'a> Lexer<'a> {
                 while self.current_char() != '*' || self.next_char() != '/' {
                     self.bump(1);
                     if self.current_char() == EOF {
-                        return Err((pos, "EOF encountered in block comment".to_string()));
+                        return self.error_at(pos, "EOF encountered in block comment".to_string());
                     }
                 }
                 self.bump(2);
@@ -418,6 +418,14 @@ impl<'a> Lexer<'a> {
         }
 
         Ok(())
+    }
+
+    fn error<T>(&self, s: String) -> PResult<T> {
+        PError::new(self.next_token_pos, s)
+    }
+
+    fn error_at<T>(&self, p: usize, s: String) -> PResult<T> {
+        PError::new(p, s)
     }
 
     // These are just shortcuts so we don't need to type `self.file`.
@@ -462,20 +470,4 @@ fn is_identifier_continuer(c: char) -> bool {
         '_' => true,
         _ => false,
     }
-}
-
-fn report_lex_err_at(fr: &FileReader, pos: usize, err: String) -> ! {
-    let (line, col) = fr.get_row_col(pos);
-    let line_str = fr.get_line_from_pos(pos);
-
-    println!("");
-    // TODO: fix tabs later
-    println!("Error \"{}\" encountered on line {}:", err, line + 1); //TODO: in file
-
-    println!("| {}", line_str);
-    for _ in 0..(col + 2) {
-        print!("-");
-    }
-    println!("^");
-    exit(1);
 }

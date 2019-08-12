@@ -1,10 +1,10 @@
 use crate::util::FileReader;
+use std::marker::PhantomData;
 
 #[derive(Debug)]
 /// A file that is being parsed, along with the associated
 /// parsed functions that are contained in the file.
-pub struct ParseFile<'a> {
-    pub file: FileReader<'a>,
+pub struct ParseFile {
     pub functions: Vec<AstFunction>,
     pub export_fns: Vec<AstFnSignature>,
     pub objects: Vec<AstObject>,
@@ -12,17 +12,15 @@ pub struct ParseFile<'a> {
     pub impls: Vec<AstImpl>,
 }
 
-impl<'a> ParseFile<'a> {
+impl ParseFile {
     pub fn new(
-        file: FileReader<'a>,
         functions: Vec<AstFunction>,
         export_fns: Vec<AstFnSignature>,
         objects: Vec<AstObject>,
         traits: Vec<AstTrait>,
         impls: Vec<AstImpl>,
-    ) -> ParseFile<'a> {
+    ) -> ParseFile {
         ParseFile {
-            file: file,
             functions: functions,
             export_fns: export_fns,
             objects: objects,

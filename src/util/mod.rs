@@ -9,3 +9,6 @@ pub use self::unique_map::UniqueMap;
 
 mod stack_map;
 pub use self::stack_map::StackMap;
+
+// We want to be able to import this separately.
+pub mod result;
