@@ -1,10 +1,10 @@
-use crate::util::FileReader;
-use std::marker::PhantomData;
+use crate::util::Span;
+use std::collections::HashMap;
 
 #[derive(Debug)]
 /// A file that is being parsed, along with the associated
 /// parsed functions that are contained in the file.
-pub struct ParseFile {
+pub struct ParsedFile {
     pub functions: Vec<AstFunction>,
     pub export_fns: Vec<AstFnSignature>,
     pub objects: Vec<AstObject>,
@@ -12,15 +12,15 @@ pub struct ParseFile {
     pub impls: Vec<AstImpl>,
 }
 
-impl ParseFile {
+impl ParsedFile {
     pub fn new(
         functions: Vec<AstFunction>,
         export_fns: Vec<AstFnSignature>,
         objects: Vec<AstObject>,
         traits: Vec<AstTrait>,
         impls: Vec<AstImpl>,
-    ) -> ParseFile {
-        ParseFile {
+    ) -> ParsedFile {
+        ParsedFile {
             functions: functions,
             export_fns: export_fns,
             objects: objects,
@@ -30,8 +30,9 @@ impl ParseFile {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, Clone)]
 pub struct AstFnSignature {
+    pub name_span: Span,
     /// The beginning position of the function
     /// The simple name of the function
     pub name: String,
@@ -45,6 +46,7 @@ pub struct AstFnSignature {
 
 impl AstFnSignature {
     pub fn new(
+        name_span: Span,
         name: String,
         generics: Vec<String>,
         parameter_list: Vec<AstNamedVariable>,
@@ -52,6 +54,7 @@ impl AstFnSignature {
         restrictions: Vec<AstTypeRestriction>,
     ) -> AstFnSignature {
         AstFnSignature {
+            name_span,
             name: name,
             generics: generics,
             parameter_list: parameter_list,
@@ -61,7 +64,7 @@ impl AstFnSignature {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 /// A parsed function
 /// The variables associated with the function are given by
 /// [beginning_of_vars, end_of_vars).
@@ -69,10 +72,12 @@ pub struct AstFunction {
     pub signature: AstFnSignature,
     /// The collection of statements associated with the function
     pub definition: AstBlock,
+    pub variables: HashMap<usize, AstNamedVariable>,
 }
 
 impl AstFunction {
     pub fn new(
+        name_span: Span,
         name: String,
         generics: Vec<String>,
         parameter_list: Vec<AstNamedVariable>,
@@ -82,6 +87,7 @@ impl AstFunction {
     ) -> AstFunction {
         AstFunction {
             signature: AstFnSignature {
+                name_span,
                 generics: generics,
                 name: name,
                 parameter_list: parameter_list,
@@ -89,14 +95,17 @@ impl AstFunction {
                 restrictions: restrictions,
             },
             definition: definition,
+            variables: HashMap::new(),
         }
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, Clone)]
 /// A name and type associated with a parameter, along
 /// with the position where this parameter is named.
 pub struct AstNamedVariable {
+    pub span: Span,
+
     pub name: String,
     pub ty: AstType,
 
@@ -105,8 +114,9 @@ pub struct AstNamedVariable {
 }
 
 impl AstNamedVariable {
-    pub fn new(name: String, ty: AstType) -> AstNamedVariable {
+    pub fn new(span: Span, name: String, ty: AstType) -> AstNamedVariable {
         AstNamedVariable {
+            span,
             name: name,
             ty: ty,
             id: None,
@@ -114,7 +124,7 @@ impl AstNamedVariable {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, Clone)]
 /// A type as parsed by the Parser module.
 pub enum AstType {
     Infer,
@@ -156,7 +166,7 @@ impl AstType {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 /// A collection of statements, given by a `{}` block.
 pub struct AstBlock {
     pub statements: Vec<AstStatement>,
@@ -174,12 +184,13 @@ impl AstBlock {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum AstStatement {
     Block {
         block: AstBlock,
     },
     Let {
+        name_span: Span,
         var_name: String,
         ty: AstType,
         value: AstExpression,
@@ -212,8 +223,14 @@ impl AstStatement {
         AstStatement::Block { block }
     }
 
-    pub fn let_statement(var_name: String, ty: AstType, value: AstExpression) -> AstStatement {
+    pub fn let_statement(
+        name_span: Span,
+        var_name: String,
+        ty: AstType,
+        value: AstExpression,
+    ) -> AstStatement {
         AstStatement::Let {
+            name_span,
             var_name,
             ty,
             value,
@@ -245,7 +262,7 @@ impl AstStatement {
 
     pub fn return_nothing() -> AstStatement {
         AstStatement::Return {
-            value: AstExpression::Nothing,
+            value: AstExpression::nothing(Span::new(0, 0)),
         }
     }
 
@@ -274,10 +291,17 @@ impl AstStatement {
     }
 }
 
+#[derive(Debug)]
+pub struct AstExpression {
+    pub data: AstExpressionData,
+    pub ty: Option<AstType>,
+    pub span: Span,
+}
+
 type SubExpression = Box<AstExpression>;
 
-#[derive(Debug, Eq, PartialEq)]
-pub enum AstExpression {
+#[derive(Debug)]
+pub enum AstExpressionData {
     Nothing,
     True,
     False,
@@ -307,32 +331,32 @@ pub enum AstExpression {
     },
     /// Call an object's member function
     ObjectCall {
-        object: Box<AstExpression>,
+        object: SubExpression,
         fn_name: String,
         generics: Vec<AstType>,
         args: Vec<AstExpression>,
     },
     /// Call an object's static function
     StaticCall {
-        obj_name: String,
-        obj_generics: Vec<AstType>,
+        call_type: AstType,
         fn_name: String,
         fn_generics: Vec<AstType>,
         args: Vec<AstExpression>,
+        associated_trait: Option<String>,
     },
     /// An array access `a[1u]`
     Access {
-        accessible: Box<AstExpression>,
-        idx: Box<AstExpression>,
+        accessible: SubExpression,
+        idx: SubExpression,
     },
     /// A tuple access `a:1`
     TupleAccess {
-        accessible: Box<AstExpression>,
+        accessible: SubExpression,
         idx: usize,
     },
     /// Call an object's member
     ObjectAccess {
-        object: Box<AstExpression>,
+        object: SubExpression,
         mem_name: String,
     },
 
@@ -353,7 +377,7 @@ pub enum AstExpression {
     VariableIdx(usize),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug)]
 /// The kind of binary operation
 pub enum BinOpKind {
     Multiply,
@@ -373,138 +397,243 @@ pub enum BinOpKind {
 }
 
 impl AstExpression {
-    pub fn string_literal(string: String, len: usize) -> AstExpression {
-        AstExpression::String { string, len }
+    pub fn structural_eq(a: &AstExpressionData, b: &AstExpressionData) -> bool {
+        unimplemented!()
     }
 
-    pub fn char_literal(ch: char) -> AstExpression {
-        AstExpression::Char(ch)
-    }
-
-    pub fn int_literal(num: String) -> AstExpression {
-        AstExpression::Int(num)
-    }
-
-    pub fn identifier(identifier: String) -> AstExpression {
-        AstExpression::Identifier { name: identifier }
-    }
-
-    pub fn tuple_literal(values: Vec<AstExpression>) -> AstExpression {
-        AstExpression::Tuple { values }
-    }
-
-    pub fn empty_array_literal() -> AstExpression {
-        AstExpression::Array {
-            elements: Vec::new(),
+    pub fn string_literal(span: Span, string: String, len: usize) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::String { string, len },
+            ty: None,
         }
     }
 
-    pub fn array_literal(elements: Vec<AstExpression>) -> AstExpression {
-        AstExpression::Array { elements }
+    pub fn char_literal(span: Span, ch: char) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::Char(ch),
+            ty: None,
+        }
     }
 
-    pub fn call(name: String, generics: Vec<AstType>, args: Vec<AstExpression>) -> AstExpression {
-        AstExpression::Call {
-            name,
-            generics,
-            args,
+    pub fn int_literal(span: Span, num: String) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::Int(num),
+            ty: None,
+        }
+    }
+
+    pub fn identifier(span: Span, identifier: String) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::Identifier { name: identifier },
+            ty: None,
+        }
+    }
+
+    pub fn tuple_literal(span: Span, values: Vec<AstExpression>) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::Tuple { values },
+            ty: None,
+        }
+    }
+
+    pub fn empty_array_literal(span: Span) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::Array {
+                elements: Vec::new(),
+            },
+            ty: None,
+        }
+    }
+
+    pub fn array_literal(span: Span, elements: Vec<AstExpression>) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::Array { elements },
+            ty: None,
+        }
+    }
+
+    pub fn call(
+        span: Span,
+        name: String,
+        generics: Vec<AstType>,
+        args: Vec<AstExpression>,
+    ) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::Call {
+                name,
+                generics,
+                args,
+            },
+            ty: None,
         }
     }
 
     pub fn object_call(
+        span: Span,
         object: AstExpression,
         fn_name: String,
         generics: Vec<AstType>,
         args: Vec<AstExpression>,
     ) -> AstExpression {
-        AstExpression::ObjectCall {
-            object: Box::new(object),
-            fn_name: fn_name,
-            generics: generics,
-            args: args,
+        AstExpression {
+            span,
+            data: AstExpressionData::ObjectCall {
+                object: Box::new(object),
+                fn_name: fn_name,
+                generics: generics,
+                args: args,
+            },
+            ty: None,
         }
     }
 
     pub fn static_call(
-        obj_name: String,
-        obj_generics: Vec<AstType>,
+        span: Span,
+        call_type: AstType,
         fn_name: String,
         fn_generics: Vec<AstType>,
         args: Vec<AstExpression>,
     ) -> AstExpression {
-        AstExpression::StaticCall {
-            obj_name: obj_name,
-            obj_generics: obj_generics,
-            fn_name: fn_name,
-            fn_generics: fn_generics,
-            args: args,
+        AstExpression {
+            span,
+            data: AstExpressionData::StaticCall {
+                call_type,
+                fn_name: fn_name,
+                fn_generics: fn_generics,
+                args: args,
+                associated_trait: None,
+            },
+            ty: None,
         }
     }
 
-    pub fn access(lhs: AstExpression, idx: AstExpression) -> AstExpression {
-        AstExpression::Access {
-            accessible: Box::new(lhs),
-            idx: Box::new(idx),
+    pub fn access(span: Span, lhs: AstExpression, idx: AstExpression) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::Access {
+                accessible: Box::new(lhs),
+                idx: Box::new(idx),
+            },
+            ty: None,
         }
     }
 
-    pub fn tuple_access(lhs: AstExpression, idx: usize) -> AstExpression {
-        AstExpression::TupleAccess {
-            accessible: Box::new(lhs),
-            idx: idx,
+    pub fn tuple_access(span: Span, lhs: AstExpression, idx: usize) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::TupleAccess {
+                accessible: Box::new(lhs),
+                idx: idx,
+            },
+            ty: None,
         }
     }
 
-    pub fn object_access(object: AstExpression, mem_name: String) -> AstExpression {
-        AstExpression::ObjectAccess {
-            object: Box::new(object),
-            mem_name,
+    pub fn object_access(span: Span, object: AstExpression, mem_name: String) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::ObjectAccess {
+                object: Box::new(object),
+                mem_name,
+            },
+            ty: None,
         }
     }
 
-    pub fn allocate(object: AstType) -> AstExpression {
-        AstExpression::Allocate { object }
-    }
-
-    pub fn binop(lhs: AstExpression, rhs: AstExpression, binop: BinOpKind) -> AstExpression {
-        AstExpression::BinOp {
-            lhs: Box::new(lhs),
-            rhs: Box::new(rhs),
-            kind: binop,
+    pub fn allocate(span: Span, object: AstType) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::Allocate { object },
+            ty: None,
         }
     }
 
-    pub fn not(lhs: AstExpression) -> AstExpression {
-        AstExpression::Not(Box::new(lhs))
+    pub fn binop(
+        span: Span,
+        lhs: AstExpression,
+        rhs: AstExpression,
+        binop: BinOpKind,
+    ) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::BinOp {
+                lhs: Box::new(lhs),
+                rhs: Box::new(rhs),
+                kind: binop,
+            },
+            ty: None,
+        }
     }
 
-    pub fn neg(lhs: AstExpression) -> AstExpression {
-        AstExpression::Negate(Box::new(lhs))
+    pub fn not(span: Span, lhs: AstExpression) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::Not(Box::new(lhs)),
+            ty: None,
+        }
     }
 
-    pub fn nothing() -> AstExpression {
-        AstExpression::Nothing
+    pub fn neg(span: Span, lhs: AstExpression) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::Negate(Box::new(lhs)),
+            ty: None,
+        }
     }
 
-    pub fn true_lit() -> AstExpression {
-        AstExpression::True
+    pub fn nothing(span: Span) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::Nothing,
+            ty: None,
+        }
     }
 
-    pub fn false_lit() -> AstExpression {
-        AstExpression::False
+    pub fn true_lit(span: Span) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::True,
+            ty: None,
+        }
     }
 
-    pub fn null_lit() -> AstExpression {
-        AstExpression::Null
+    pub fn false_lit(span: Span) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::False,
+            ty: None,
+        }
     }
 
-    pub fn self_ref() -> AstExpression {
-        AstExpression::SelfRef
+    pub fn null_lit(span: Span) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::Null,
+            ty: None,
+        }
+    }
+
+    pub fn self_ref(span: Span) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::SelfRef,
+            ty: None,
+        }
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct AstObject {
+    pub name_span: Span,
+
     /// The beginning position of the object
     pub generics: Vec<String>,
     /// The object name
@@ -516,12 +645,14 @@ pub struct AstObject {
 
 impl AstObject {
     pub fn new(
+        name_span: Span,
         generics: Vec<String>,
         name: String,
         members: Vec<AstObjectMember>,
         restrictions: Vec<AstTypeRestriction>,
     ) -> AstObject {
         AstObject {
+            name_span,
             generics: generics,
             name: name,
             restrictions: restrictions,
@@ -530,8 +661,10 @@ impl AstObject {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct AstObjectFnSignature {
+    pub name_span: Span,
+
     /// The beginning position of the function
     /// The simple name of the function
     pub name: String,
@@ -547,6 +680,7 @@ pub struct AstObjectFnSignature {
 
 impl AstObjectFnSignature {
     pub fn new(
+        name_span: Span,
         name: String,
         generics: Vec<String>,
         has_self: bool,
@@ -555,6 +689,7 @@ impl AstObjectFnSignature {
         restrictions: Vec<AstTypeRestriction>,
     ) -> AstObjectFnSignature {
         AstObjectFnSignature {
+            name_span,
             name: name,
             generics: generics,
             has_self: has_self,
@@ -565,11 +700,13 @@ impl AstObjectFnSignature {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct AstObjectFunction {
     pub signature: AstObjectFnSignature,
     /// The collection of statements associated with the function
     pub definition: AstBlock,
+    /// Used during analysis...
+    pub variables: HashMap<usize, AstNamedVariable>,
 }
 
 impl AstObjectFunction {
@@ -577,27 +714,32 @@ impl AstObjectFunction {
         AstObjectFunction {
             signature: sig,
             definition: definition,
+            variables: HashMap::new(),
         }
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct AstObjectMember {
+    pub span: Span,
     pub name: String,
     pub member_type: AstType,
 }
 
 impl AstObjectMember {
-    pub fn new(name: String, member_type: AstType) -> AstObjectMember {
+    pub fn new(span: Span, name: String, member_type: AstType) -> AstObjectMember {
         AstObjectMember {
+            span,
             name: name,
             member_type: member_type,
         }
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct AstTrait {
+    pub name_span: Span,
+
     pub name: String,
     pub generics: Vec<String>,
     pub functions: Vec<AstObjectFnSignature>,
@@ -606,12 +748,14 @@ pub struct AstTrait {
 
 impl AstTrait {
     pub fn new(
+        name_span: Span,
         name: String,
         generics: Vec<String>,
         functions: Vec<AstObjectFnSignature>,
         restrictions: Vec<AstTypeRestriction>,
     ) -> AstTrait {
         AstTrait {
+            name_span,
             name: name,
             generics: generics,
             functions: functions,
@@ -620,7 +764,7 @@ impl AstTrait {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, Clone)]
 pub struct AstTypeRestriction {
     pub ty: AstType,
     pub trt: AstType,
@@ -632,8 +776,9 @@ impl AstTypeRestriction {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct AstImpl {
+    pub name_span: Span,
     pub generics: Vec<String>,
     pub trait_ty: AstType,
     pub impl_ty: AstType,
@@ -643,6 +788,7 @@ pub struct AstImpl {
 
 impl AstImpl {
     pub fn new(
+        name_span: Span,
         generics: Vec<String>,
         trait_ty: AstType,
         impl_ty: AstType,
@@ -650,6 +796,7 @@ impl AstImpl {
         restrictions: Vec<AstTypeRestriction>,
     ) -> AstImpl {
         AstImpl {
+            name_span,
             generics: generics,
             trait_ty: trait_ty,
             impl_ty: impl_ty,

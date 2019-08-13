@@ -1,5 +1,14 @@
-use crate::parser::{AstType, AstTypeRestriction};
+use crate::parser::{AstNamedVariable, AstType, AstTypeRestriction, ParsedFile};
 use std::collections::HashMap;
+
+pub struct AnalyzedFile {
+    pub parsed_file: ParsedFile,
+    pub variable_ids: HashMap<usize, AstNamedVariable>,
+    pub analyzed_functions: HashMap<String, AnFunctionData>,
+    pub analyzed_traits: HashMap<String, AnTraitData>,
+    pub analyzed_objects: HashMap<String, AnObjectData>,
+    pub analyzed_impls: Vec<AnImplData>,
+}
 
 pub struct AnObjectData {
     pub generics: Vec<usize>,

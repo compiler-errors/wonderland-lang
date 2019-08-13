@@ -1,7 +1,9 @@
 use crate::parser::*;
-use crate::util::result::{PError, PResult};
-use std::borrow::BorrowMut;
-use std::ops::DerefMut;
+use crate::util::result::PResult;
+use crate::util::Span;
+use std::collections::HashMap;
+use std::env::var;
+use std::hash::Hash;
 
 pub trait Visit<A>: Sized {
     fn visit(self, adapter: &mut A) -> PResult<Self>;
@@ -108,10 +110,46 @@ impl<T: Adapter, S: Visit<T>> Visit<T> for Box<S> {
 }
 
 impl<T: Adapter, S: Visit<T>> Visit<T> for Vec<S> {
-    fn visit(mut self, adapter: &mut T) -> PResult<Self> {
-        self.into_iter()
-            .map(|i| i.visit(adapter))
-            .collect::<PResult<Vec<_>>>()
+    fn visit(self, adapter: &mut T) -> PResult<Vec<S>> {
+        self.into_iter().map(|s| s.visit(adapter)).collect()
+    }
+}
+
+impl<T: Adapter, K: Eq + Hash, V: Visit<T>> Visit<T> for HashMap<K, V> {
+    fn visit(self, adapter: &mut T) -> PResult<HashMap<K, V>> {
+        let mut out = HashMap::new();
+
+        for (k, v) in self.into_iter() {
+            out.insert(k, v.visit(adapter)?);
+        }
+
+        Ok(out)
+    }
+}
+
+impl<T: Adapter> Visit<T> for ParsedFile {
+    fn visit(self, adapter: &mut T) -> PResult<ParsedFile> {
+        let ParsedFile {
+            objects,
+            traits,
+            impls,
+            export_fns,
+            functions,
+        } = self;
+
+        let objects = objects.visit(adapter)?;
+        let traits = traits.visit(adapter)?;
+        let impls = impls.visit(adapter)?;
+        let export_fns = export_fns.visit(adapter)?;
+        let functions = functions.visit(adapter)?;
+
+        Ok(ParsedFile {
+            objects,
+            traits,
+            impls,
+            export_fns,
+            functions,
+        })
     }
 }
 
@@ -120,11 +158,13 @@ impl<T: Adapter> Visit<T> for AstFunction {
         let AstFunction {
             signature,
             definition,
+            variables,
         } = adapter.enter_function(self)?;
 
         let i = AstFunction {
             signature: signature.visit(adapter)?,
             definition: definition.visit(adapter)?,
+            variables: variables.visit(adapter)?,
         };
 
         adapter.exit_function(i)
@@ -134,6 +174,7 @@ impl<T: Adapter> Visit<T> for AstFunction {
 impl<T: Adapter> Visit<T> for AstFnSignature {
     fn visit(self, adapter: &mut T) -> PResult<Self> {
         let AstFnSignature {
+            name_span,
             name,
             generics,
             parameter_list,
@@ -142,6 +183,7 @@ impl<T: Adapter> Visit<T> for AstFnSignature {
         } = adapter.enter_fn_signature(self)?;
 
         let i = AstFnSignature {
+            name_span,
             name,
             generics,
             parameter_list: parameter_list.visit(adapter)?,
@@ -155,9 +197,10 @@ impl<T: Adapter> Visit<T> for AstFnSignature {
 
 impl<T: Adapter> Visit<T> for AstNamedVariable {
     fn visit(self, adapter: &mut T) -> PResult<Self> {
-        let AstNamedVariable { name, ty, id } = adapter.enter_named_variable(self)?;
+        let AstNamedVariable { span, name, ty, id } = adapter.enter_named_variable(self)?;
 
         let i = AstNamedVariable {
+            span,
             name,
             ty: ty.visit(adapter)?,
             id,
@@ -200,10 +243,12 @@ impl<T: Adapter> Visit<T> for AstStatement {
                 block: block.visit(adapter)?,
             },
             AstStatement::Let {
+                name_span,
                 var_name,
                 ty,
                 value,
             } => AstStatement::Let {
+                name_span,
                 var_name,
                 ty: ty.visit(adapter)?,
                 value: value.visit(adapter)?,
@@ -238,81 +283,91 @@ impl<T: Adapter> Visit<T> for AstStatement {
 
 impl<T: Adapter> Visit<T> for AstExpression {
     fn visit(self, adapter: &mut T) -> PResult<Self> {
-        let expr = match adapter.enter_expression(self)? {
-            i @ AstExpression::Nothing
-            | i @ AstExpression::True
-            | i @ AstExpression::False
-            | i @ AstExpression::Null
-            | i @ AstExpression::SelfRef
-            | i @ AstExpression::String { .. }
-            | i @ AstExpression::Int(..)
-            | i @ AstExpression::Char(..)
-            | i @ AstExpression::Identifier { .. }
-            | i @ AstExpression::VariableIdx(..) => i,
-            AstExpression::Tuple { values } => AstExpression::Tuple {
+        let AstExpression { data, ty, span } = adapter.enter_expression(self)?;
+
+        let ty = if let Some(x) = ty {
+            Some(x.visit(adapter)?)
+        } else {
+            None
+        };
+
+        let data = match data {
+            i @ AstExpressionData::Nothing
+            | i @ AstExpressionData::True
+            | i @ AstExpressionData::False
+            | i @ AstExpressionData::Null
+            | i @ AstExpressionData::SelfRef
+            | i @ AstExpressionData::String { .. }
+            | i @ AstExpressionData::Int(..)
+            | i @ AstExpressionData::Char(..)
+            | i @ AstExpressionData::Identifier { .. }
+            | i @ AstExpressionData::VariableIdx(..) => i,
+            AstExpressionData::Tuple { values } => AstExpressionData::Tuple {
                 values: values.visit(adapter)?,
             },
-            AstExpression::Array { elements } => AstExpression::Array {
+            AstExpressionData::Array { elements } => AstExpressionData::Array {
                 elements: elements.visit(adapter)?,
             },
-            AstExpression::Call {
+            AstExpressionData::Call {
                 name,
                 generics,
                 args,
-            } => AstExpression::Call {
+            } => AstExpressionData::Call {
                 name,
                 generics: generics.visit(adapter)?,
                 args: args.visit(adapter)?,
             },
-            AstExpression::ObjectCall {
+            AstExpressionData::ObjectCall {
                 object,
                 fn_name,
                 generics,
                 args,
-            } => AstExpression::ObjectCall {
+            } => AstExpressionData::ObjectCall {
                 object: object.visit(adapter)?,
                 fn_name,
                 generics: generics.visit(adapter)?,
                 args: args.visit(adapter)?,
             },
-            AstExpression::StaticCall {
-                obj_name,
-                obj_generics,
+            AstExpressionData::StaticCall {
+                call_type,
                 fn_name,
                 fn_generics,
                 args,
-            } => AstExpression::StaticCall {
-                obj_name,
-                obj_generics: obj_generics.visit(adapter)?,
+                associated_trait,
+            } => AstExpressionData::StaticCall {
+                call_type: call_type.visit(adapter)?,
                 fn_name,
                 fn_generics: fn_generics.visit(adapter)?,
                 args: args.visit(adapter)?,
+                associated_trait,
             },
-            AstExpression::Access { accessible, idx } => AstExpression::Access {
+            AstExpressionData::Access { accessible, idx } => AstExpressionData::Access {
                 accessible: accessible.visit(adapter)?,
                 idx: idx.visit(adapter)?,
             },
-            AstExpression::TupleAccess { accessible, idx } => AstExpression::TupleAccess {
+            AstExpressionData::TupleAccess { accessible, idx } => AstExpressionData::TupleAccess {
                 accessible: accessible.visit(adapter)?,
                 idx,
             },
-            AstExpression::ObjectAccess { object, mem_name } => AstExpression::ObjectAccess {
+            AstExpressionData::ObjectAccess { object, mem_name } => {
+                AstExpressionData::ObjectAccess {
+                    object: object.visit(adapter)?,
+                    mem_name,
+                }
+            }
+            AstExpressionData::Allocate { object } => AstExpressionData::Allocate {
                 object: object.visit(adapter)?,
-                mem_name,
             },
-            AstExpression::Allocate { object } => AstExpression::Allocate {
-                object: object.visit(adapter)?,
-            },
-            AstExpression::Not(expr) => AstExpression::Not(expr.visit(adapter)?),
-            AstExpression::Negate(expr) => AstExpression::Negate(expr.visit(adapter)?),
-            AstExpression::BinOp { kind, lhs, rhs } => AstExpression::BinOp {
+            AstExpressionData::Not(expr) => AstExpressionData::Not(expr.visit(adapter)?),
+            AstExpressionData::Negate(expr) => AstExpressionData::Negate(expr.visit(adapter)?),
+            AstExpressionData::BinOp { kind, lhs, rhs } => AstExpressionData::BinOp {
                 kind,
                 lhs: lhs.visit(adapter)?,
                 rhs: rhs.visit(adapter)?,
             },
         };
 
-        adapter.exit_expression(expr)
+        adapter.exit_expression(AstExpression { data, ty, span })
     }
 }
 
@@ -326,6 +381,7 @@ impl<T: Adapter> Visit<T> for AstType {
             | i @ AstType::Char
             | i @ AstType::Bool
             | i @ AstType::String
+            | i @ AstType::SelfType
             | i @ AstType::Generic(..)
             | i @ AstType::InferPlaceholder(..)
             | i @ AstType::GenericPlaceholder(..) => i,
@@ -336,7 +392,7 @@ impl<T: Adapter> Visit<T> for AstType {
                 types: types.visit(adapter)?,
             },
             AstType::Object(name, types) => AstType::Object(name, types.visit(adapter)?),
-            _ => unimplemented!(),
+            t => unimplemented!("{:?}", t),
         };
 
         adapter.exit_type(ty)
@@ -346,6 +402,7 @@ impl<T: Adapter> Visit<T> for AstType {
 impl<T: Adapter> Visit<T> for AstObject {
     fn visit(self, adapter: &mut T) -> PResult<Self> {
         let AstObject {
+            name_span,
             generics,
             name,
             members,
@@ -353,6 +410,7 @@ impl<T: Adapter> Visit<T> for AstObject {
         } = adapter.enter_object(self)?;
 
         let i = AstObject {
+            name_span,
             generics,
             name,
             members: members.visit(adapter)?,
@@ -368,11 +426,13 @@ impl<T: Adapter> Visit<T> for AstObjectFunction {
         let AstObjectFunction {
             signature,
             definition,
+            variables,
         } = adapter.enter_object_function(self)?;
 
         let i = AstObjectFunction {
             signature: signature.visit(adapter)?,
             definition: definition.visit(adapter)?,
+            variables: variables.visit(adapter)?,
         };
 
         adapter.exit_object_function(i)
@@ -382,6 +442,7 @@ impl<T: Adapter> Visit<T> for AstObjectFunction {
 impl<T: Adapter> Visit<T> for AstObjectFnSignature {
     fn visit(self, adapter: &mut T) -> PResult<Self> {
         let AstObjectFnSignature {
+            name_span,
             name,
             generics,
             has_self,
@@ -391,6 +452,7 @@ impl<T: Adapter> Visit<T> for AstObjectFnSignature {
         } = adapter.enter_object_fn_signature(self)?;
 
         let i = AstObjectFnSignature {
+            name_span,
             name,
             generics,
             has_self,
@@ -405,9 +467,14 @@ impl<T: Adapter> Visit<T> for AstObjectFnSignature {
 
 impl<T: Adapter> Visit<T> for AstObjectMember {
     fn visit(self, adapter: &mut T) -> PResult<Self> {
-        let AstObjectMember { name, member_type } = adapter.enter_object_member(self)?;
+        let AstObjectMember {
+            span,
+            name,
+            member_type,
+        } = adapter.enter_object_member(self)?;
 
         let i = AstObjectMember {
+            span,
             name,
             member_type: member_type.visit(adapter)?,
         };
@@ -419,6 +486,7 @@ impl<T: Adapter> Visit<T> for AstObjectMember {
 impl<T: Adapter> Visit<T> for AstTrait {
     fn visit(self, adapter: &mut T) -> PResult<Self> {
         let AstTrait {
+            name_span,
             name,
             generics,
             functions,
@@ -426,6 +494,7 @@ impl<T: Adapter> Visit<T> for AstTrait {
         } = adapter.enter_trait(self)?;
 
         let i = AstTrait {
+            name_span,
             name,
             generics,
             functions: functions.visit(adapter)?,
@@ -439,6 +508,7 @@ impl<T: Adapter> Visit<T> for AstTrait {
 impl<T: Adapter> Visit<T> for AstImpl {
     fn visit(self, adapter: &mut T) -> PResult<Self> {
         let AstImpl {
+            name_span,
             generics,
             trait_ty,
             impl_ty,
@@ -447,6 +517,7 @@ impl<T: Adapter> Visit<T> for AstImpl {
         } = adapter.enter_impl(self)?;
 
         let i = AstImpl {
+            name_span,
             generics,
             trait_ty: trait_ty.visit(adapter)?,
             impl_ty: impl_ty.visit(adapter)?,

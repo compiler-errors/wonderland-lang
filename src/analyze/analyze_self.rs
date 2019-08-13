@@ -1,8 +1,15 @@
 use crate::parser::*;
 use crate::util::result::{PError, PResult};
+use crate::util::Span;
 
-struct SelfAdapter {
+pub struct SelfAdapter {
     nested: usize,
+}
+
+impl SelfAdapter {
+    pub fn new() -> SelfAdapter {
+        SelfAdapter { nested: 0 }
+    }
 }
 
 impl Adapter for SelfAdapter {
@@ -10,7 +17,10 @@ impl Adapter for SelfAdapter {
         match t {
             AstType::SelfType => {
                 if self.nested == 0 {
-                    PError::new(0, format!("No `Self` type in non-object environment"))?;
+                    PError::new(
+                        Span::new(0, 0),
+                        format!("No `Self` type in non-object environment"),
+                    )?;
                 }
             }
             _ => {}

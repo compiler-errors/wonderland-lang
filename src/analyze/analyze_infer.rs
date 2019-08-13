@@ -2,8 +2,16 @@ use crate::parser::{Adapter, AstType};
 use crate::util::result::PResult;
 use crate::util::Counter;
 
-struct InferAdapter {
+pub struct InferAdapter {
     id_counter: Counter,
+}
+
+impl InferAdapter {
+    pub fn new() -> InferAdapter {
+        InferAdapter {
+            id_counter: Counter::new(0),
+        }
+    }
 }
 
 impl Adapter for InferAdapter {

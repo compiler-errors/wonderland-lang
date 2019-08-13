@@ -12,3 +12,6 @@ pub use self::stack_map::StackMap;
 
 // We want to be able to import this separately.
 pub mod result;
+
+mod span;
+pub use self::span::Span;

@@ -1,14 +1,14 @@
 use crate::analyze::represent::*;
 use crate::parser::*;
 use crate::util::result::{Expect, PError, PResult};
-use crate::util::{Counter, StackMap};
+use crate::util::{Counter, Span, StackMap};
 use std::collections::HashMap;
 
-struct GenericsAdapter {
-    functions: HashMap<String, AnFunctionData>,
-    traits: HashMap<String, AnTraitData>,
-    objects: HashMap<String, AnObjectData>,
-    impls: Vec<AnImplData>,
+pub struct GenericsAdapter {
+    pub functions: HashMap<String, AnFunctionData>,
+    pub traits: HashMap<String, AnTraitData>,
+    pub objects: HashMap<String, AnObjectData>,
+    pub impls: Vec<AnImplData>,
 
     method_to_trait: HashMap<String, String>,
     current_trait: Option<String>,
@@ -18,7 +18,24 @@ struct GenericsAdapter {
 }
 
 impl GenericsAdapter {
-    fn expect_generics(generics: Vec<AstType>, expected: usize) -> PResult<Vec<AstType>> {
+    pub fn new() -> GenericsAdapter {
+        GenericsAdapter {
+            functions: HashMap::new(),
+            traits: HashMap::new(),
+            objects: HashMap::new(),
+            impls: Vec::new(),
+            method_to_trait: HashMap::new(),
+            current_trait: None,
+            generic_scope: StackMap::new(),
+            generic_counter: Counter::new(0),
+        }
+    }
+
+    fn expect_generics(
+        span: Span,
+        generics: Vec<AstType>,
+        expected: usize,
+    ) -> PResult<Vec<AstType>> {
         let got = generics.len();
 
         if got == expected {
@@ -27,13 +44,13 @@ impl GenericsAdapter {
             Ok((0..expected).map(|_| AstType::Infer).collect())
         } else {
             PError::new(
-                0,
+                span,
                 format!("Mismatched generics: Expected {}, got {}.", expected, got),
             )
         }
     }
 
-    fn register_generics(&mut self, generics: &Vec<String>) -> PResult<Vec<usize>> {
+    fn register_generics(&mut self, span: Span, generics: &Vec<String>) -> PResult<Vec<usize>> {
         let mut ids = Vec::new();
 
         for generic in generics {
@@ -41,7 +58,7 @@ impl GenericsAdapter {
 
             self.generic_scope
                 .get(generic)
-                .not_expected("generic", generic)?;
+                .not_expected(span, "generic", generic)?;
             self.generic_scope.add(generic.clone(), id);
 
             ids.push(id);
@@ -68,11 +85,6 @@ impl GenericsAdapter {
         has_self: bool,
     ) -> PResult<Vec<AstType>> {
         let mut params: Vec<_> = params.iter().map(|p| p.ty.clone()).collect();
-
-        if has_self {
-            params.insert(0, AstType::SelfType);
-        }
-
         params.visit(self)
     }
 
@@ -82,101 +94,117 @@ impl GenericsAdapter {
     ) -> PResult<HashMap<String, AstType>> {
         let mut member_assoc = HashMap::new();
 
-        for AstObjectMember { name, member_type } in members {
+        for AstObjectMember {
+            span,
+            name,
+            member_type,
+        } in members
+        {
             let member_type = member_type.clone().visit(self)?;
             member_assoc
                 .insert(name.clone(), member_type)
-                .not_expected("member", name)?;
+                .not_expected(*span, "member", name)?;
         }
 
         Ok(member_assoc)
     }
+
+    pub fn second_pass(&mut self) -> GenericsAdapterSecondPass {
+        GenericsAdapterSecondPass(self)
+    }
 }
 
 impl Adapter for GenericsAdapter {
-    fn enter_function(&mut self, f: AstFunction) -> PResult<AstFunction> {
-        self.generic_scope.push();
+    fn enter_fn_signature(&mut self, f: AstFnSignature) -> PResult<AstFnSignature> {
+        self.generic_scope.reset();
 
         let fn_data = AnFunctionData {
-            generics: self.register_generics(&f.signature.generics)?,
-            parameters: self.process_parameters(&f.signature.parameter_list, false)?,
-            return_type: self.process_type(&f.signature.return_type)?,
-            restrictions: self.process_restrictions(&f.signature.restrictions)?,
+            generics: self.register_generics(f.name_span, &f.generics)?,
+            parameters: self.process_parameters(&f.parameter_list, false)?,
+            return_type: self.process_type(&f.return_type)?,
+            restrictions: self.process_restrictions(&f.restrictions)?,
         };
 
         self.functions
-            .insert(f.signature.name.clone(), fn_data)
-            .not_expected("function", &f.signature.name)?;
+            .insert(f.name.clone(), fn_data)
+            .not_expected(f.name_span, "function", &f.name)?;
 
         Ok(f)
     }
 
     fn enter_object(&mut self, o: AstObject) -> PResult<AstObject> {
-        self.generic_scope.push();
+        self.generic_scope.reset();
 
         let obj_data = AnObjectData {
-            generics: self.register_generics(&o.generics)?,
+            generics: self.register_generics(o.name_span, &o.generics)?,
             members: self.process_members(&o.members)?,
             restrictions: self.process_restrictions(&o.restrictions)?,
         };
 
-        self.objects
-            .insert(o.name.clone(), obj_data)
-            .not_expected("object", &o.name)?;
+        self.objects.insert(o.name.clone(), obj_data).not_expected(
+            o.name_span,
+            "object",
+            &o.name,
+        )?;
 
         Ok(o)
     }
 
-    fn enter_object_function(&mut self, o: AstObjectFunction) -> PResult<AstObjectFunction> {
-        self.generic_scope.push();
-        let has_self = o.signature.has_self;
+    fn enter_object_fn_signature(
+        &mut self,
+        o: AstObjectFnSignature,
+    ) -> PResult<AstObjectFnSignature> {
+        self.generic_scope.reset();
+
+        let has_self = o.has_self;
         let fn_data = AnFunctionData {
-            generics: self.register_generics(&o.signature.generics)?,
-            parameters: self.process_parameters(&o.signature.parameter_list, has_self)?,
-            return_type: self.process_type(&o.signature.return_type)?,
-            restrictions: self.process_restrictions(&o.signature.restrictions)?,
+            generics: self.register_generics(o.name_span, &o.generics)?,
+            parameters: self.process_parameters(&o.parameter_list, has_self)?,
+            return_type: self.process_type(&o.return_type)?,
+            restrictions: self.process_restrictions(&o.restrictions)?,
         };
 
         // TODO: ew.
-        let trait_name = self
-            .current_trait
-            .as_ref()
-            .expected("trait", "<current trait name>")?;
-        let mut an_trait = self
-            .traits
-            .get_mut(trait_name)
-            .expected("trait", trait_name)?;
+        if let Some(ref trait_name) = self.current_trait {
+            let an_trait = self.traits.get_mut(trait_name).unwrap(); /* Really should NEVER fail...! */
 
-        an_trait
-            .methods
-            .insert(o.signature.name.clone(), fn_data)
-            .not_expected("method", &o.signature.name)?;
+            if has_self {
+                self.method_to_trait
+                    .insert(o.name.clone(), trait_name.clone());
+            }
+
+            an_trait
+                .methods
+                .insert(o.name.clone(), fn_data)
+                .not_expected(o.name_span, "method", &o.name)?;
+        }
 
         Ok(o)
     }
 
     fn enter_trait(&mut self, t: AstTrait) -> PResult<AstTrait> {
-        self.generic_scope.push();
+        self.generic_scope.reset();
+
         self.current_trait = Some(t.name.clone());
 
         let trait_data = AnTraitData {
-            generics: self.register_generics(&t.generics)?,
+            generics: self.register_generics(t.name_span, &t.generics)?,
             methods: HashMap::new(),
             restrictions: self.process_restrictions(&t.restrictions)?,
         };
 
         self.traits
             .insert(t.name.clone(), trait_data)
-            .not_expected("trait", &t.name)?;
+            .not_expected(t.name_span, "trait", &t.name)?;
 
         Ok(t)
     }
 
     fn enter_impl(&mut self, i: AstImpl) -> PResult<AstImpl> {
-        self.generic_scope.push();
+        self.generic_scope.reset();
 
         let impl_data = AnImplData {
-            generics: self.register_generics(&i.generics)?,
+            generics: self.register_generics(i.name_span, &i.generics)?,
             trait_ty: self.process_type(&i.trait_ty)?,
             impl_ty: self.process_type(&i.impl_ty)?,
             restrictions: self.process_restrictions(&i.restrictions)?,
@@ -189,13 +217,13 @@ impl Adapter for GenericsAdapter {
         if let AstType::Object(ref name, _) = i.trait_ty {
             if !self.traits.contains_key(name) {
                 PError::new(
-                    0,
+                    i.name_span,
                     format!("The impl provided is not implementing a trait type."),
                 )?;
             }
         } else {
             PError::new(
-                0,
+                i.name_span,
                 format!("The impl provided is not implementing a trait type."),
             )?;
         }
@@ -205,102 +233,133 @@ impl Adapter for GenericsAdapter {
 
     fn enter_type(&mut self, t: AstType) -> PResult<AstType> {
         match t {
-            AstType::Object(name, generics) => {
-                let expected = if self.traits.contains_key(&name) {
-                    self.traits[&name].generics.len()
-                } else if self.objects.contains_key(&name) {
-                    self.objects[&name].generics.len()
-                } else {
-                    PError::new(0, format!("Unknown type `{}`", name))?
-                };
-
-                Ok(AstType::Object(
-                    name,
-                    Self::expect_generics(generics, expected)?,
-                ))
-            }
             AstType::Generic(name) => {
                 if let Some(id) = self.generic_scope.get(&name) {
                     Ok(AstType::GenericPlaceholder(id, name))
                 } else {
-                    PError::new(0, format!("Unknown generic `{}`", name))?
+                    PError::new(Span::new(0, 0), format!("Unknown generic `{}`", name))?
                 }
             }
             t => Ok(t),
         }
     }
 
-    fn enter_expression(&mut self, mut e: AstExpression) -> PResult<AstExpression> {
-        match e {
-            AstExpression::Call {
+    fn exit_trait(&mut self, t: AstTrait) -> PResult<AstTrait> {
+        self.current_trait = None;
+
+        Ok(t)
+    }
+}
+
+pub struct GenericsAdapterSecondPass<'a>(&'a mut GenericsAdapter);
+
+impl<'a> Adapter for GenericsAdapterSecondPass<'a> {
+    fn enter_type(&mut self, t: AstType) -> PResult<AstType> {
+        match t {
+            AstType::Object(name, generics) => {
+                let expected = if self.0.traits.contains_key(&name) {
+                    self.0.traits[&name].generics.len()
+                } else if self.0.objects.contains_key(&name) {
+                    self.0.objects[&name].generics.len()
+                } else {
+                    PError::new(Span::new(0, 0), format!("Unknown type `{}`", name))?
+                };
+
+                Ok(AstType::Object(
+                    name,
+                    GenericsAdapter::expect_generics(Span::new(0, 0), generics, expected)?,
+                ))
+            }
+            t => Ok(t),
+        }
+    }
+
+    fn enter_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
+        let AstExpression { data, ty, span } = e;
+
+        let data = match data {
+            AstExpressionData::Call {
                 name,
                 generics,
                 args,
             } => {
-                let fun = self.functions.get(&name).expected("function", &name)?;
+                let fun = self
+                    .0
+                    .functions
+                    .get(&name)
+                    .expected(e.span, "function", &name)?;
                 let expected = fun.generics.len(); // TODO: this is ugly.
-                let generics = Self::expect_generics(generics, expected)?;
+                let generics = GenericsAdapter::expect_generics(e.span, generics, expected)?;
 
-                Ok(AstExpression::Call {
+                AstExpressionData::Call {
                     name,
                     generics,
                     args,
-                })
+                }
             }
-            AstExpression::ObjectCall {
+            AstExpressionData::ObjectCall {
                 object,
                 fn_name,
                 generics,
                 mut args,
             } => {
-                let object_name = self
-                    .method_to_trait
-                    .get(&fn_name)
-                    .expected("trait", &format!("<trait>::{}", fn_name))?
-                    .clone();
-
-                // Insert 'self' parameter.
+                // Insert 'self.0' parameter.
                 args.insert(0, *object);
 
                 // Recursively visits static call
-                AstExpression::static_call(object_name, Vec::new(), fn_name, generics, args)
-                    .visit(self)
+                return AstExpression::static_call(span, AstType::Infer, fn_name, generics, args)
+                    .visit(self.0);
             }
-            AstExpression::StaticCall {
-                obj_name,
-                obj_generics,
+            AstExpressionData::StaticCall {
+                call_type,
                 fn_name,
                 fn_generics,
                 args,
+                associated_trait,
             } => {
-                let trt = self.traits.get(&obj_name).expected("trait", &obj_name)?;
-                let expected_obj = trt.generics.len();
-                let obj_generics = Self::expect_generics(obj_generics, expected_obj)?;
+                let obj_name = self
+                    .0
+                    .method_to_trait
+                    .get(&fn_name)
+                    .expected(e.span, "trait method", &fn_name)?
+                    .clone();
 
-                let fun = trt.methods.get(&fn_name).expected("method", &fn_name)?;
-                let expected_fn = fun.generics.len();
-                let fn_generics = Self::expect_generics(fn_generics, expected_obj)?;
-
-                if args.len() != fun.parameters.len() {
-                    PError::new(
-                        0,
-                        format!(
-                            "Mismatched arguments. Expected `{}`, found `{}`.",
-                            fun.parameters.len(),
-                            args.len()
-                        ),
-                    )?;
+                if let Some(ref expected_obj_name) = associated_trait {
+                    if *expected_obj_name != obj_name {
+                        //TODO: Die.
+                    }
                 }
 
-                Ok(AstExpression::StaticCall {
-                    obj_name,
-                    obj_generics,
+                if let AstType::Object(ref obj_name, ..) = call_type {
+                    if self.0.traits.contains_key(obj_name) {
+                        // TODO: die.
+                    }
+                }
+
+                let trt = self
+                    .0
+                    .traits
+                    .get(&obj_name)
+                    .expected(e.span, "trait", &obj_name)?;
+                let fun = trt
+                    .methods
+                    .get(&fn_name)
+                    .expected(e.span, "method", &fn_name)?;
+                let expected_fn = fun.generics.len();
+                let fn_generics =
+                    GenericsAdapter::expect_generics(e.span, fn_generics, expected_fn)?;
+
+                AstExpressionData::StaticCall {
+                    call_type,
                     fn_name,
                     fn_generics,
                     args,
-                })
+                    associated_trait: Some(obj_name),
+                }
             }
-            t => Ok(t),
-        }
+            t => t,
+        };
+
+        Ok(AstExpression { data, ty, span })
     }
 }

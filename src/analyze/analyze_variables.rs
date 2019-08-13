@@ -1,26 +1,43 @@
 use crate::parser::*;
 use crate::util::result::{Expect, PError, PResult};
-use crate::util::{Counter, StackMap};
+use crate::util::{Counter, Span, StackMap};
 use std::collections::HashMap;
+use std::env::var;
 
-struct VariableAdapter {
+pub struct VariableAdapter {
     scope: StackMap<String, usize>,
     variable_counter: Counter,
-    variables: HashMap<usize, AstNamedVariable>,
+    pub variables: HashMap<usize, AstNamedVariable>,
 }
 
 impl VariableAdapter {
+    pub fn new() -> VariableAdapter {
+        VariableAdapter {
+            scope: StackMap::new(),
+            variable_counter: Counter::new(0),
+            variables: HashMap::new(),
+        }
+    }
+
     /**
      * Assigns an index to the AstNamedVariable, then inserts it into the scope
      * and into the `variables` map.
      */
     fn assign_index(&mut self, a: AstNamedVariable) -> PResult<AstNamedVariable> {
         match a {
-            AstNamedVariable { name, ty, id: None } => {
-                self.scope.get_top(&name).not_expected("variable", &name)?;
+            AstNamedVariable {
+                span,
+                name,
+                ty,
+                id: None,
+            } => {
+                self.scope
+                    .get_top(&name)
+                    .not_expected(span, "variable", &name)?;
 
                 let id = self.variable_counter.next();
                 let var = AstNamedVariable {
+                    span,
                     name,
                     ty,
                     id: Some(id),
@@ -29,13 +46,13 @@ impl VariableAdapter {
                 let name = var.name.clone();
                 self.variables
                     .insert(id, var.clone())
-                    .not_expected("variable", &name)?;
+                    .not_expected(span, "variable", &name)?;
                 self.scope.add(name, id);
 
                 Ok(var)
             }
-            _ => PError::new(
-                0,
+            AstNamedVariable { span, .. } => PError::new(
+                span,
                 format!("Assigning a duplicate index to variable `{}`", &a.name),
             ),
         }
@@ -44,12 +61,13 @@ impl VariableAdapter {
 
 impl Adapter for VariableAdapter {
     fn enter_function(&mut self, f: AstFunction) -> PResult<AstFunction> {
-        self.scope = StackMap::new();
-        self.scope.push();
+        self.scope.reset();
+        self.variables = HashMap::new();
 
         let AstFunction {
             signature:
                 AstFnSignature {
+                    name_span,
                     name,
                     generics,
                     parameter_list,
@@ -57,7 +75,15 @@ impl Adapter for VariableAdapter {
                     restrictions,
                 },
             definition,
+            variables,
         } = f;
+
+        if !variables.is_empty() {
+            PError::new(
+                name_span,
+                format!("Function `{}` has already been analyzed...", name),
+            )?;
+        }
 
         let parameter_list = parameter_list
             .into_iter()
@@ -66,6 +92,7 @@ impl Adapter for VariableAdapter {
 
         Ok(AstFunction {
             signature: AstFnSignature {
+                name_span,
                 name,
                 generics,
                 parameter_list,
@@ -73,6 +100,7 @@ impl Adapter for VariableAdapter {
                 restrictions,
             },
             definition,
+            variables,
         })
     }
 
@@ -85,18 +113,21 @@ impl Adapter for VariableAdapter {
     fn enter_statement(&mut self, s: AstStatement) -> PResult<AstStatement> {
         match s {
             AstStatement::Let {
+                name_span,
                 var_name,
                 ty,
                 value,
             } => {
                 let var = self.assign_index(AstNamedVariable {
+                    span: name_span,
                     name: var_name,
                     ty,
                     id: None,
                 })?;
 
                 Ok(AstStatement::expression_statement(AstExpression::binop(
-                    AstExpression::identifier(var.name),
+                    name_span.unite(value.span), /* Sum of LHS and RHS spans... */
+                    AstExpression::identifier(name_span, var.name),
                     value,
                     BinOpKind::Set,
                 )))
@@ -106,29 +137,34 @@ impl Adapter for VariableAdapter {
     }
 
     fn enter_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
-        match e {
-            AstExpression::Identifier { name } => {
-                let idx = self.scope.get(&name).expected("variable", &name)?;
-                Ok(AstExpression::VariableIdx(idx))
+        let AstExpression { data, ty, span } = e;
+
+        let data = match data {
+            AstExpressionData::Identifier { name } => {
+                let idx = self.scope.get(&name).expected(e.span, "variable", &name)?;
+                AstExpressionData::VariableIdx(idx)
             }
-            AstExpression::SelfRef => {
+            AstExpressionData::SelfRef => {
                 let idx = self
                     .scope
                     .get(&"self".to_string() /* <- TODO: ew */)
-                    .expected("variable", "self")?;
-                Ok(AstExpression::VariableIdx(idx))
+                    .expected(e.span, "variable", "self")?;
+                AstExpressionData::VariableIdx(idx)
             }
-            e => Ok(e),
-        }
+            e => e,
+        };
+
+        Ok(AstExpression { data, ty, span })
     }
 
     fn enter_object_function(&mut self, f: AstObjectFunction) -> PResult<AstObjectFunction> {
-        self.scope = StackMap::new();
-        self.scope.push();
+        self.scope.reset();
+        self.variables = HashMap::new();
 
         let AstObjectFunction {
             signature:
                 AstObjectFnSignature {
+                    name_span,
                     name,
                     generics,
                     has_self,
@@ -137,15 +173,14 @@ impl Adapter for VariableAdapter {
                     restrictions,
                 },
             definition,
+            variables,
         } = f;
 
-        if has_self {
-            // TODO: Do I need to keep track of this???
-            self.assign_index(AstNamedVariable {
-                name: "self".to_string(),
-                ty: AstType::SelfType,
-                id: None, // for now..
-            })?;
+        if !variables.is_empty() {
+            PError::new(
+                name_span,
+                format!("Method `{}` has already been analyzed...", name),
+            )?;
         }
 
         let parameter_list = parameter_list
@@ -155,6 +190,7 @@ impl Adapter for VariableAdapter {
 
         Ok(AstObjectFunction {
             signature: AstObjectFnSignature {
+                name_span,
                 name,
                 generics,
                 has_self,
@@ -163,11 +199,22 @@ impl Adapter for VariableAdapter {
                 restrictions,
             },
             definition,
+            variables,
         })
     }
 
     fn exit_function(&mut self, f: AstFunction) -> PResult<AstFunction> {
-        Ok(f)
+        Ok(AstFunction {
+            variables: self.variables.clone(),
+            ..f
+        })
+    }
+
+    fn exit_object_function(&mut self, o: AstObjectFunction) -> PResult<AstObjectFunction> {
+        Ok(AstObjectFunction {
+            variables: self.variables.clone(),
+            ..o
+        })
     }
 
     fn exit_block(&mut self, b: AstBlock) -> PResult<AstBlock> {

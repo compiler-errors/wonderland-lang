@@ -10,6 +10,11 @@ impl<K: Eq + Hash, V: Clone> StackMap<K, V> {
         StackMap { stack: Vec::new() }
     }
 
+    pub fn reset(&mut self) {
+        self.stack = Vec::new();
+        self.push();
+    }
+
     pub fn push(&mut self) {
         self.stack.push(HashMap::new())
     }
@@ -33,7 +38,7 @@ impl<K: Eq + Hash, V: Clone> StackMap<K, V> {
     }
 
     pub fn add(&mut self, key: K, value: V) {
-        let mut map = self.stack.last_mut().unwrap();
+        let map = self.stack.last_mut().unwrap();
         map.insert(key, value);
     }
 }

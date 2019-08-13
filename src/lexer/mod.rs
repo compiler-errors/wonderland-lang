@@ -2,11 +2,10 @@ mod token;
 
 pub use self::token::Token;
 use crate::util::result::*;
-use crate::util::result::*;
-use crate::util::FileReader;
-use std::process::exit;
 
-pub struct TokenPos(pub Token, pub usize);
+use crate::util::{FileReader, Span};
+
+pub struct SpanToken(pub Token, pub Span);
 
 /// Mnemonic for the EOF end-of-file character.
 const EOF: char = '\x00';
@@ -14,8 +13,8 @@ const EOF: char = '\x00';
 /// A `Lexer` is a stream of relevant tokens that can be used by
 /// the Cheshire parser.
 pub struct Lexer<'a> {
-    pub file: &'a mut FileReader,
-    next_token_pos: usize,
+    file: &'a mut FileReader,
+    next_token_span: Span,
     next_token: Token,
 }
 
@@ -23,7 +22,7 @@ impl<'a> Lexer<'a> {
     pub fn new(file: &'a mut FileReader) -> Lexer<'a> {
         let lexer = Lexer {
             file,
-            next_token_pos: 0,
+            next_token_span: Span::new(0, 0),
             next_token: Token::BOF,
         };
 
@@ -40,23 +39,25 @@ impl<'a> Lexer<'a> {
 
     /// Retrieves the position of the next token waiting to be
     /// consumed by the parser.
-    pub fn peek_token_pos(&self) -> usize {
-        self.next_token_pos
+    pub fn peek_token_span(&self) -> Span {
+        self.next_token_span
     }
 
     /// Retrieves _and consumes_ the next token.
     ///
     /// Caches the next token so it may be retrieved by `peek_token`.
-    pub fn bump_token(&mut self) -> PResult<TokenPos> {
+    pub fn bump_token(&mut self) -> PResult<SpanToken> {
         let last_token = self.next_token.clone();
-        let last_token_pos = self.next_token_pos;
+        let last_token_span = self.next_token_span;
 
         self.discard_whitespace_or_comments()?;
 
-        self.next_token_pos = self.file.current_pos();
+        let next_token_span_start = self.file.current_pos();
         self.next_token = self.get_token_internal()?;
+        let next_token_span_end = self.file.current_pos();
+        self.next_token_span = Span::new(next_token_span_start, next_token_span_end);
 
-        Ok(TokenPos(last_token, last_token_pos))
+        Ok(SpanToken(last_token, last_token_span))
     }
 
     /// Returns the next lookahead token.
@@ -390,7 +391,8 @@ impl<'a> Lexer<'a> {
     }
 
     fn scan_comment(&mut self) -> PResult<()> {
-        let pos = self.file.current_pos();
+        let start_pos = self.file.current_pos();
+
         match self.next_char() {
             '/' => {
                 // Read until end of line.
@@ -409,7 +411,12 @@ impl<'a> Lexer<'a> {
                 while self.current_char() != '*' || self.next_char() != '/' {
                     self.bump(1);
                     if self.current_char() == EOF {
-                        return self.error_at(pos, "EOF encountered in block comment".to_string());
+                        let end_pos = self.file.current_pos();
+
+                        return self.error_at(
+                            Span::new(start_pos, end_pos),
+                            "EOF encountered in block comment".to_string(),
+                        );
                     }
                 }
                 self.bump(2);
@@ -421,11 +428,11 @@ impl<'a> Lexer<'a> {
     }
 
     fn error<T>(&self, s: String) -> PResult<T> {
-        PError::new(self.next_token_pos, s)
+        PError::new(self.next_token_span, s)
     }
 
-    fn error_at<T>(&self, p: usize, s: String) -> PResult<T> {
-        PError::new(p, s)
+    fn error_at<T>(&self, span: Span, string: String) -> PResult<T> {
+        PError::new(span, string)
     }
 
     // These are just shortcuts so we don't need to type `self.file`.
