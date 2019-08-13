@@ -79,10 +79,7 @@ impl GenericsAdapter {
         restrictions.clone().visit(self)
     }
 
-    fn process_parameters(
-        &mut self,
-        params: &Vec<AstNamedVariable>,
-    ) -> PResult<Vec<AstType>> {
+    fn process_parameters(&mut self, params: &Vec<AstNamedVariable>) -> PResult<Vec<AstType>> {
         let params: Vec<_> = params.iter().map(|p| p.ty.clone()).collect();
         params.visit(self)
     }

@@ -3,7 +3,6 @@ use crate::util::result::{Expect, PError, PResult};
 use crate::util::{Counter, StackMap};
 use std::collections::HashMap;
 
-
 pub struct VariableAdapter {
     scope: StackMap<String, usize>,
     variable_counter: Counter,

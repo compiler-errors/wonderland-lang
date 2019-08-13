@@ -6,7 +6,6 @@ use self::analyze_variables::VariableAdapter;
 use crate::parser::{ParsedFile, Visit};
 use crate::util::result::PResult;
 
-
 mod analyze_generics;
 mod analyze_infer;
 mod analyze_self;

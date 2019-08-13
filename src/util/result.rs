@@ -100,6 +100,5 @@ pub fn report_err_at(fr: &FileReader, err: PError) -> ! {
         println!("--^");
     }
 
-
     exit(1);
 }

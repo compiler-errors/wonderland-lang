@@ -1015,7 +1015,11 @@ impl<'a> Parser<'a> {
         let has_self = if self.check(Token::SelfRef) {
             let self_span = self.next_span;
             self.expect_consume(Token::SelfRef)?;
-            parameters.push(AstNamedVariable::new(self_span, "name".to_string(), AstType::SelfType));
+            parameters.push(AstNamedVariable::new(
+                self_span,
+                "name".to_string(),
+                AstType::SelfType,
+            ));
             true
         } else {
             false
