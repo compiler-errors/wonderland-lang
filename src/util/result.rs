@@ -57,25 +57,49 @@ pub fn report_err_at(fr: &FileReader, err: PError) -> ! {
         error_string,
         comments,
     } = err;
-    let (line, col) = fr.get_row_col(start);
-    let line_str = fr.get_line_from_pos(start);
+
+    let (start_row, start_col) = fr.get_row_col(start);
+    let (end_row, end_col) = fr.get_row_col(end);
 
     println!();
-    // TODO: fix tabs later
     println!(
         "Error \"{}\" encountered on line {}:",
         error_string,
-        line + 1
-    ); //TODO: in file
+        start_row + 1
+    );
 
     for comment in comments {
         println!("   * {}", comment);
     }
 
-    println!("| {}", line_str);
-    for _ in 0..(col + 2) {
-        print!("-");
+    if start_row == start_col {
+        let line_str = fr.get_line_from_pos(start);
+
+        println!("| {}", line_str);
+        for _ in 0..(start_col + 2) {
+            print!(" ");
+        }
+
+        for _ in start_col..end_col {
+            print!("~")
+        }
+    } else {
+        let start_line_str = fr.get_line_from_pos(start);
+        let end_line_str = fr.get_line_from_pos(end);
+
+        println!("starting: {}", start_line_str);
+        for _ in 0..(start_col + 10) {
+            print!(" ");
+        }
+        println!("^--");
+
+        println!("  ending: {}", start_line_str);
+        for _ in 0..(end_col + 10 - 2) {
+            print!(" ");
+        }
+        println!("--^");
     }
-    println!("^");
+
+
     exit(1);
 }
