@@ -82,9 +82,8 @@ impl GenericsAdapter {
     fn process_parameters(
         &mut self,
         params: &Vec<AstNamedVariable>,
-        has_self: bool,
     ) -> PResult<Vec<AstType>> {
-        let mut params: Vec<_> = params.iter().map(|p| p.ty.clone()).collect();
+        let params: Vec<_> = params.iter().map(|p| p.ty.clone()).collect();
         params.visit(self)
     }
 
@@ -120,7 +119,7 @@ impl Adapter for GenericsAdapter {
 
         let fn_data = AnFunctionData {
             generics: self.register_generics(f.name_span, &f.generics)?,
-            parameters: self.process_parameters(&f.parameter_list, false)?,
+            parameters: self.process_parameters(&f.parameter_list)?,
             return_type: self.process_type(&f.return_type)?,
             restrictions: self.process_restrictions(&f.restrictions)?,
         };
@@ -159,7 +158,7 @@ impl Adapter for GenericsAdapter {
         let has_self = o.has_self;
         let fn_data = AnFunctionData {
             generics: self.register_generics(o.name_span, &o.generics)?,
-            parameters: self.process_parameters(&o.parameter_list, has_self)?,
+            parameters: self.process_parameters(&o.parameter_list)?,
             return_type: self.process_type(&o.return_type)?,
             restrictions: self.process_restrictions(&o.restrictions)?,
         };

@@ -1,8 +1,8 @@
 use crate::parser::*;
 use crate::util::result::{Expect, PError, PResult};
-use crate::util::{Counter, Span, StackMap};
+use crate::util::{Counter, StackMap};
 use std::collections::HashMap;
-use std::env::var;
+
 
 pub struct VariableAdapter {
     scope: StackMap<String, usize>,

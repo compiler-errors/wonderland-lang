@@ -72,7 +72,7 @@ pub fn report_err_at(fr: &FileReader, err: PError) -> ! {
         println!("   * {}", comment);
     }
 
-    if start_row == start_col {
+    if start_row == end_row {
         let line_str = fr.get_line_from_pos(start);
 
         println!("| {}", line_str);
@@ -93,7 +93,7 @@ pub fn report_err_at(fr: &FileReader, err: PError) -> ! {
         }
         println!("^--");
 
-        println!("  ending: {}", start_line_str);
+        println!("  ending: {}", end_line_str);
         for _ in 0..(end_col + 10 - 2) {
             print!(" ");
         }

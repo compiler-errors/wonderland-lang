@@ -397,7 +397,7 @@ pub enum BinOpKind {
 }
 
 impl AstExpression {
-    pub fn structural_eq(a: &AstExpressionData, b: &AstExpressionData) -> bool {
+    pub fn structural_eq(_a: &AstExpressionData, _b: &AstExpressionData) -> bool {
         unimplemented!()
     }
 

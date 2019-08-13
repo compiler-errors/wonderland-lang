@@ -1,8 +1,8 @@
 use crate::parser::*;
 use crate::util::result::PResult;
-use crate::util::Span;
+
 use std::collections::HashMap;
-use std::env::var;
+
 use std::hash::Hash;
 
 pub trait Visit<A>: Sized {

@@ -2,10 +2,10 @@ use self::analyze_generics::GenericsAdapter;
 use self::analyze_infer::InferAdapter;
 use self::analyze_self::SelfAdapter;
 use self::analyze_variables::VariableAdapter;
-use crate::analyze::represent::AnalyzedFile;
-use crate::parser::{Adapter, AstExpression, ParsedFile, Visit};
+
+use crate::parser::{ParsedFile, Visit};
 use crate::util::result::PResult;
-use std::env::var;
+
 
 mod analyze_generics;
 mod analyze_infer;
@@ -42,18 +42,18 @@ impl Analyzer {
             mut self_adapter,
         } = self;
 
-        let parsed_file = parsed_file
+        let _parsed_file = parsed_file
             .visit(&mut generics_adapter)?
             .visit(&mut generics_adapter.second_pass())?
             .visit(&mut infer_adapter)?
             .visit(&mut self_adapter)?
             .visit(&mut variable_adapter)?;
 
-        let variable_ids = variable_adapter.variables;
-        let analyzed_functions = generics_adapter.functions;
-        let analyzed_traits = generics_adapter.traits;
-        let analyzed_objects = generics_adapter.objects;
-        let analyzed_impls = generics_adapter.impls;
+        let _variable_ids = variable_adapter.variables;
+        let _analyzed_functions = generics_adapter.functions;
+        let _analyzed_traits = generics_adapter.traits;
+        let _analyzed_objects = generics_adapter.objects;
+        let _analyzed_impls = generics_adapter.impls;
 
         Ok(())
     }

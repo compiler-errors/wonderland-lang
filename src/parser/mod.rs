@@ -209,7 +209,7 @@ impl<'a> Parser<'a> {
     fn parse_function_signature(&mut self) -> PResult<AstFnSignature> {
         self.expect_consume(Token::Fn)?;
         let generics = self.try_parse_decl_generics()?;
-        let mut name_span = self.next_span;
+        let name_span = self.next_span;
         let fn_name = self.expect_consume_identifier()?;
         let parameter_list = self.parse_fn_parameter_list()?;
         let return_type = self.try_parse_return_type()?;
@@ -313,7 +313,7 @@ impl<'a> Parser<'a> {
             }
 
             // name colon type
-            let mut span = self.next_span;
+            let span = self.next_span;
             let param_name = self.expect_consume_identifier()?;
             self.expect_consume(Token::Colon)?;
             let param_type = self.parse_type()?;
@@ -1010,8 +1010,16 @@ impl<'a> Parser<'a> {
         let name_span = self.next_span;
         let name = self.expect_consume_identifier()?;
         self.expect_consume(Token::LParen)?;
-        let has_self = self.check_consume(Token::SelfRef)?;
         let mut parameters = Vec::new();
+
+        let has_self = if self.check(Token::SelfRef) {
+            let self_span = self.next_span;
+            self.expect_consume(Token::SelfRef)?;
+            parameters.push(AstNamedVariable::new(self_span, "name".to_string(), AstType::SelfType));
+            true
+        } else {
+            false
+        };
 
         while !self.check_consume(Token::RParen)? {
             if parameters.len() != 0 || has_self {

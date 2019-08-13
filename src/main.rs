@@ -2,7 +2,7 @@
 
 use crate::analyze::Analyzer;
 use crate::lexer::Lexer;
-use crate::parser::{ParsedFile, Parser};
+use crate::parser::{Parser};
 use crate::util::result::{report_err_at, PResult};
 use crate::util::FileReader;
 use std::io::{stdin, Read};
