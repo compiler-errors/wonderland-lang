@@ -1,24 +1,21 @@
-use crate::parser::{Adapter, AstType};
+use crate::parser::{Adapter, AstExpression, AstType};
 use crate::util::result::PResult;
 use crate::util::Counter;
 
-pub struct InferAdapter {
-    id_counter: Counter,
-}
+pub struct InferAdapter;
 
 impl InferAdapter {
     pub fn new() -> InferAdapter {
-        InferAdapter {
-            id_counter: Counter::new(0),
-        }
+        InferAdapter
     }
 }
 
 impl Adapter for InferAdapter {
-    fn enter_type(&mut self, t: AstType) -> PResult<AstType> {
-        Ok(match t {
-            AstType::Infer => AstType::InferPlaceholder(self.id_counter.next()),
-            t => t,
-        })
+    fn enter_expression(&mut self, mut t: AstExpression) -> PResult<AstExpression> {
+        if t.ty.is_none() {
+            t.ty = Some(AstType::infer());
+        }
+
+        Ok(t)
     }
 }

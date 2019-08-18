@@ -1,12 +1,12 @@
 use crate::util::Span;
 use std::collections::HashMap;
+use std::sync::RwLock;
 
 #[derive(Debug)]
 /// A file that is being parsed, along with the associated
 /// parsed functions that are contained in the file.
 pub struct ParsedFile {
     pub functions: Vec<AstFunction>,
-    pub export_fns: Vec<AstFnSignature>,
     pub objects: Vec<AstObject>,
     pub traits: Vec<AstTrait>,
     pub impls: Vec<AstImpl>,
@@ -15,14 +15,12 @@ pub struct ParsedFile {
 impl ParsedFile {
     pub fn new(
         functions: Vec<AstFunction>,
-        export_fns: Vec<AstFnSignature>,
         objects: Vec<AstObject>,
         traits: Vec<AstTrait>,
         impls: Vec<AstImpl>,
     ) -> ParsedFile {
         ParsedFile {
             functions: functions,
-            export_fns: export_fns,
             objects: objects,
             traits: traits,
             impls: impls,
@@ -30,8 +28,8 @@ impl ParsedFile {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct AstFnSignature {
+#[derive(Debug)]
+pub struct AstFunction {
     pub name_span: Span,
     /// The beginning position of the function
     /// The simple name of the function
@@ -42,37 +40,12 @@ pub struct AstFnSignature {
     /// The return type of the function, or AstType::None
     pub return_type: AstType,
     pub restrictions: Vec<AstTypeRestriction>,
-}
 
-impl AstFnSignature {
-    pub fn new(
-        name_span: Span,
-        name: String,
-        generics: Vec<String>,
-        parameter_list: Vec<AstNamedVariable>,
-        return_type: AstType,
-        restrictions: Vec<AstTypeRestriction>,
-    ) -> AstFnSignature {
-        AstFnSignature {
-            name_span,
-            name: name,
-            generics: generics,
-            parameter_list: parameter_list,
-            return_type: return_type,
-            restrictions: restrictions,
-        }
-    }
-}
+    /// The implementation, maybe.
+    pub definition: Option<AstBlock>,
 
-#[derive(Debug)]
-/// A parsed function
-/// The variables associated with the function are given by
-/// [beginning_of_vars, end_of_vars).
-pub struct AstFunction {
-    pub signature: AstFnSignature,
-    /// The collection of statements associated with the function
-    pub definition: AstBlock,
-    pub variables: HashMap<usize, AstNamedVariable>,
+    /// The collection of varialbes associated with the function
+    pub variables: HashMap<VariableId, AstNamedVariable>,
 }
 
 impl AstFunction {
@@ -83,22 +56,23 @@ impl AstFunction {
         parameter_list: Vec<AstNamedVariable>,
         return_type: AstType,
         restrictions: Vec<AstTypeRestriction>,
-        definition: AstBlock,
+        definition: Option<AstBlock>,
     ) -> AstFunction {
         AstFunction {
-            signature: AstFnSignature {
-                name_span,
-                generics: generics,
-                name: name,
-                parameter_list: parameter_list,
-                return_type: return_type,
-                restrictions: restrictions,
-            },
-            definition: definition,
+            name_span,
+            generics: generics,
+            name: name,
+            parameter_list: parameter_list,
+            return_type: return_type,
+            restrictions: restrictions,
+            definition,
             variables: HashMap::new(),
         }
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct VariableId(pub usize);
 
 #[derive(Debug, Clone)]
 /// A name and type associated with a parameter, along
@@ -110,7 +84,7 @@ pub struct AstNamedVariable {
     pub ty: AstType,
 
     /// Used in analyzer. Not populated before this.
-    pub id: Option<usize>,
+    pub id: Option<VariableId>,
 }
 
 impl AstNamedVariable {
@@ -124,10 +98,19 @@ impl AstNamedVariable {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct InferId(pub usize);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct GenericId(pub usize);
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct AstTraitType(pub String, pub Vec<AstType>);
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 /// A type as parsed by the Parser module.
 pub enum AstType {
-    Infer,
+    Infer(InferId),
     Int,
     Char,
     Bool,
@@ -136,15 +119,34 @@ pub enum AstType {
 
     Generic(String),
 
-    Array { ty: Box<AstType> },
-    Tuple { types: Vec<AstType> },
+    Array {
+        ty: Box<AstType>,
+    },
+    Tuple {
+        types: Vec<AstType>,
+    },
     Object(String, Vec<AstType>),
+    AssociatedType {
+        obj_ty: Box<AstType>,
+        trait_ty: Option<AstTraitType>,
+        name: String,
+    },
 
-    InferPlaceholder(usize),
-    GenericPlaceholder(usize, String),
+    GenericPlaceholder(GenericId, String),
+}
+
+lazy_static! {
+    static ref INFER_ID_COUNTER: RwLock<usize> = RwLock::new(0);
 }
 
 impl AstType {
+    pub fn infer() -> AstType {
+        let mut id_ref = INFER_ID_COUNTER.write().unwrap();
+        *id_ref += 1;
+
+        AstType::Infer(InferId(id_ref.clone()))
+    }
+
     pub fn array(ty: AstType) -> AstType {
         AstType::Array { ty: Box::new(ty) }
     }
@@ -163,6 +165,14 @@ impl AstType {
 
     pub fn generic(generic: String) -> AstType {
         AstType::Generic(generic)
+    }
+
+    pub fn associated_type(ty: AstType, name: String) -> AstType {
+        AstType::AssociatedType {
+            obj_ty: Box::new(ty),
+            trait_ty: None,
+            name,
+        }
     }
 }
 
@@ -215,7 +225,7 @@ pub enum AstStatement {
     Expression {
         expression: AstExpression,
     },
-    NoOp,
+    Unimplemented,
 }
 
 impl AstStatement {
@@ -286,8 +296,8 @@ impl AstStatement {
         AstStatement::Continue
     }
 
-    pub fn noop() -> AstStatement {
-        AstStatement::NoOp
+    pub fn unimplemented() -> AstStatement {
+        AstStatement::Unimplemented
     }
 }
 
@@ -315,6 +325,7 @@ pub enum AstExpressionData {
     Char(char),
     Identifier {
         name: String,
+        variable_id: Option<VariableId>,
     },
     Tuple {
         values: Vec<AstExpression>,
@@ -342,7 +353,7 @@ pub enum AstExpressionData {
         fn_name: String,
         fn_generics: Vec<AstType>,
         args: Vec<AstExpression>,
-        associated_trait: Option<String>,
+        associated_trait: Option<AstTraitType>,
     },
     /// An array access `a[1u]`
     Access {
@@ -372,9 +383,6 @@ pub enum AstExpressionData {
         lhs: SubExpression,
         rhs: SubExpression,
     },
-
-    /// For use after analysis step.
-    VariableIdx(usize),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -397,10 +405,6 @@ pub enum BinOpKind {
 }
 
 impl AstExpression {
-    pub fn structural_eq(_a: &AstExpressionData, _b: &AstExpressionData) -> bool {
-        unimplemented!()
-    }
-
     pub fn string_literal(span: Span, string: String, len: usize) -> AstExpression {
         AstExpression {
             span,
@@ -428,7 +432,10 @@ impl AstExpression {
     pub fn identifier(span: Span, identifier: String) -> AstExpression {
         AstExpression {
             span,
-            data: AstExpressionData::Identifier { name: identifier },
+            data: AstExpressionData::Identifier {
+                name: identifier,
+                variable_id: None,
+            },
             ty: None,
         }
     }
@@ -662,7 +669,7 @@ impl AstObject {
 }
 
 #[derive(Debug)]
-pub struct AstObjectFnSignature {
+pub struct AstObjectFunction {
     pub name_span: Span,
 
     /// The beginning position of the function
@@ -676,9 +683,15 @@ pub struct AstObjectFnSignature {
     /// The return type of the function, or AstType::None
     pub return_type: AstType,
     pub restrictions: Vec<AstTypeRestriction>,
+
+    /// The collection of statements associated with the function
+    pub definition: Option<AstBlock>,
+
+    /// Used during analysis...
+    pub variables: HashMap<VariableId, AstNamedVariable>,
 }
 
-impl AstObjectFnSignature {
+impl AstObjectFunction {
     pub fn new(
         name_span: Span,
         name: String,
@@ -687,33 +700,17 @@ impl AstObjectFnSignature {
         parameter_list: Vec<AstNamedVariable>,
         return_type: AstType,
         restrictions: Vec<AstTypeRestriction>,
-    ) -> AstObjectFnSignature {
-        AstObjectFnSignature {
-            name_span,
-            name: name,
-            generics: generics,
-            has_self: has_self,
-            parameter_list: parameter_list,
-            return_type: return_type,
-            restrictions: restrictions,
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct AstObjectFunction {
-    pub signature: AstObjectFnSignature,
-    /// The collection of statements associated with the function
-    pub definition: AstBlock,
-    /// Used during analysis...
-    pub variables: HashMap<usize, AstNamedVariable>,
-}
-
-impl AstObjectFunction {
-    pub fn new(sig: AstObjectFnSignature, definition: AstBlock) -> AstObjectFunction {
+        definition: Option<AstBlock>,
+    ) -> AstObjectFunction {
         AstObjectFunction {
-            signature: sig,
-            definition: definition,
+            name_span,
+            name,
+            generics,
+            has_self,
+            parameter_list,
+            return_type,
+            restrictions,
+            definition,
             variables: HashMap::new(),
         }
     }
@@ -742,8 +739,9 @@ pub struct AstTrait {
 
     pub name: String,
     pub generics: Vec<String>,
-    pub functions: Vec<AstObjectFnSignature>,
+    pub functions: Vec<AstObjectFunction>,
     pub restrictions: Vec<AstTypeRestriction>,
+    pub associated_types: HashMap<String, AstAssociatedType>,
 }
 
 impl AstTrait {
@@ -751,57 +749,80 @@ impl AstTrait {
         name_span: Span,
         name: String,
         generics: Vec<String>,
-        functions: Vec<AstObjectFnSignature>,
+        functions: Vec<AstObjectFunction>,
         restrictions: Vec<AstTypeRestriction>,
+        associated_types: HashMap<String, AstAssociatedType>,
     ) -> AstTrait {
         AstTrait {
             name_span,
-            name: name,
-            generics: generics,
-            functions: functions,
-            restrictions: restrictions,
+            name,
+            generics,
+            functions,
+            restrictions,
+            associated_types,
         }
     }
 }
 
 #[derive(Debug, Clone)]
+pub struct AstAssociatedType {
+    pub name: String,
+    pub restrictions: Vec<AstTraitType>,
+}
+
+#[derive(Debug, Clone)]
 pub struct AstTypeRestriction {
     pub ty: AstType,
-    pub trt: AstType,
+    pub trt: AstTraitType,
 }
 
 impl AstTypeRestriction {
-    pub fn new(ty: AstType, trt: AstType) -> AstTypeRestriction {
+    pub fn new(ty: AstType, trt: AstTraitType) -> AstTypeRestriction {
         AstTypeRestriction { ty, trt }
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ImplId(pub usize);
+
 #[derive(Debug)]
 pub struct AstImpl {
+    pub impl_id: ImplId,
     pub name_span: Span,
     pub generics: Vec<String>,
-    pub trait_ty: AstType,
+    pub trait_ty: AstTraitType,
     pub impl_ty: AstType,
     pub fns: Vec<AstObjectFunction>,
     pub restrictions: Vec<AstTypeRestriction>,
+    pub associated_types: HashMap<String, AstType>,
+}
+
+lazy_static! {
+    static ref IMPL_ID_COUNTER: RwLock<usize> = RwLock::new(0);
 }
 
 impl AstImpl {
     pub fn new(
         name_span: Span,
         generics: Vec<String>,
-        trait_ty: AstType,
+        trait_ty: AstTraitType,
         impl_ty: AstType,
         fns: Vec<AstObjectFunction>,
         restrictions: Vec<AstTypeRestriction>,
+        associated_types: HashMap<String, AstType>,
     ) -> AstImpl {
+        let mut id_ref = IMPL_ID_COUNTER.write().unwrap();
+        *id_ref += 1;
+
         AstImpl {
+            impl_id: ImplId(id_ref.clone()),
             name_span,
-            generics: generics,
-            trait_ty: trait_ty,
-            impl_ty: impl_ty,
-            restrictions: restrictions,
-            fns: fns,
+            generics,
+            trait_ty,
+            impl_ty,
+            restrictions,
+            fns,
+            associated_types,
         }
     }
 }

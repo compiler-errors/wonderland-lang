@@ -3,64 +3,73 @@ use crate::util::result::{PError, PResult};
 use crate::util::Span;
 
 pub struct SelfAdapter {
-    nested: usize,
+    current_trait: Option<AstTraitType>,
 }
 
 impl SelfAdapter {
     pub fn new() -> SelfAdapter {
-        SelfAdapter { nested: 0 }
+        SelfAdapter {
+            current_trait: None,
+        }
     }
 }
 
 impl Adapter for SelfAdapter {
     fn enter_type(&mut self, t: AstType) -> PResult<AstType> {
-        match t {
-            AstType::SelfType => {
-                if self.nested == 0 {
-                    PError::new(
-                        Span::new(0, 0),
-                        format!("No `Self` type in non-object environment"),
-                    )?;
-                }
-            }
-            _ => {}
+        match (&self.current_trait, t) {
+            (&None, AstType::SelfType) => PError::new(
+                Span::new(0, 0),
+                format!("Self type in non-self environment"),
+            ),
+            (&Some(ref current_trait), AstType::SelfType) => Ok(AstType::AssociatedType {
+                obj_ty: Box::new(AstType::infer()),
+                trait_ty: Some(current_trait.clone()),
+                name: "Self".to_string(),
+            }),
+            (_, t) => Ok(t),
         }
-
-        Ok(t)
-    }
-
-    fn enter_object(&mut self, o: AstObject) -> PResult<AstObject> {
-        self.nested += 1;
-
-        Ok(o)
     }
 
     fn enter_trait(&mut self, t: AstTrait) -> PResult<AstTrait> {
-        self.nested += 1;
+        if self.current_trait.is_some() {
+            PError::new(
+                Span::new(0, 0),
+                format!("Trait not expected in trait context..."),
+            )?;
+        }
+
+        let name = t.name.clone();
+        let generics = t
+            .generics
+            .iter()
+            .map(|g| AstType::generic(g.clone()))
+            .collect();
+        self.current_trait = Some(AstTraitType(name, generics));
 
         Ok(t)
     }
 
     fn enter_impl(&mut self, i: AstImpl) -> PResult<AstImpl> {
-        self.nested += 1;
+        if self.current_trait.is_some() {
+            PError::new(
+                Span::new(0, 0),
+                format!("Trait not expected in trait context..."),
+            )?;
+        }
+
+        self.current_trait = Some(i.trait_ty.clone());
 
         Ok(i)
     }
 
-    fn exit_object(&mut self, o: AstObject) -> PResult<AstObject> {
-        self.nested -= 1;
-
-        Ok(o)
-    }
-
     fn exit_trait(&mut self, t: AstTrait) -> PResult<AstTrait> {
-        self.nested -= 1;
+        self.current_trait = None;
 
         Ok(t)
     }
 
     fn exit_impl(&mut self, i: AstImpl) -> PResult<AstImpl> {
-        self.nested -= 1;
+        self.current_trait = None;
 
         Ok(i)
     }

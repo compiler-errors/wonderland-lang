@@ -3,19 +3,21 @@ use std::fmt::{Display, Formatter, Result};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Token {
     // Language symbols
-    Dot,        //    .
-    Comma,      //    ,
-    Colon,      //    :
-    ColonLt,    //    :<
-    LBrace,     //    {
-    RBrace,     //    }
-    LSqBracket, //    [
-    RSqBracket, //    ]
-    Lt,         //    <
-    Gt,         //    >
-    LParen,     //    (
-    RParen,     //    )
-    RArrow,     //    ->
+    Dot,         //    .
+    Comma,       //    ,
+    Commalipses, //    ,,,
+    Colon,       //    :
+    ColonColon,  //    ::
+    ColonLt,     //    :<
+    LBrace,      //    {
+    RBrace,      //    }
+    LSqBracket,  //    [
+    RSqBracket,  //    ]
+    Lt,          //    <
+    Gt,          //    >
+    LParen,      //    (
+    RParen,      //    )
+    RArrow,      //    ->
 
     // Mathematical operators (excluding LSquare, RSquare)
     LessEqual,    //    <=
@@ -52,7 +54,7 @@ pub enum Token {
     False,
     Null,
     Object,
-    Has,
+    Type,
     SelfRef,
     Allocate,
 
@@ -84,7 +86,9 @@ impl Display for Token {
         match self {
             &Token::Dot => write!(f, "."),
             &Token::Comma => write!(f, ","),
+            &Token::Commalipses => write!(f, ",,,"),
             &Token::Colon => write!(f, ":"),
+            &Token::ColonColon => write!(f, "::"),
             &Token::ColonLt => write!(f, ":<"),
             &Token::LBrace => write!(f, "{{"),
             &Token::RBrace => write!(f, "}}"),
@@ -126,7 +130,7 @@ impl Display for Token {
             &Token::False => write!(f, "false"),
             &Token::Null => write!(f, "null"),
             &Token::Object => write!(f, "object"),
-            &Token::Has => write!(f, "has"),
+            &Token::Type => write!(f, "type"),
             &Token::SelfRef => write!(f, "self"),
             &Token::Allocate => write!(f, "allocate"),
             &Token::Int => write!(f, "Type (Int)"),

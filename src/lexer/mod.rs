@@ -81,13 +81,28 @@ impl<'a> Lexer<'a> {
                     return Ok(Token::Dot);
                 }
                 ',' => {
-                    self.bump(1);
-                    return Ok(Token::Comma);
+                    if self.next_char() == ',' {
+                        self.bump(2);
+
+                        if self.next_char() != ',' {
+                            return self
+                                .error(format!("Expected a third comma for commalipses,,,"));
+                        }
+
+                        self.bump(1);
+                        return Ok(Token::Commalipses);
+                    } else {
+                        self.bump(1);
+                        return Ok(Token::Comma);
+                    }
                 }
                 ':' => {
                     if self.next_char() == '<' {
                         self.bump(2);
                         return Ok(Token::ColonLt);
+                    } else if self.next_char() == ':' {
+                        self.bump(2);
+                        return Ok(Token::ColonColon);
                     } else {
                         self.bump(1);
                         return Ok(Token::Colon);
@@ -341,7 +356,7 @@ impl<'a> Lexer<'a> {
             "null" => Token::Null,
 
             "object" => Token::Object,
-            "has" => Token::Has,
+            "type" => Token::Type,
             "self" => Token::SelfRef,
             "allocate" => Token::Allocate,
 

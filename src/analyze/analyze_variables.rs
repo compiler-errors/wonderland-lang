@@ -4,9 +4,9 @@ use crate::util::{Counter, StackMap};
 use std::collections::HashMap;
 
 pub struct VariableAdapter {
-    scope: StackMap<String, usize>,
+    scope: StackMap<String, VariableId>,
     variable_counter: Counter,
-    pub variables: HashMap<usize, AstNamedVariable>,
+    pub variables: HashMap<VariableId, AstNamedVariable>,
 }
 
 impl VariableAdapter {
@@ -34,7 +34,7 @@ impl VariableAdapter {
                     .get_top(&name)
                     .not_expected(span, "variable", &name)?;
 
-                let id = self.variable_counter.next();
+                let id = VariableId(self.variable_counter.next());
                 let var = AstNamedVariable {
                     span,
                     name,
@@ -64,15 +64,12 @@ impl Adapter for VariableAdapter {
         self.variables = HashMap::new();
 
         let AstFunction {
-            signature:
-                AstFnSignature {
-                    name_span,
-                    name,
-                    generics,
-                    parameter_list,
-                    return_type,
-                    restrictions,
-                },
+            name_span,
+            name,
+            generics,
+            parameter_list,
+            return_type,
+            restrictions,
             definition,
             variables,
         } = f;
@@ -90,14 +87,12 @@ impl Adapter for VariableAdapter {
             .collect::<PResult<Vec<_>>>()?;
 
         Ok(AstFunction {
-            signature: AstFnSignature {
-                name_span,
-                name,
-                generics,
-                parameter_list,
-                return_type,
-                restrictions,
-            },
+            name_span,
+            name,
+            generics,
+            parameter_list,
+            return_type,
+            restrictions,
             definition,
             variables,
         })
@@ -139,16 +134,23 @@ impl Adapter for VariableAdapter {
         let AstExpression { data, ty, span } = e;
 
         let data = match data {
-            AstExpressionData::Identifier { name } => {
-                let idx = self.scope.get(&name).expected(e.span, "variable", &name)?;
-                AstExpressionData::VariableIdx(idx)
+            AstExpressionData::Identifier {
+                name,
+                variable_id: None,
+            } => {
+                let variable_id = Some(self.scope.get(&name).expected(e.span, "variable", &name)?);
+                AstExpressionData::Identifier { name, variable_id }
             }
             AstExpressionData::SelfRef => {
-                let idx = self
-                    .scope
-                    .get(&"self".to_string() /* <- TODO: ew */)
-                    .expected(e.span, "variable", "self")?;
-                AstExpressionData::VariableIdx(idx)
+                let variable_id = Some(
+                    self.scope
+                        .get(&"self".to_string() /* <- TODO: ew */)
+                        .expected(e.span, "variable", "self")?,
+                );
+                AstExpressionData::Identifier {
+                    name: "self".to_string(),
+                    variable_id,
+                }
             }
             e => e,
         };
@@ -161,16 +163,13 @@ impl Adapter for VariableAdapter {
         self.variables = HashMap::new();
 
         let AstObjectFunction {
-            signature:
-                AstObjectFnSignature {
-                    name_span,
-                    name,
-                    generics,
-                    has_self,
-                    parameter_list,
-                    return_type,
-                    restrictions,
-                },
+            name_span,
+            name,
+            generics,
+            has_self,
+            parameter_list,
+            return_type,
+            restrictions,
             definition,
             variables,
         } = f;
@@ -188,15 +187,13 @@ impl Adapter for VariableAdapter {
             .collect::<PResult<Vec<_>>>()?;
 
         Ok(AstObjectFunction {
-            signature: AstObjectFnSignature {
-                name_span,
-                name,
-                generics,
-                has_self,
-                parameter_list,
-                return_type,
-                restrictions,
-            },
+            name_span,
+            name,
+            generics,
+            has_self,
+            parameter_list,
+            return_type,
+            restrictions,
             definition,
             variables,
         })

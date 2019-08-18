@@ -62,11 +62,21 @@ pub fn report_err_at(fr: &FileReader, err: PError) -> ! {
     let (end_row, end_col) = fr.get_row_col(end);
 
     println!();
-    println!(
-        "Error \"{}\" encountered on line {}:",
-        error_string,
-        start_row + 1
-    );
+
+    if start_row == end_row {
+        println!(
+            "Error \"{}\" encountered on line {}:",
+            error_string,
+            start_row + 1,
+        );
+    } else {
+        println!(
+            "Error \"{}\" encountered on lines {}-{}:",
+            error_string,
+            start_row + 1,
+            end_row + 1,
+        );
+    }
 
     for comment in comments {
         println!("   * {}", comment);
@@ -83,21 +93,27 @@ pub fn report_err_at(fr: &FileReader, err: PError) -> ! {
         for _ in start_col..end_col {
             print!("~")
         }
+
+        println!();
     } else {
         let start_line_str = fr.get_line_from_pos(start);
         let end_line_str = fr.get_line_from_pos(end);
 
-        println!("starting: {}", start_line_str);
-        for _ in 0..(start_col + 10) {
+        println!("| {}", start_line_str);
+        for _ in 0..(start_col + 2) {
             print!(" ");
         }
-        println!("^--");
+        println!("^-");
 
-        println!("  ending: {}", end_line_str);
-        for _ in 0..(end_col + 10 - 2) {
+        if start_row + 1 != end_row {
+            println!("| [...lines omitted...]");
+        }
+
+        println!("| {}", end_line_str);
+        for _ in 0..end_col {
             print!(" ");
         }
-        println!("--^");
+        println!("-^");
     }
 
     exit(1);

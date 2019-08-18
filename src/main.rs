@@ -1,5 +1,8 @@
 #![deny(unused_must_use)]
 
+#[macro_use]
+extern crate lazy_static;
+
 use crate::analyze::Analyzer;
 use crate::lexer::Lexer;
 use crate::parser::Parser;
@@ -10,6 +13,7 @@ use std::io::{stdin, Read};
 mod analyze;
 mod lexer;
 mod parser;
+mod tyck;
 mod util;
 
 fn main() {

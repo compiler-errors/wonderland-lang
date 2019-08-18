@@ -3,57 +3,65 @@ use self::analyze_infer::InferAdapter;
 use self::analyze_self::SelfAdapter;
 use self::analyze_variables::VariableAdapter;
 
+use crate::analyze::analyze_traits::TraitsAdapter;
+use crate::analyze::represent::AnalyzedFile;
 use crate::parser::{ParsedFile, Visit};
 use crate::util::result::PResult;
 
 mod analyze_generics;
 mod analyze_infer;
 mod analyze_self;
+mod analyze_traits;
 mod analyze_variables;
 mod represent;
 
+// TODO: Really, this doesn't need to be a struct...
 pub struct Analyzer {
     parsed_file: ParsedFile,
-
-    infer_adapter: InferAdapter,
-    generics_adapter: GenericsAdapter,
-    self_adapter: SelfAdapter,
-    variable_adapter: VariableAdapter,
 }
 
 impl Analyzer {
     pub fn new(parsed_file: ParsedFile) -> Analyzer {
-        Analyzer {
-            parsed_file,
-            infer_adapter: InferAdapter::new(),
-            generics_adapter: GenericsAdapter::new(),
-            self_adapter: SelfAdapter::new(),
-            variable_adapter: VariableAdapter::new(),
-        }
+        Analyzer { parsed_file }
     }
 
-    pub fn analyze(self) -> PResult<()> {
-        let Analyzer {
+    pub fn analyze(self) -> PResult<AnalyzedFile> {
+        let Analyzer { mut parsed_file } = self;
+
+        let mut self_adapter = SelfAdapter::new();
+        parsed_file = parsed_file.visit(&mut self_adapter)?;
+
+        let mut generics_adapter = GenericsAdapter::new();
+        parsed_file = parsed_file.visit(&mut generics_adapter)?;
+
+        let mut traits_adapter = TraitsAdapter::new(
+            &generics_adapter.functions,
+            &generics_adapter.traits,
+            &generics_adapter.objects,
+            &generics_adapter.method_to_trait,
+            &generics_adapter.type_to_trait,
+        );
+        parsed_file = parsed_file.visit(&mut traits_adapter)?;
+
+        let mut infer_adapter = InferAdapter::new();
+        parsed_file = parsed_file.visit(&mut infer_adapter)?;
+
+        let mut variable_adapter = VariableAdapter::new();
+        parsed_file = parsed_file.visit(&mut variable_adapter)?;
+
+        let variable_ids = variable_adapter.variables;
+        let analyzed_functions = generics_adapter.functions;
+        let analyzed_traits = generics_adapter.traits;
+        let analyzed_objects = generics_adapter.objects;
+        let analyzed_impls = generics_adapter.impls;
+
+        Ok(AnalyzedFile {
             parsed_file,
-            mut variable_adapter,
-            mut generics_adapter,
-            mut infer_adapter,
-            mut self_adapter,
-        } = self;
-
-        let _parsed_file = parsed_file
-            .visit(&mut generics_adapter)?
-            .visit(&mut generics_adapter.second_pass())?
-            .visit(&mut infer_adapter)?
-            .visit(&mut self_adapter)?
-            .visit(&mut variable_adapter)?;
-
-        let _variable_ids = variable_adapter.variables;
-        let _analyzed_functions = generics_adapter.functions;
-        let _analyzed_traits = generics_adapter.traits;
-        let _analyzed_objects = generics_adapter.objects;
-        let _analyzed_impls = generics_adapter.impls;
-
-        Ok(())
+            variable_ids,
+            analyzed_functions,
+            analyzed_impls,
+            analyzed_objects,
+            analyzed_traits,
+        })
     }
 }
