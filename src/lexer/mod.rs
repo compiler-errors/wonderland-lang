@@ -1,8 +1,8 @@
 mod token;
 
 pub use self::token::Token;
-use crate::util::result::*;
 
+use crate::util::result::*;
 use crate::util::{FileReader, Span};
 
 pub struct SpanToken(pub Token, pub Span);

@@ -3,10 +3,10 @@
 #[macro_use]
 extern crate lazy_static;
 
-use crate::analyze::Analyzer;
+use crate::analyze::analyze;
 use crate::lexer::Lexer;
-use crate::parser::Parser;
-use crate::util::result::{report_err_at, PResult};
+use crate::parser::parse_file;
+use crate::util::result::*;
 use crate::util::FileReader;
 use std::io::{stdin, Read};
 
@@ -33,11 +33,9 @@ fn main() {
 
 fn try_main(file_reader: &mut FileReader) -> PResult<()> {
     let lexer = Lexer::new(file_reader);
-    let parser = Parser::new(lexer);
-    let parse_file = parser.parse_file()?;
-
-    let analyzer = Analyzer::new(parse_file);
-    analyzer.analyze()?;
+    let parsed_file = parse_file(lexer)?;
+    let analyzed_file = analyze(parsed_file)?;
+    //let tycked_file =
 
     Ok(())
 }

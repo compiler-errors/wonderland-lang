@@ -1,9 +1,9 @@
-mod ast;
-mod ast_visitor;
+pub mod ast;
+pub mod ast_visitor;
 
-pub use self::ast::*;
-pub use self::ast_visitor::*;
-use crate::lexer::{Lexer, Token};
+use self::ast::*;
+use self::ast_visitor::*;
+use crate::lexer::*;
 use crate::util::result::*;
 
 use crate::util::Span;
@@ -17,15 +17,17 @@ pub struct Parser<'a> {
     next_token: Token,
 }
 
-impl<'a> Parser<'a> {
-    pub fn new(lexer: Lexer<'a>) -> Parser<'a> {
-        Parser {
-            lexer,
-            next_span: Span::new(0, 0),
-            next_token: Token::BOF,
-        }
-    }
+pub fn parse_file(lexer: Lexer) -> PResult<ParsedFile> {
+    let mut parser = Parser {
+        lexer,
+        next_span: Span::new(0, 0),
+        next_token: Token::BOF,
+    };
 
+    parser.parse_file()
+}
+
+impl<'a> Parser<'a> {
     /// Report an error at the current position
     fn error_at<T>(&self, span: Span, error: String) -> PResult<T> {
         PError::new(span, error)
@@ -163,7 +165,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse a top level file.
-    pub fn parse_file(mut self) -> PResult<ParsedFile> {
+    fn parse_file(&mut self) -> PResult<ParsedFile> {
         self.expect_consume(Token::BOF).unwrap();
 
         let mut functions = Vec::new();
@@ -486,10 +488,6 @@ impl<'a> Parser<'a> {
             }
             &Token::Return => self.parse_return_statement(),
             &Token::Assert => self.parse_assert_statement(),
-            &Token::Commalipses => {
-                self.expect_consume(Token::Commalipses)?;
-                Ok(AstStatement::unimplemented())
-            }
             _ => self.parse_expression_statement(),
         }
     }
@@ -578,7 +576,8 @@ impl<'a> Parser<'a> {
             }
             | &AstExpressionData::Call { .. }
             | &AstExpressionData::ObjectCall { .. }
-            | &AstExpressionData::StaticCall { .. } => {}
+            | &AstExpressionData::StaticCall { .. }
+            | &AstExpressionData::Unimplemented => {}
             _ => {
                 return self.error_at(expr.span, format!("Expected expression statement."));
             }
@@ -718,6 +717,10 @@ impl<'a> Parser<'a> {
         let mut span = self.next_span;
 
         match &self.next_token {
+            &Token::Commalipses => {
+                self.bump()?;
+                Ok(AstExpression::unimplemented(span))
+            }
             &Token::Not => {
                 self.bump()?;
                 let e = self.parse_expr(9)?;

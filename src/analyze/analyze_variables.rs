@@ -1,5 +1,6 @@
-use crate::parser::*;
-use crate::util::result::{Expect, PError, PResult};
+use crate::parser::ast::*;
+use crate::parser::ast_visitor::Adapter;
+use crate::util::result::*;
 use crate::util::{Counter, StackMap};
 use std::collections::HashMap;
 

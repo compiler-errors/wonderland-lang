@@ -1,6 +1,7 @@
-use crate::parser::{Adapter, AstExpression, AstType};
-use crate::util::result::PResult;
-use crate::util::Counter;
+use crate::parser::ast::*;
+use crate::parser::ast_visitor::Adapter;
+use crate::util::result::*;
+use std::collections::HashMap;
 
 pub struct InferAdapter;
 
@@ -18,4 +19,8 @@ impl Adapter for InferAdapter {
 
         Ok(t)
     }
+
+    // TODO: Detect `_` in traits, impls, and fn signatures. Should be straightforward with a subordinate adapter NoInferAdapter...
+    // Make sure to attach the span to the error, and also maybe add a .comment with the whole type?
+    // Maybe also properly implement Display for type?
 }

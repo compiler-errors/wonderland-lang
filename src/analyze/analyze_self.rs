@@ -1,6 +1,8 @@
-use crate::parser::*;
-use crate::util::result::{PError, PResult};
+use crate::parser::ast::*;
+use crate::parser::ast_visitor::Adapter;
+use crate::util::result::*;
 use crate::util::Span;
+use std::collections::HashMap;
 
 pub struct SelfAdapter {
     current_trait: Option<AstTraitType>,

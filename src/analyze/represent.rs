@@ -1,6 +1,9 @@
-use crate::parser::*;
+use crate::parser::ast::*;
+use crate::parser::ast_visitor::Adapter;
+use crate::util::result::*;
 use std::collections::HashMap;
 
+#[derive(Debug)]
 pub struct AnalyzedFile {
     pub parsed_file: ParsedFile,
     pub variable_ids: HashMap<VariableId, AstNamedVariable>,
@@ -10,12 +13,14 @@ pub struct AnalyzedFile {
     pub analyzed_impls: HashMap<ImplId, AnImplData>,
 }
 
+#[derive(Debug)]
 pub struct AnObjectData {
     pub generics: Vec<GenericId>,
     pub members: HashMap<String, AstType>,
     pub restrictions: Vec<AstTypeRestriction>,
 }
 
+#[derive(Debug)]
 pub struct AnTraitData {
     pub generics: Vec<GenericId>,
     pub methods: HashMap<String, AnFunctionData>,
@@ -24,6 +29,7 @@ pub struct AnTraitData {
     pub impls: Vec<ImplId>,
 }
 
+#[derive(Debug)]
 pub struct AnFunctionData {
     pub generics: Vec<GenericId>,
     pub parameters: Vec<AstType>,
@@ -31,6 +37,7 @@ pub struct AnFunctionData {
     pub restrictions: Vec<AstTypeRestriction>,
 }
 
+#[derive(Debug)]
 pub struct AnImplData {
     pub impl_id: ImplId,
     pub generics: Vec<GenericId>,

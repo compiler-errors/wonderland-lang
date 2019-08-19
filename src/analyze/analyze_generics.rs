@@ -1,9 +1,9 @@
 use crate::analyze::represent::*;
-use crate::parser::*;
-use crate::util::result::{Expect, PError, PResult};
+use crate::parser::ast::*;
+use crate::parser::ast_visitor::*;
+use crate::util::result::*;
 use crate::util::{Counter, Span, StackMap};
 use std::collections::HashMap;
-use std::fs::metadata;
 
 pub struct GenericsAdapter {
     pub functions: HashMap<String, AnFunctionData>,

@@ -20,10 +20,10 @@ impl ParsedFile {
         impls: Vec<AstImpl>,
     ) -> ParsedFile {
         ParsedFile {
-            functions: functions,
-            objects: objects,
-            traits: traits,
-            impls: impls,
+            functions,
+            objects,
+            traits,
+            impls,
         }
     }
 }
@@ -60,7 +60,7 @@ impl AstFunction {
     ) -> AstFunction {
         AstFunction {
             name_span,
-            generics: generics,
+            generics,
             name: name,
             parameter_list: parameter_list,
             return_type: return_type,
@@ -174,6 +174,10 @@ impl AstType {
             name,
         }
     }
+
+    pub fn is_dummy_equivalent(&self, other: &AstType) -> bool {
+        unimplemented!()
+    }
 }
 
 #[derive(Debug)]
@@ -225,7 +229,6 @@ pub enum AstStatement {
     Expression {
         expression: AstExpression,
     },
-    Unimplemented,
 }
 
 impl AstStatement {
@@ -295,10 +298,6 @@ impl AstStatement {
     pub fn continue_stmt() -> AstStatement {
         AstStatement::Continue
     }
-
-    pub fn unimplemented() -> AstStatement {
-        AstStatement::Unimplemented
-    }
 }
 
 #[derive(Debug)]
@@ -312,7 +311,7 @@ type SubExpression = Box<AstExpression>;
 
 #[derive(Debug)]
 pub enum AstExpressionData {
-    Nothing,
+    Unimplemented,
     True,
     False,
     Null,
@@ -385,7 +384,7 @@ pub enum AstExpressionData {
     },
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 /// The kind of binary operation
 pub enum BinOpKind {
     Multiply,
@@ -522,6 +521,14 @@ impl AstExpression {
         }
     }
 
+    pub fn unimplemented(span: Span) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::Unimplemented,
+            ty: None,
+        }
+    }
+
     pub fn access(span: Span, lhs: AstExpression, idx: AstExpression) -> AstExpression {
         AstExpression {
             span,
@@ -599,7 +606,7 @@ impl AstExpression {
     pub fn nothing(span: Span) -> AstExpression {
         AstExpression {
             span,
-            data: AstExpressionData::Nothing,
+            data: AstExpressionData::Tuple { values: Vec::new() },
             ty: None,
         }
     }
@@ -798,7 +805,8 @@ pub struct AstImpl {
 }
 
 lazy_static! {
-    static ref IMPL_ID_COUNTER: RwLock<usize> = RwLock::new(0);
+    static ref IMPL_ID_COUNTER: RwLock<usize> = RwLock::new(1);
+    static ref IMPL_ID_DUMMY: ImplId = ImplId(0);
 }
 
 impl AstImpl {

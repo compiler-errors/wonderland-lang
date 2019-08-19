@@ -1,3 +1,5 @@
+pub mod result;
+
 mod file_reader;
 pub use self::file_reader::FileReader;
 
@@ -7,11 +9,11 @@ pub use self::counter::Counter;
 mod unique_map;
 pub use self::unique_map::UniqueMap;
 
-mod stack_map;
+pub mod stack_map;
 pub use self::stack_map::StackMap;
-
-// We want to be able to import this separately.
-pub mod result;
 
 mod span;
 pub use self::span::Span;
+
+mod zip;
+pub use self::zip::ZipExact;

@@ -1,9 +1,9 @@
 use crate::analyze::represent::*;
-use crate::parser::*;
+use crate::parser::ast::*;
+use crate::parser::ast_visitor::*;
 use crate::util::result::*;
 use crate::util::Span;
 use std::collections::HashMap;
-use std::iter::Iterator;
 
 pub struct TraitsAdapter<'a> {
     functions: &'a HashMap<String, AnFunctionData>,

@@ -1,8 +1,6 @@
-use crate::parser::*;
-use crate::util::result::PResult;
-
+use crate::parser::ast::*;
+use crate::util::result::*;
 use std::collections::HashMap;
-
 use std::hash::Hash;
 
 pub trait Visit<A>: Sized {
@@ -225,9 +223,7 @@ impl<T: Adapter> Visit<T> for AstBlock {
 impl<T: Adapter> Visit<T> for AstStatement {
     fn visit(self, adapter: &mut T) -> PResult<Self> {
         let stmt = match adapter.enter_statement(self)? {
-            i @ AstStatement::Break
-            | i @ AstStatement::Continue
-            | i @ AstStatement::Unimplemented => i,
+            i @ AstStatement::Break | i @ AstStatement::Continue => i,
             AstStatement::Block { block } => AstStatement::Block {
                 block: block.visit(adapter)?,
             },
@@ -281,15 +277,15 @@ impl<T: Adapter> Visit<T> for AstExpression {
         };
 
         let data = match data {
-            i @ AstExpressionData::Nothing
-            | i @ AstExpressionData::True
+            i @ AstExpressionData::True
             | i @ AstExpressionData::False
             | i @ AstExpressionData::Null
             | i @ AstExpressionData::SelfRef
             | i @ AstExpressionData::String { .. }
             | i @ AstExpressionData::Int(..)
             | i @ AstExpressionData::Char(..)
-            | i @ AstExpressionData::Identifier { .. } => i,
+            | i @ AstExpressionData::Identifier { .. }
+            | i @ AstExpressionData::Unimplemented => i,
             AstExpressionData::Tuple { values } => AstExpressionData::Tuple {
                 values: values.visit(adapter)?,
             },
