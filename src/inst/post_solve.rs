@@ -6,11 +6,11 @@ use crate::tyck::TyckSolution;
 pub struct PostSolveAdapter(pub TyckSolution);
 
 impl Adapter for PostSolveAdapter {
-    fn enter_type(&mut self, t: AstType) -> PResult<AstType> {
+    fn exit_type(&mut self, t: AstType) -> PResult<AstType> {
         self.0.normalize_ty(&t)
     }
 
-    fn enter_expression(&mut self, t: AstExpression) -> PResult<AstExpression> {
+    fn exit_expression(&mut self, t: AstExpression) -> PResult<AstExpression> {
         let AstExpression { span, ty, data } = t;
 
         let data = match data {

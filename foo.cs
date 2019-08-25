@@ -26,14 +26,10 @@ impl Collection for IntVec {
 
 export fn get_a_collection<_T>() -> _T where _T: Collection.
 
-export fn produce<_G>() -> _G.
-
 export fn bar(s: IntVec).
 
-//fn main() {}
-
 fn main() {
-  let k: _ = produce().
+  let k: _ = get_a_collection().
   let s = k:remove().
 
   k:add(1).

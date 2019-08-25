@@ -18,14 +18,12 @@ struct InstantiationAdapter {
     fns: HashMap<String, AstFunction>,
     objects: HashMap<String, AstObject>,
     impls: HashMap<ImplId, AstImpl>,
-    traits: HashMap<String, AstTrait>,
     obj_fns: HashMap<(ImplId, String), AstObjectFunction>,
 
     instantiated_fns: HashMap<InstFunctionSignature, Option<AstFunction>>,
     instantiated_object_fns: HashMap<InstObjectFunctionSignature, Option<AstObjectFunction>>,
     instantiated_impls: HashMap<InstImplSignature, Option<AstImpl>>,
     instantiated_objects: HashMap<InstObjectSignature, Option<AstObject>>,
-    instantiated_traits: HashMap<InstTraitSignature, Option<AstTrait>>,
 
     solved_impls: HashMap<TyckObjective, InstImplSignature>,
 }
@@ -35,14 +33,12 @@ pub struct InstantiatedFile {
     instantiated_object_fns: HashMap<InstObjectFunctionSignature, Option<AstObjectFunction>>,
     instantiated_impls: HashMap<InstImplSignature, Option<AstImpl>>,
     instantiated_objects: HashMap<InstObjectSignature, Option<AstObject>>,
-    instantiated_traits: HashMap<InstTraitSignature, Option<AstTrait>>,
 }
 
 pub fn instantiate(parsed_file: ParsedFile, analyzed_file: AnalyzedFile) -> PResult<InstantiatedFile> {
     let fns: HashMap<_, _> = parsed_file.functions.into_iter().map(|f| (f.name.clone(), f)).collect();
     let objects: HashMap<_, _> = parsed_file.objects.into_iter().map(|o| (o.name.clone(), o)).collect();
     let impls: HashMap<_, _> = parsed_file.impls.into_iter().map(|i| (i.impl_id, i)).collect();
-    let traits: HashMap<_, _> = parsed_file.traits.into_iter().map(|t| (t.name.clone(), t)).collect();
 
     let mut obj_fns = HashMap::new();
     for (&id, i) in &impls {
@@ -60,14 +56,12 @@ pub fn instantiate(parsed_file: ParsedFile, analyzed_file: AnalyzedFile) -> PRes
         fns,
         objects,
         impls,
-        traits,
         obj_fns,
 
         instantiated_fns: HashMap::new(),
         instantiated_object_fns: HashMap::new(),
         instantiated_impls: HashMap::new(),
         instantiated_objects: HashMap::new(),
-        instantiated_traits: HashMap::new(),
         solved_impls: HashMap::new(),
     };
 
@@ -78,7 +72,6 @@ pub fn instantiate(parsed_file: ParsedFile, analyzed_file: AnalyzedFile) -> PRes
         instantiated_object_fns: i.instantiated_object_fns,
         instantiated_impls: i.instantiated_impls,
         instantiated_objects: i.instantiated_objects,
-        instantiated_traits: i.instantiated_traits,
     })
 }
 
@@ -118,33 +111,8 @@ impl InstantiationAdapter {
 
         Ok(())
     }
-
-    fn instantiate_trait(&mut self, name: &String, generics: &Vec<AstType>) -> PResult<()> {
-        let sig = InstTraitSignature(name.clone(), generics.clone());
-
-        if self.instantiated_traits.contains_key(&sig) {
-            return Ok(());
-        }
-
-        // Insert so we don't recurse infinitely.
-        self.instantiated_traits.insert(sig.clone(), None);
-
-        let ids = &self.analyzed_file.clone().analyzed_traits[name].generics;
-
-        // NOTA BENE: I remove the generic functions from this trait, since we don't have dummy assumptions.
-        let mut t = self.traits[name].clone();
-        t.functions = t.functions.into_iter().filter(|f| f.generics.is_empty()).collect();
-
-        let t = self.process_simple(t, ids, generics)?;
-
-        self.instantiated_traits.insert(sig, Some(t));
-
-        Ok(())
-    }
     
     fn instantiate_impl(&mut self, sig: &TyckImplSignature, ty: &AstType, trt: &AstTraitType) -> PResult<()> {
-        self.instantiate_trait(&trt.0, &trt.1)?;
-
         let id = sig.impl_id;
         let generics = &sig.generics;
         let sig = InstImplSignature(sig.impl_id, sig.generics.clone());

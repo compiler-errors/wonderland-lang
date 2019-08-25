@@ -44,7 +44,7 @@ fn try_main(file_reader: &mut FileReader) -> PResult<()> {
 
     typecheck(&parsed_file, &analyzed_file)?;
 
-    //let instantiated_file = instantiate(parsed_file, analyzed_file)?;
+    let instantiated_file = instantiate(parsed_file, analyzed_file)?;
 
     Ok(())
 }

@@ -102,7 +102,6 @@ impl TyckSolver {
             /* Otherwise, just throw it away. */
         }
 
-        panic!("Yikes! {:#?} {:?}", *self.analyzed_file, self.objectives);
         TyckSolver::error("No more solutions")
     }
 

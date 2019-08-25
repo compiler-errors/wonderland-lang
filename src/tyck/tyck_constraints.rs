@@ -43,6 +43,7 @@ impl TyckConstraintAssumptionAdapter {
                 let dummy = AstType::dummy();
 
                 for c in &assoc_ty.restrictions {
+                    // Alas, this means that we might have assumption bounds that are literally unprovable.
                     self.assume(&dummy, &c.clone().visit(&mut instantiate)?)?;
                 }
 
