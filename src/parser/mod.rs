@@ -89,22 +89,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn check_typename(&self) -> bool {
-        if let Token::TypeName(_) = self.next_token {
-            true
-        } else {
-            false
-        }
-    }
-
-    fn check_generic(&self) -> bool {
-        if let Token::GenericName(_) = self.next_token {
-            true
-        } else {
-            false
-        }
-    }
-
     fn check_number(&self) -> bool {
         if let Token::IntLiteral(_) = self.next_token {
             true
@@ -505,7 +489,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_let_statement(&mut self) -> PResult<AstStatement> {
-        let mut span = self.next_span;
+        //let mut span = self.next_span;
 
         self.expect_consume(Token::Let)?;
         let name_span = self.next_span;
@@ -521,7 +505,7 @@ impl<'a> Parser<'a> {
 
         let value = self.parse_expression()?;
 
-        span = span.unite(self.next_span);
+        //span = span.unite(self.next_span);
         self.expect_consume(Token::Dot)?;
 
         //TODO: Use span.

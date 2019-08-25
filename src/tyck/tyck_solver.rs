@@ -1,8 +1,10 @@
 use crate::analyze::represent::AnalyzedFile;
+
 use crate::parser::ast::*;
 use crate::parser::ast_visitor::*;
 use crate::tyck::tyck_instantiate::Instantiate;
 use crate::tyck::*;
+
 use crate::util::result::*;
 use crate::util::{Span, ZipExact};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -76,8 +78,8 @@ impl TyckSolver {
         self.normalize()?;
         multiverse.push_back(self.clone());
 
-        let mut iterations = 0usize;
-        while let Some(mut universe) = multiverse.pop_front() {
+        let iterations = 0usize;
+        while let Some(universe) = multiverse.pop_front() {
             if iterations > MAX_ITERATIONS {
                 break;
             }
@@ -314,7 +316,7 @@ impl TyckSolver {
             | (AstType::Bool, AstType::Bool)
             | (AstType::String, AstType::String) => Ok(()),
 
-            (lhs, rhs @ AstType::SelfType) | (lhs @ AstType::SelfType, rhs) => panic!(
+            (lhs, rhs @ AstType::SelfType) | (lhs @ AstType::SelfType, rhs) => unreachable!(
                 "Self is not allowed as a non-instantiated type. Attempted to unify {:?} and {:?}",
                 lhs, rhs
             ),
@@ -599,8 +601,6 @@ impl<'a> Adapter for Normalize<'a> {
                     obj_ty: *obj_ty.clone(),
                     trait_ty: trait_ty.as_ref().unwrap().clone(),
                 };
-
-                let solved: Vec<_> = self.0.impl_signatures.keys().clone().collect();
 
                 if let Some(impl_signature) = self.0.impl_signatures.get(typecheck_objective) {
                     let instantiate = Instantiate::instantiate_associated_ty(

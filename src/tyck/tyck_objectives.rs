@@ -26,7 +26,7 @@ impl TyckObjectiveAdapter {
 }
 
 impl<'a> Adapter for TyckObjectiveAdapter {
-    fn enter_impl(&mut self, i: AstImpl) -> PResult<AstImpl> {
+    fn enter_impl(&mut self, _i: AstImpl) -> PResult<AstImpl> {
         unreachable!()
     }
 
@@ -112,7 +112,7 @@ impl<'a> Adapter for TyckObjectiveAdapter {
             AstExpressionData::Char(..) => {
                 self.solver.unify(&ty, &AstType::Char)?;
             }
-            AstExpressionData::Identifier { name, variable_id } => {
+            AstExpressionData::Identifier { variable_id, .. } => {
                 let variable_id = variable_id.as_ref().unwrap();
                 self.solver.unify(&ty, &self.variables[variable_id])?;
             }
@@ -139,12 +139,7 @@ impl<'a> Adapter for TyckObjectiveAdapter {
                 self.solver.add_objectives(&objectives)?; // Add fn restrictions
             }
             // Call an object's member function
-            AstExpressionData::ObjectCall {
-                object,
-                fn_name,
-                generics,
-                args,
-            } => unreachable!(),
+            AstExpressionData::ObjectCall { .. } => unreachable!(),
             // Call an object's static function
             AstExpressionData::StaticCall {
                 call_type,
@@ -152,7 +147,7 @@ impl<'a> Adapter for TyckObjectiveAdapter {
                 fn_generics,
                 args,
                 associated_trait,
-                impl_signature,
+                ..
             } => {
                 let associated_trait = associated_trait.as_ref().unwrap();
                 let (param_tys, return_ty, objectives) =
@@ -171,7 +166,7 @@ impl<'a> Adapter for TyckObjectiveAdapter {
                 self.solver.add_objectives(&objectives)?; // Add fn restrictions
             }
             // An array access `a[1u]`
-            AstExpressionData::ArrayAccess { accessible, idx } => {
+            AstExpressionData::ArrayAccess { accessible, .. } => {
                 let array_ty = &accessible.ty;
                 self.solver.unify(array_ty, &AstType::array(ty.clone()))?;
             }

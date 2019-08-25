@@ -1,7 +1,6 @@
 use crate::util::result::{PError, PResult};
 use crate::util::Span;
 use std::iter::Zip;
-use std::path::Iter;
 
 pub trait ZipExact<S>: IntoIterator
 where
@@ -17,12 +16,6 @@ impl<'a, T, S> ZipExact<&'a Vec<S>> for &Vec<T> {
         what: &str,
     ) -> PResult<Zip<Self::IntoIter, <&'a Vec<S> as IntoIterator>::IntoIter>> {
         if self.len() != other.len() {
-            panic!(format!(
-                "Mismatched {}! LHS has {}, RHS has {}.",
-                what,
-                self.len(),
-                other.len()
-            ));
             PError::new(
                 Span::new(0, 0),
                 format!(

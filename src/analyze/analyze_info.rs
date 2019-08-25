@@ -18,9 +18,7 @@ pub struct InfoAdapter {
 }
 
 impl InfoAdapter {
-    pub fn new(
-        variable_ids: HashMap<VariableId, AstNamedVariable>,
-    ) -> InfoAdapter {
+    pub fn new(variable_ids: HashMap<VariableId, AstNamedVariable>) -> InfoAdapter {
         InfoAdapter {
             variable_ids,
             functions: HashMap::new(),
@@ -55,22 +53,6 @@ impl InfoAdapter {
         }
 
         Ok(member_assoc)
-    }
-
-    fn clone_trait_associated_tys(
-        associated_tys: &HashMap<String, AstAssociatedType>,
-    ) -> PResult<HashMap<String, AstAssociatedType>> {
-        let mut ty_assoc = HashMap::new();
-
-        for (k, v) in associated_tys {
-            ty_assoc.insert(k.clone(), v.clone()).not_expected(
-                Span::new(0, 0),
-                "associated type",
-                k,
-            )?;
-        }
-
-        Ok(ty_assoc)
     }
 }
 

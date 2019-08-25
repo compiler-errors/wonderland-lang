@@ -61,13 +61,10 @@ impl TyckConstraintAssumptionAdapter {
 impl Adapter for TyckConstraintAssumptionAdapter {
     fn enter_type(&mut self, t: AstType) -> PResult<AstType> {
         match t {
-            AstType::SelfType => {
-                if let Some(t) = &self.self_ty {
-                    Ok(t.clone())
-                } else {
-                    panic!()
-                }
-            }
+            AstType::SelfType => self
+                .self_ty
+                .clone()
+                .expected(Span::new(0, 0), "type", "self"),
             t => Ok(t),
         }
     }

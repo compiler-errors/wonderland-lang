@@ -46,7 +46,7 @@ impl<T, S: Comment> Comment for Result<T, S> {
         }
     }
 
-    fn with_comment(mut self, comment: String) -> Result<T, S> {
+    fn with_comment(self, comment: String) -> Result<T, S> {
         self.map_err(|e| e.with_comment(comment))
     }
 }
@@ -61,7 +61,6 @@ impl<T> Expect<T> for Option<T> {
         if let Some(t) = self {
             Ok(t)
         } else {
-            panic!();
             PError::new(
                 span,
                 format!("Couldn't find {} with name `{}`", type_of, name),
@@ -73,7 +72,6 @@ impl<T> Expect<T> for Option<T> {
         if self.is_none() {
             Ok(())
         } else {
-            panic!();
             PError::new(span, format!("Duplicate {} with name `{}`", type_of, name))
         }
     }
