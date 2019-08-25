@@ -103,88 +103,6 @@ impl TyckSolver {
         TyckSolver::error("No more solutions")
     }
 
-    pub fn unify(&mut self, lhs: &AstType, rhs: &AstType) -> PResult<()> {
-        let lhs = self.normalize_ty(lhs)?;
-        let rhs = self.normalize_ty(rhs)?;
-
-        println!("Unifying {:?} and {:?}", lhs, rhs);
-
-        match (lhs, rhs) {
-            /* Generics should have been repl'ed out. */
-            (AstType::Generic(..), _)
-            | (_, AstType::Generic(..))
-            | (AstType::GenericPlaceholder(..), _)
-            | (_, AstType::GenericPlaceholder(..)) => unreachable!(),
-
-            (a @ AstType::AssociatedType { .. }, b) | (a, b @ AstType::AssociatedType { .. }) => {
-                self.add_delayed_unify(&a, &b)?;
-
-                Ok(())
-            }
-            (AstType::Infer(lid), AstType::Infer(rid)) if lid == rid => {
-                /* Do nothing. No cycles in this house. */
-
-                Ok(())
-            }
-            (AstType::Infer(lid), rhs) => {
-                self.solution
-                    .inferences
-                    .insert(lid, rhs.clone())
-                    .not_expected(Span::new(0, 0), "inference", &format!("_{}", lid.0))?;
-
-                Ok(())
-            }
-            (lhs, AstType::Infer(rid)) => {
-                self.solution
-                    .inferences
-                    .insert(rid, lhs.clone())
-                    .not_expected(Span::new(0, 0), "inference", &format!("_{}", rid.0))?;
-
-                Ok(())
-            }
-
-            (AstType::Int, AstType::Int)
-            | (AstType::Char, AstType::Char)
-            | (AstType::Bool, AstType::Bool)
-            | (AstType::String, AstType::String) => Ok(()),
-
-            (lhs, rhs @ AstType::SelfType) | (lhs @ AstType::SelfType, rhs) => panic!(
-                "Self is not allowed as a non-instantiated type. Attempted to unify {:?} and {:?}",
-                lhs, rhs
-            ),
-
-            (AstType::DummyGeneric(a, ..), AstType::DummyGeneric(b, ..)) if a == b => Ok(()),
-            (AstType::Dummy(a), AstType::Dummy(b)) if a == b => Ok(()),
-
-            (AstType::Array { ty: a_ty }, AstType::Array { ty: b_ty }) => {
-                self.unify(&*a_ty, &*b_ty)
-            }
-            (AstType::Tuple { types: ref a_tys }, AstType::Tuple { types: ref b_tys }) => {
-                for (a_ty, b_ty) in ZipExact::zip_exact(a_tys, b_tys, "tuple types")? {
-                    self.unify(a_ty, b_ty)?;
-                }
-
-                Ok(())
-            }
-            (AstType::Object(ref a_name, ref a_tys), AstType::Object(ref b_name, ref b_tys)) => {
-                if a_name != b_name {
-                    TyckSolver::error(&format!(
-                        "Object names won't unify: {} and {}",
-                        a_name, b_name
-                    ))
-                } else {
-                    for (a_ty, b_ty) in ZipExact::zip_exact(a_tys, b_tys, "object generics")? {
-                        self.unify(a_ty, b_ty)?;
-                    }
-
-                    Ok(())
-                }
-            }
-
-            (a, b) => TyckSolver::error(&format!("Type non-union: {:?} and {:?}", a, b)),
-        }
-    }
-
     pub fn add_objective(&mut self, obj_ty: &AstType, trait_ty: &AstTraitType) -> PResult<()> {
         let t = TyckObjective {
             obj_ty: obj_ty.clone(),
@@ -351,6 +269,88 @@ impl TyckSolver {
         Ok(impls)
     }
 
+    pub fn unify(&mut self, lhs: &AstType, rhs: &AstType) -> PResult<()> {
+        let lhs = self.normalize_ty(lhs)?;
+        let rhs = self.normalize_ty(rhs)?;
+
+        println!("Unifying {:?} and {:?}", lhs, rhs);
+
+        match (lhs, rhs) {
+            /* Generics should have been repl'ed out. */
+            (AstType::Generic(..), _)
+            | (_, AstType::Generic(..))
+            | (AstType::GenericPlaceholder(..), _)
+            | (_, AstType::GenericPlaceholder(..)) => unreachable!(),
+
+            (a @ AstType::AssociatedType { .. }, b) | (a, b @ AstType::AssociatedType { .. }) => {
+                self.add_delayed_unify(&a, &b)?;
+
+                Ok(())
+            }
+            (AstType::Infer(lid), AstType::Infer(rid)) if lid == rid => {
+                /* Do nothing. No cycles in this house. */
+
+                Ok(())
+            }
+            (AstType::Infer(lid), rhs) => {
+                self.solution
+                    .inferences
+                    .insert(lid, rhs.clone())
+                    .not_expected(Span::new(0, 0), "inference", &format!("_{}", lid.0))?;
+
+                Ok(())
+            }
+            (lhs, AstType::Infer(rid)) => {
+                self.solution
+                    .inferences
+                    .insert(rid, lhs.clone())
+                    .not_expected(Span::new(0, 0), "inference", &format!("_{}", rid.0))?;
+
+                Ok(())
+            }
+
+            (AstType::Int, AstType::Int)
+            | (AstType::Char, AstType::Char)
+            | (AstType::Bool, AstType::Bool)
+            | (AstType::String, AstType::String) => Ok(()),
+
+            (lhs, rhs @ AstType::SelfType) | (lhs @ AstType::SelfType, rhs) => panic!(
+                "Self is not allowed as a non-instantiated type. Attempted to unify {:?} and {:?}",
+                lhs, rhs
+            ),
+
+            (AstType::DummyGeneric(a, ..), AstType::DummyGeneric(b, ..)) if a == b => Ok(()),
+            (AstType::Dummy(a), AstType::Dummy(b)) if a == b => Ok(()),
+
+            (AstType::Array { ty: a_ty }, AstType::Array { ty: b_ty }) => {
+                self.unify(&*a_ty, &*b_ty)
+            }
+            (AstType::Tuple { types: ref a_tys }, AstType::Tuple { types: ref b_tys }) => {
+                for (a_ty, b_ty) in ZipExact::zip_exact(a_tys, b_tys, "tuple types")? {
+                    self.unify(a_ty, b_ty)?;
+                }
+
+                Ok(())
+            }
+            (AstType::Object(ref a_name, ref a_tys), AstType::Object(ref b_name, ref b_tys)) => {
+                if a_name != b_name {
+                    TyckSolver::error(&format!(
+                        "Object names won't unify: {} and {}",
+                        a_name, b_name
+                    ))
+                } else {
+                    for (a_ty, b_ty) in ZipExact::zip_exact(a_tys, b_tys, "object generics")? {
+                        self.unify(a_ty, b_ty)?;
+                    }
+
+                    Ok(())
+                }
+            }
+
+            (a, b) => TyckSolver::error(&format!("Type non-union: {:?} and {:?}", a, b)),
+        }
+    }
+
     pub fn unify_all(&mut self, a: &Vec<AstType>, b: &Vec<AstType>) -> PResult<()> {
         for (a, b) in ZipExact::zip_exact(a, b, "arguments")? {
             self.unify(a, b)?;
@@ -359,7 +359,7 @@ impl TyckSolver {
         Ok(())
     }
 
-    fn unify_traits(&mut self, lhs: &AstTraitType, rhs: &AstTraitType) -> PResult<()> {
+    pub fn unify_traits(&mut self, lhs: &AstTraitType, rhs: &AstTraitType) -> PResult<()> {
         if lhs.0 == rhs.0 {
             for (l, r) in ZipExact::zip_exact(&lhs.1, &rhs.1, "trait generics")? {
                 self.unify(l, r)?;

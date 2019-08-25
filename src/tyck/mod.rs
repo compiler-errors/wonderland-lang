@@ -63,6 +63,18 @@ pub fn typecheck(parsed_file: &ParsedFile, analyzed_file: AnalyzedFile) -> PResu
     for imp in impls {
         let imp = typecheck_impl(file.clone(), &base_solver, imp)?;
 
+        // Try to detect contradictions..!
+        for (other_id, other_impl) in &file.analyzed_impls {
+            // Ignore dummies. We don't care about them... Also, an impl always matches itself...
+            if imp.impl_id == *other_id || other_impl.is_dummy {
+                continue;
+            }
+
+            if typecheck_impl_collision(&base_solver, &imp, &other_impl).is_ok() {
+                return PError::new(imp.name_span, format!("This impl overlaps with another: impl {:?} for {:?}", other_impl.trait_ty, other_impl.impl_ty));
+            }
+        }
+
         // We want to type check these functions generically...
         for fun in imp.fns {
             let fn_generics = Genericizer::from_generics(&fun.generics)?;
@@ -118,7 +130,7 @@ where
     Ok((obj, solution))
 }
 
-fn typecheck_associated_type(
+pub fn typecheck_associated_type(
     file: Rc<AnalyzedFile>,
     base_solver: &TyckSolver,
     impl_ty: &AstType,
@@ -154,7 +166,7 @@ fn typecheck_associated_type(
     Ok(())
 }
 
-fn typecheck_impl(
+pub fn typecheck_impl(
     file: Rc<AnalyzedFile>,
     base_solver: &TyckSolver,
     imp: AstImpl) -> PResult<AstImpl> {
@@ -206,7 +218,7 @@ fn typecheck_impl(
     Ok(imp)
 }
 
-fn typecheck_impl_fn(
+pub fn typecheck_impl_fn(
     file: Rc<AnalyzedFile>,
     base_solver: &TyckSolver,
     fun: AstObjectFunction,
@@ -266,4 +278,22 @@ fn typecheck_impl_fn(
     }
 
     Ok(fun)
+}
+
+/// Try to typecheck one impl as another. Useful to detect contradictions where one impl can satisfy another.
+fn typecheck_impl_collision(base_solver: &TyckSolver, imp: &AstImpl, other_impl: &AnImplData) -> PResult<()> {
+    let mut solver = base_solver.clone();
+
+    let fresh_generics = other_impl.generics.iter().map(|_| AstType::infer()).collect();
+    let mut instantiate = Instantiate::from_generics(&other_impl.generics, &fresh_generics)?;
+
+    let other_impl_ty = other_impl.impl_ty.clone().visit(&mut instantiate)?;
+    let other_trait_ty = other_impl.trait_ty.clone().visit(&mut instantiate)?;
+
+    solver.unify(&imp.impl_ty, &other_impl_ty)?;
+    solver.unify_traits(&imp.trait_ty, &other_trait_ty)?;
+    solver.add_objectives(&other_impl.restrictions.clone().visit(&mut instantiate)?)?;
+
+    solver.solve()?;
+    Ok(())
 }
