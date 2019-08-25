@@ -1,8 +1,9 @@
+use crate::tyck::TyckImplSignature;
 use crate::util::Span;
 use std::collections::HashMap;
 use std::sync::RwLock;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 /// A file that is being parsed, along with the associated
 /// parsed functions that are contained in the file.
 pub struct ParsedFile {
@@ -28,13 +29,35 @@ impl ParsedFile {
     }
 }
 
-#[derive(Debug)]
+lazy_static! {
+    static ref GENERIC_ID_COUNTER: RwLock<usize> = RwLock::new(1);
+}
+
+#[derive(Debug, Clone)]
+pub struct AstGeneric(pub GenericId, pub String);
+
+impl AstGeneric {
+    pub fn new(name: String) -> AstGeneric {
+        let mut id_ref = GENERIC_ID_COUNTER.write().unwrap();
+        *id_ref += 1;
+
+        AstGeneric(GenericId(id_ref.clone()), name)
+    }
+}
+
+impl From<AstGeneric> for AstType {
+    fn from(g: AstGeneric) -> Self {
+        AstType::GenericPlaceholder(g.0, g.1)
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct AstFunction {
     pub name_span: Span,
     /// The beginning position of the function
     /// The simple name of the function
     pub name: String,
-    pub generics: Vec<String>,
+    pub generics: Vec<AstGeneric>,
     /// The parameter list that the function receives
     pub parameter_list: Vec<AstNamedVariable>,
     /// The return type of the function, or AstType::None
@@ -52,7 +75,7 @@ impl AstFunction {
     pub fn new(
         name_span: Span,
         name: String,
-        generics: Vec<String>,
+        generics: Vec<AstGeneric>,
         parameter_list: Vec<AstNamedVariable>,
         return_type: AstType,
         restrictions: Vec<AstTypeRestriction>,
@@ -104,6 +127,9 @@ pub struct InferId(pub usize);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct GenericId(pub usize);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DummyId(pub usize);
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AstTraitType(pub String, pub Vec<AstType>);
 
@@ -133,10 +159,15 @@ pub enum AstType {
     },
 
     GenericPlaceholder(GenericId, String),
+
+    // Generics are mapped to DummyGenerics to solidify them for type-checking.
+    DummyGeneric(GenericId, String),
+    Dummy(DummyId),
 }
 
 lazy_static! {
     static ref INFER_ID_COUNTER: RwLock<usize> = RwLock::new(0);
+    static ref DUMMY_ID_COUNTER: RwLock<usize> = RwLock::new(0);
 }
 
 impl AstType {
@@ -145,6 +176,13 @@ impl AstType {
         *id_ref += 1;
 
         AstType::Infer(InferId(id_ref.clone()))
+    }
+
+    pub fn dummy() -> AstType {
+        let mut id_ref = DUMMY_ID_COUNTER.write().unwrap();
+        *id_ref += 1;
+
+        AstType::Dummy(DummyId(id_ref.clone()))
     }
 
     pub fn array(ty: AstType) -> AstType {
@@ -174,13 +212,9 @@ impl AstType {
             name,
         }
     }
-
-    pub fn is_dummy_equivalent(&self, other: &AstType) -> bool {
-        unimplemented!()
-    }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 /// A collection of statements, given by a `{}` block.
 pub struct AstBlock {
     pub statements: Vec<AstStatement>,
@@ -198,7 +232,7 @@ impl AstBlock {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum AstStatement {
     Block {
         block: AstBlock,
@@ -300,16 +334,16 @@ impl AstStatement {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AstExpression {
     pub data: AstExpressionData,
-    pub ty: Option<AstType>,
+    pub ty: AstType,
     pub span: Span,
 }
 
 type SubExpression = Box<AstExpression>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum AstExpressionData {
     Unimplemented,
     True,
@@ -352,10 +386,12 @@ pub enum AstExpressionData {
         fn_name: String,
         fn_generics: Vec<AstType>,
         args: Vec<AstExpression>,
+
         associated_trait: Option<AstTraitType>,
+        impl_signature: Option<TyckImplSignature>,
     },
     /// An array access `a[1u]`
-    Access {
+    ArrayAccess {
         accessible: SubExpression,
         idx: SubExpression,
     },
@@ -408,7 +444,7 @@ impl AstExpression {
         AstExpression {
             span,
             data: AstExpressionData::String { string, len },
-            ty: None,
+            ty: AstType::infer(),
         }
     }
 
@@ -416,7 +452,7 @@ impl AstExpression {
         AstExpression {
             span,
             data: AstExpressionData::Char(ch),
-            ty: None,
+            ty: AstType::infer(),
         }
     }
 
@@ -424,7 +460,7 @@ impl AstExpression {
         AstExpression {
             span,
             data: AstExpressionData::Int(num),
-            ty: None,
+            ty: AstType::infer(),
         }
     }
 
@@ -435,7 +471,7 @@ impl AstExpression {
                 name: identifier,
                 variable_id: None,
             },
-            ty: None,
+            ty: AstType::infer(),
         }
     }
 
@@ -443,7 +479,7 @@ impl AstExpression {
         AstExpression {
             span,
             data: AstExpressionData::Tuple { values },
-            ty: None,
+            ty: AstType::infer(),
         }
     }
 
@@ -453,7 +489,7 @@ impl AstExpression {
             data: AstExpressionData::Array {
                 elements: Vec::new(),
             },
-            ty: None,
+            ty: AstType::infer(),
         }
     }
 
@@ -461,7 +497,7 @@ impl AstExpression {
         AstExpression {
             span,
             data: AstExpressionData::Array { elements },
-            ty: None,
+            ty: AstType::infer(),
         }
     }
 
@@ -478,7 +514,7 @@ impl AstExpression {
                 generics,
                 args,
             },
-            ty: None,
+            ty: AstType::infer(),
         }
     }
 
@@ -497,7 +533,7 @@ impl AstExpression {
                 generics: generics,
                 args: args,
             },
-            ty: None,
+            ty: AstType::infer(),
         }
     }
 
@@ -516,8 +552,9 @@ impl AstExpression {
                 fn_generics: fn_generics,
                 args: args,
                 associated_trait: None,
+                impl_signature: None,
             },
-            ty: None,
+            ty: AstType::infer(),
         }
     }
 
@@ -525,18 +562,18 @@ impl AstExpression {
         AstExpression {
             span,
             data: AstExpressionData::Unimplemented,
-            ty: None,
+            ty: AstType::infer(),
         }
     }
 
     pub fn access(span: Span, lhs: AstExpression, idx: AstExpression) -> AstExpression {
         AstExpression {
             span,
-            data: AstExpressionData::Access {
+            data: AstExpressionData::ArrayAccess {
                 accessible: Box::new(lhs),
                 idx: Box::new(idx),
             },
-            ty: None,
+            ty: AstType::infer(),
         }
     }
 
@@ -547,7 +584,7 @@ impl AstExpression {
                 accessible: Box::new(lhs),
                 idx: idx,
             },
-            ty: None,
+            ty: AstType::infer(),
         }
     }
 
@@ -558,7 +595,7 @@ impl AstExpression {
                 object: Box::new(object),
                 mem_name,
             },
-            ty: None,
+            ty: AstType::infer(),
         }
     }
 
@@ -566,7 +603,7 @@ impl AstExpression {
         AstExpression {
             span,
             data: AstExpressionData::Allocate { object },
-            ty: None,
+            ty: AstType::infer(),
         }
     }
 
@@ -583,7 +620,7 @@ impl AstExpression {
                 rhs: Box::new(rhs),
                 kind: binop,
             },
-            ty: None,
+            ty: AstType::infer(),
         }
     }
 
@@ -591,7 +628,7 @@ impl AstExpression {
         AstExpression {
             span,
             data: AstExpressionData::Not(Box::new(lhs)),
-            ty: None,
+            ty: AstType::infer(),
         }
     }
 
@@ -599,7 +636,7 @@ impl AstExpression {
         AstExpression {
             span,
             data: AstExpressionData::Negate(Box::new(lhs)),
-            ty: None,
+            ty: AstType::infer(),
         }
     }
 
@@ -607,7 +644,7 @@ impl AstExpression {
         AstExpression {
             span,
             data: AstExpressionData::Tuple { values: Vec::new() },
-            ty: None,
+            ty: AstType::infer(),
         }
     }
 
@@ -615,7 +652,7 @@ impl AstExpression {
         AstExpression {
             span,
             data: AstExpressionData::True,
-            ty: None,
+            ty: AstType::infer(),
         }
     }
 
@@ -623,7 +660,7 @@ impl AstExpression {
         AstExpression {
             span,
             data: AstExpressionData::False,
-            ty: None,
+            ty: AstType::infer(),
         }
     }
 
@@ -631,7 +668,7 @@ impl AstExpression {
         AstExpression {
             span,
             data: AstExpressionData::Null,
-            ty: None,
+            ty: AstType::infer(),
         }
     }
 
@@ -639,17 +676,17 @@ impl AstExpression {
         AstExpression {
             span,
             data: AstExpressionData::SelfRef,
-            ty: None,
+            ty: AstType::infer(),
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AstObject {
     pub name_span: Span,
 
     /// The beginning position of the object
-    pub generics: Vec<String>,
+    pub generics: Vec<AstGeneric>,
     /// The object name
     pub name: String,
     /// The members that are contained in the object
@@ -660,7 +697,7 @@ pub struct AstObject {
 impl AstObject {
     pub fn new(
         name_span: Span,
-        generics: Vec<String>,
+        generics: Vec<AstGeneric>,
         name: String,
         members: Vec<AstObjectMember>,
         restrictions: Vec<AstTypeRestriction>,
@@ -675,14 +712,14 @@ impl AstObject {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AstObjectFunction {
     pub name_span: Span,
 
     /// The beginning position of the function
     /// The simple name of the function
     pub name: String,
-    pub generics: Vec<String>,
+    pub generics: Vec<AstGeneric>,
     /// Whether the function is a member or static function of the type
     pub has_self: bool,
     /// The parameter list that the function receives
@@ -702,7 +739,7 @@ impl AstObjectFunction {
     pub fn new(
         name_span: Span,
         name: String,
-        generics: Vec<String>,
+        generics: Vec<AstGeneric>,
         has_self: bool,
         parameter_list: Vec<AstNamedVariable>,
         return_type: AstType,
@@ -723,7 +760,7 @@ impl AstObjectFunction {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AstObjectMember {
     pub span: Span,
     pub name: String,
@@ -740,12 +777,12 @@ impl AstObjectMember {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AstTrait {
     pub name_span: Span,
 
     pub name: String,
-    pub generics: Vec<String>,
+    pub generics: Vec<AstGeneric>,
     pub functions: Vec<AstObjectFunction>,
     pub restrictions: Vec<AstTypeRestriction>,
     pub associated_types: HashMap<String, AstAssociatedType>,
@@ -755,7 +792,7 @@ impl AstTrait {
     pub fn new(
         name_span: Span,
         name: String,
-        generics: Vec<String>,
+        generics: Vec<AstGeneric>,
         functions: Vec<AstObjectFunction>,
         restrictions: Vec<AstTypeRestriction>,
         associated_types: HashMap<String, AstAssociatedType>,
@@ -777,7 +814,16 @@ pub struct AstAssociatedType {
     pub restrictions: Vec<AstTraitType>,
 }
 
-#[derive(Debug, Clone)]
+impl AstAssociatedType {
+    pub fn self_ty() -> AstAssociatedType {
+        AstAssociatedType {
+            name: "Self".to_string(),
+            restrictions: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AstTypeRestriction {
     pub ty: AstType,
     pub trt: AstTraitType,
@@ -792,11 +838,11 @@ impl AstTypeRestriction {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ImplId(pub usize);
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AstImpl {
     pub impl_id: ImplId,
     pub name_span: Span,
-    pub generics: Vec<String>,
+    pub generics: Vec<AstGeneric>,
     pub trait_ty: AstTraitType,
     pub impl_ty: AstType,
     pub fns: Vec<AstObjectFunction>,
@@ -812,7 +858,7 @@ lazy_static! {
 impl AstImpl {
     pub fn new(
         name_span: Span,
-        generics: Vec<String>,
+        generics: Vec<AstGeneric>,
         trait_ty: AstTraitType,
         impl_ty: AstType,
         fns: Vec<AstObjectFunction>,
@@ -832,5 +878,12 @@ impl AstImpl {
             fns,
             associated_types,
         }
+    }
+
+    pub fn new_id() -> ImplId {
+        let mut id_ref = IMPL_ID_COUNTER.write().unwrap();
+        *id_ref += 1;
+
+        ImplId(id_ref.clone())
     }
 }

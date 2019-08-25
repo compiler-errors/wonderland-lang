@@ -17,6 +17,12 @@ impl<'a, T, S> ZipExact<&'a Vec<S>> for &Vec<T> {
         what: &str,
     ) -> PResult<Zip<Self::IntoIter, <&'a Vec<S> as IntoIterator>::IntoIter>> {
         if self.len() != other.len() {
+            panic!(format!(
+                "Mismatched {}! LHS has {}, RHS has {}.",
+                what,
+                self.len(),
+                other.len()
+            ));
             PError::new(
                 Span::new(0, 0),
                 format!(

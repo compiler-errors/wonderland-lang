@@ -13,15 +13,41 @@ pub struct PError {
 
 impl PError {
     pub fn new<T>(span: Span, error: String) -> PResult<T> {
+        println!("> {}", error);
         Err(PError {
             span,
             error_string: error,
             comments: Vec::new(),
         })
     }
+}
 
-    pub fn comment(&mut self, comment: String) {
+impl Comment for PError {
+    fn add_comment(&mut self, comment: String) {
         self.comments.push(comment);
+    }
+
+    fn with_comment(mut self, comment: String) -> PError {
+        self.add_comment(comment);
+
+        self
+    }
+}
+
+pub trait Comment {
+    fn add_comment(&mut self, comment: String);
+    fn with_comment(self, comment: String) -> Self;
+}
+
+impl<T, S: Comment> Comment for Result<T, S> {
+    fn add_comment(&mut self, comment: String) {
+        if let Some(e) = self.as_mut().err() {
+            e.add_comment(comment);
+        }
+    }
+
+    fn with_comment(mut self, comment: String) -> Result<T, S> {
+        self.map_err(|e| e.with_comment(comment))
     }
 }
 
@@ -35,6 +61,7 @@ impl<T> Expect<T> for Option<T> {
         if let Some(t) = self {
             Ok(t)
         } else {
+            panic!();
             PError::new(
                 span,
                 format!("Couldn't find {} with name `{}`", type_of, name),
@@ -46,6 +73,7 @@ impl<T> Expect<T> for Option<T> {
         if self.is_none() {
             Ok(())
         } else {
+            panic!();
             PError::new(span, format!("Duplicate {} with name `{}`", type_of, name))
         }
     }

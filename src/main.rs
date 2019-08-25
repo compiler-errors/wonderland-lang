@@ -6,9 +6,10 @@ extern crate lazy_static;
 use crate::analyze::analyze;
 use crate::lexer::Lexer;
 use crate::parser::parse_file;
+use crate::tyck::typecheck;
 use crate::util::result::*;
 use crate::util::FileReader;
-use std::io::{stdin, Read};
+use std::io::Read;
 
 mod analyze;
 mod lexer;
@@ -19,7 +20,7 @@ mod util;
 fn main() {
     let mut string = String::new();
 
-    if let e @ Err(_) = stdin().lock().read_to_string(&mut string) {
+    if let e @ Err(_) = std::io::stdin().lock().read_to_string(&mut string) {
         panic!("File reading issue: {:?}", e);
     }
 
@@ -32,10 +33,12 @@ fn main() {
 }
 
 fn try_main(file_reader: &mut FileReader) -> PResult<()> {
-    let lexer = Lexer::new(file_reader);
-    let parsed_file = parse_file(lexer)?;
-    let analyzed_file = analyze(parsed_file)?;
-    //let tycked_file =
+    let mut lexer = Lexer::new(file_reader);
+    let parsed_file = parse_file(&mut lexer)?;
+
+    // (Transformed) parsed file and analyzed file.
+    let (parsed_file, analyzed_file) = analyze(parsed_file)?;
+    let analyzed_file = typecheck(&parsed_file, analyzed_file)?;
 
     Ok(())
 }

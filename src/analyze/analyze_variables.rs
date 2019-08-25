@@ -4,18 +4,19 @@ use crate::util::result::*;
 use crate::util::{Counter, StackMap};
 use std::collections::HashMap;
 
-pub struct VariableAdapter {
+pub struct VariableAdapter<'a> {
+    variables: &'a mut HashMap<VariableId, AstNamedVariable>,
+
     scope: StackMap<String, VariableId>,
     variable_counter: Counter,
-    pub variables: HashMap<VariableId, AstNamedVariable>,
 }
 
-impl VariableAdapter {
-    pub fn new() -> VariableAdapter {
+impl<'a> VariableAdapter<'a> {
+    pub fn new(variables: &'a mut HashMap<VariableId, AstNamedVariable>) -> VariableAdapter<'a> {
         VariableAdapter {
+            variables,
             scope: StackMap::new(),
             variable_counter: Counter::new(0),
-            variables: HashMap::new(),
         }
     }
 
@@ -59,10 +60,10 @@ impl VariableAdapter {
     }
 }
 
-impl Adapter for VariableAdapter {
+impl<'a> Adapter for VariableAdapter<'a> {
     fn enter_function(&mut self, f: AstFunction) -> PResult<AstFunction> {
         self.scope.reset();
-        self.variables = HashMap::new();
+        self.variables.clear();
 
         let AstFunction {
             name_span,
@@ -161,7 +162,7 @@ impl Adapter for VariableAdapter {
 
     fn enter_object_function(&mut self, f: AstObjectFunction) -> PResult<AstObjectFunction> {
         self.scope.reset();
-        self.variables = HashMap::new();
+        self.variables.clear();
 
         let AstObjectFunction {
             name_span,

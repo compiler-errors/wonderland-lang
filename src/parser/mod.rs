@@ -2,7 +2,6 @@ pub mod ast;
 pub mod ast_visitor;
 
 use self::ast::*;
-use self::ast_visitor::*;
 use crate::lexer::*;
 use crate::util::result::*;
 
@@ -12,12 +11,12 @@ use std::mem;
 use std::str::FromStr;
 
 pub struct Parser<'a> {
-    lexer: Lexer<'a>,
+    lexer: &'a mut Lexer<'a>,
     next_span: Span,
     next_token: Token,
 }
 
-pub fn parse_file(lexer: Lexer) -> PResult<ParsedFile> {
+pub fn parse_file<'a>(lexer: &'a mut Lexer<'a>) -> PResult<ParsedFile> {
     let mut parser = Parser {
         lexer,
         next_span: Span::new(0, 0),
@@ -211,9 +210,9 @@ impl<'a> Parser<'a> {
     fn parse_function(&mut self, has_body: bool) -> PResult<AstFunction> {
         // TODO: merge with above fn
         self.expect_consume(Token::Fn)?;
-        let generics = self.try_parse_decl_generics()?;
         let name_span = self.next_span;
         let fn_name = self.expect_consume_identifier()?;
+        let generics = self.try_parse_decl_generics()?;
         let parameter_list = self.parse_fn_parameter_list()?;
         let return_type = self.try_parse_return_type()?;
         let restrictions = self.try_parse_restrictions()?;
@@ -236,7 +235,7 @@ impl<'a> Parser<'a> {
         ))
     }
 
-    fn try_parse_decl_generics(&mut self) -> PResult<Vec<String>> {
+    fn try_parse_decl_generics(&mut self) -> PResult<Vec<AstGeneric>> {
         let mut span = self.next_span;
 
         if !self.check_consume(Token::Lt)? {
@@ -251,7 +250,8 @@ impl<'a> Parser<'a> {
                 self.expect_consume(Token::Comma)?;
             }
 
-            generics.push(self.expect_consume_generic()?);
+            let generic_name = self.expect_consume_generic()?;
+            generics.push(AstGeneric::new(generic_name));
 
             span = span.unite(self.next_span);
         }
@@ -276,8 +276,15 @@ impl<'a> Parser<'a> {
         loop {
             let (ty, _) = self.parse_type()?;
             self.expect_consume(Token::Colon)?;
-            let (trt, _) = self.parse_trait_type()?;
-            restrictions.push(AstTypeRestriction::new(ty, trt));
+
+            loop {
+                let (trt, _) = self.parse_trait_type()?;
+                restrictions.push(AstTypeRestriction::new(ty.clone(), trt));
+
+                if !self.check_consume(Token::Plus)? {
+                    break;
+                }
+            }
 
             if !self.check_consume(Token::Comma)? {
                 break;
@@ -965,7 +972,7 @@ impl<'a> Parser<'a> {
 
     fn ensure_lval(&self, expr: &AstExpression) -> PResult<()> {
         match &expr.data {
-            &AstExpressionData::Identifier { .. } | &AstExpressionData::Access { .. } => Ok(()),
+            &AstExpressionData::Identifier { .. } | &AstExpressionData::ArrayAccess { .. } => Ok(()),
             &AstExpressionData::TupleAccess { ref accessible, .. } => self.ensure_lval(accessible),
             &AstExpressionData::ObjectAccess { ref object, .. } => {
                 if mem::discriminant(&object.data) == mem::discriminant(&AstExpressionData::SelfRef)
@@ -997,9 +1004,9 @@ impl<'a> Parser<'a> {
 
     fn parse_object(&mut self) -> PResult<AstObject> {
         self.expect_consume(Token::Object)?;
-        let generics = self.try_parse_decl_generics()?;
         let name_span = self.next_span;
         let name = self.expect_consume_typename()?;
+        let generics = self.try_parse_decl_generics()?;
         let restrictions = self.try_parse_restrictions()?;
         self.expect_consume(Token::LBrace)?;
         let mut members = Vec::new();
@@ -1025,9 +1032,9 @@ impl<'a> Parser<'a> {
 
     fn parse_object_function(&mut self, has_body: bool) -> PResult<AstObjectFunction> {
         self.expect_consume(Token::Fn)?;
-        let generics = self.try_parse_decl_generics()?;
         let name_span = self.next_span;
         let name = self.expect_consume_identifier()?;
+        let generics = self.try_parse_decl_generics()?;
         self.expect_consume(Token::LParen)?;
         let mut parameters = Vec::new();
 
@@ -1036,7 +1043,7 @@ impl<'a> Parser<'a> {
             self.expect_consume(Token::SelfRef)?;
             parameters.push(AstNamedVariable::new(
                 self_span,
-                "name".to_string(),
+                "self".to_string(),
                 AstType::SelfType,
             ));
             true
@@ -1085,10 +1092,24 @@ impl<'a> Parser<'a> {
 
     fn parse_trait(&mut self) -> PResult<AstTrait> {
         self.expect_consume(Token::Trait)?;
-        let generics = self.try_parse_decl_generics()?;
         let name_span = self.next_span;
         let name = self.expect_consume_typename()?;
-        let restrictions = self.try_parse_restrictions()?;
+        let generics = self.try_parse_decl_generics()?;
+
+        let mut restrictions = Vec::new();
+
+        if self.check_consume(Token::Colon)? {
+            loop {
+                let (trt, _) = self.parse_trait_type()?;
+                restrictions.push(AstTypeRestriction::new(AstType::SelfType, trt));
+
+                if !self.check_consume(Token::Plus)? {
+                    break;
+                }
+            }
+        }
+
+        restrictions.extend(self.try_parse_restrictions()?);
         self.expect_consume(Token::LBrace)?;
 
         let mut fns = Vec::new();
@@ -1125,7 +1146,7 @@ impl<'a> Parser<'a> {
         let name = self.expect_consume_typename()?;
         let mut restrictions = Vec::new();
 
-        if self.check(Token::Colon) {
+        if self.check_consume(Token::Colon)? {
             loop {
                 let (restriction, _) = self.parse_trait_type()?;
                 restrictions.push(restriction);

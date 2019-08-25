@@ -12,8 +12,4 @@ impl Counter {
 
         self.i - 1
     }
-
-    pub fn current(&self) -> usize {
-        self.i
-    }
 }

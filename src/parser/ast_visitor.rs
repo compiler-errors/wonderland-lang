@@ -270,11 +270,7 @@ impl<T: Adapter> Visit<T> for AstExpression {
     fn visit(self, adapter: &mut T) -> PResult<Self> {
         let AstExpression { data, ty, span } = adapter.enter_expression(self)?;
 
-        let ty = if let Some(x) = ty {
-            Some(x.visit(adapter)?)
-        } else {
-            None
-        };
+        let ty = ty.visit(adapter)?;
 
         let data = match data {
             i @ AstExpressionData::True
@@ -318,14 +314,16 @@ impl<T: Adapter> Visit<T> for AstExpression {
                 fn_generics,
                 args,
                 associated_trait,
+                impl_signature,
             } => AstExpressionData::StaticCall {
                 call_type: call_type.visit(adapter)?,
                 fn_name,
                 fn_generics: fn_generics.visit(adapter)?,
                 args: args.visit(adapter)?,
-                associated_trait,
+                associated_trait: associated_trait.visit(adapter)?,
+                impl_signature, //TODO: should I visit this?
             },
-            AstExpressionData::Access { accessible, idx } => AstExpressionData::Access {
+            AstExpressionData::ArrayAccess { accessible, idx } => AstExpressionData::ArrayAccess {
                 accessible: accessible.visit(adapter)?,
                 idx: idx.visit(adapter)?,
             },
@@ -367,7 +365,9 @@ impl<T: Adapter> Visit<T> for AstType {
             | i @ AstType::String
             | i @ AstType::SelfType
             | i @ AstType::Generic(..)
-            | i @ AstType::GenericPlaceholder(..) => i,
+            | i @ AstType::GenericPlaceholder(..)
+            | i @ AstType::DummyGeneric(..)
+            | i @ AstType::Dummy(..) => i,
             AstType::Array { ty } => AstType::Array {
                 ty: ty.visit(adapter)?,
             },
