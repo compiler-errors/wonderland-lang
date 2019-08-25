@@ -1,35 +1,35 @@
 use crate::analyze::represent::*;
 use crate::parser::ast::*;
 use crate::parser::ast_visitor::Visit;
-use crate::tyck::tyck_constraints::{Genericizer, TyckConstraintAssumptionAdapter};
-use crate::tyck::tyck_instantiate::Instantiate;
-use crate::tyck::tyck_objectives::TyckObjectiveAdapter;
-use crate::tyck::tyck_solver::{TyckSolution, TyckSolver};
 use crate::util::result::*;
 use crate::util::{Span, ZipExact};
 use std::collections::HashSet;
 use std::rc::Rc;
 
 mod tyck_constraints;
+pub use self::tyck_constraints::*;
 mod tyck_instantiate;
+pub use self::tyck_instantiate::*;
 mod tyck_objectives;
+pub use self::tyck_objectives::*;
 mod tyck_solver;
+pub use self::tyck_solver::*;
 
 /** An objective. Essentially captures the question:
  * Does obj_ty implement trait_ty (with given generics). */
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TyckObjective {
-    obj_ty: AstType,
-    trait_ty: AstTraitType,
+    pub obj_ty: AstType,
+    pub trait_ty: AstTraitType,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TyckImplSignature {
-    impl_id: ImplId,
-    generics: Vec<AstType>,
+    pub impl_id: ImplId,
+    pub generics: Vec<AstType>,
 }
 
-pub fn typecheck(parsed_file: &ParsedFile, analyzed_file: AnalyzedFile) -> PResult<AnalyzedFile> {
+pub fn typecheck(parsed_file: &ParsedFile, analyzed_file: &AnalyzedFile) -> PResult<()> {
     let mut constraint_assumptions = TyckConstraintAssumptionAdapter::new(analyzed_file.clone());
     let ParsedFile {
         functions,
@@ -38,7 +38,7 @@ pub fn typecheck(parsed_file: &ParsedFile, analyzed_file: AnalyzedFile) -> PResu
         impls,
     } = parsed_file
         .clone()
-        .visit(&mut Genericizer)?
+        .visit(&mut Dummifier)?
         .visit(&mut constraint_assumptions)?;
 
     let file = Rc::new(constraint_assumptions.file);
@@ -61,7 +61,7 @@ pub fn typecheck(parsed_file: &ParsedFile, analyzed_file: AnalyzedFile) -> PResu
     }
 
     for imp in impls {
-        let imp = typecheck_impl(file.clone(), &base_solver, imp)?;
+        let (imp, _) = typecheck_impl(file.clone(), &base_solver, imp)?;
 
         // Try to detect contradictions..!
         for (other_id, other_impl) in &file.analyzed_impls {
@@ -83,7 +83,7 @@ pub fn typecheck(parsed_file: &ParsedFile, analyzed_file: AnalyzedFile) -> PResu
 
         // We want to type check these functions generically...
         for fun in imp.fns {
-            let fn_generics = Genericizer::from_generics(&fun.generics)?;
+            let fn_generics = Dummifier::from_generics(&fun.generics)?;
 
             typecheck_impl_fn(
                 file.clone(),
@@ -91,12 +91,12 @@ pub fn typecheck(parsed_file: &ParsedFile, analyzed_file: AnalyzedFile) -> PResu
                 fun,
                 &imp.impl_ty,
                 &imp.trait_ty,
-                fn_generics,
+                &fn_generics,
             )?;
         }
     }
 
-    Ok(analyzed_file)
+    Ok(())
 }
 
 fn typecheck_dummy_impl(
@@ -109,7 +109,7 @@ fn typecheck_dummy_impl(
     let mut objective_adapter = TyckObjectiveAdapter::new(base_solver.clone(), file.clone());
     objective_adapter
         .solver
-        .add_objectives(&Instantiate::instantiate_restrictions(
+        .add_objectives(&GenericsInstantiator::instantiate_restrictions(
             &file,
             &imp.impl_ty,
             &imp.trait_ty,
@@ -120,6 +120,8 @@ fn typecheck_dummy_impl(
     imp.restrictions.visit(&mut objective_adapter)?;
     let impl_ty = imp.impl_ty.visit(&mut objective_adapter)?;
     let trait_ty = imp.trait_ty.visit(&mut objective_adapter)?;
+
+    objective_adapter.solver.solve()?;
 
     // Foreach associated type, prove instantiated assoc-type bounds from trait hold. And type itself is well-formed.
     for (name, ty) in &imp.associated_tys {
@@ -178,7 +180,7 @@ pub fn typecheck_associated_type(
 
     objective_adapter
         .solver
-        .add_objectives(&Instantiate::instantiate_restrictions(
+        .add_objectives(&GenericsInstantiator::instantiate_restrictions(
             &file,
             &impl_ty,
             &trait_ty,
@@ -194,16 +196,18 @@ pub fn typecheck_impl(
     file: Rc<AnalyzedFile>,
     base_solver: &TyckSolver,
     imp: AstImpl,
-) -> PResult<AstImpl> {
+) -> PResult<(AstImpl, TyckSolution)> {
     let trait_name = &imp.trait_ty.0;
     let trait_data =
         file.analyzed_traits
             .get(trait_name)
             .expected(imp.name_span, "trait", trait_name)?;
     let mut objective_adapter = TyckObjectiveAdapter::new(base_solver.clone(), file.clone());
+
+    // Prove that the impl satisfies the restrictions of the trait, and its own restrictions.
     objective_adapter
         .solver
-        .add_objectives(&Instantiate::instantiate_restrictions(
+        .add_objectives(&GenericsInstantiator::instantiate_restrictions(
             &file,
             &imp.impl_ty,
             &imp.trait_ty,
@@ -212,16 +216,11 @@ pub fn typecheck_impl(
 
     imp.restrictions.clone().visit(&mut objective_adapter)?;
 
-    // Prove that the impl satisfies the restrictions of the trait, and its own restrictions.
-    objective_adapter.solver.solve()?;
-
     // Prove well-formedness of types.
-    let mut objective_adapter = TyckObjectiveAdapter::new(base_solver.clone(), file.clone());
-
     imp.impl_ty.clone().visit(&mut objective_adapter)?;
     imp.trait_ty.clone().visit(&mut objective_adapter)?;
 
-    objective_adapter.solver.solve()?;
+    let solution = objective_adapter.solver.solve()?;
 
     // Foreach associated type, prove instantiated assoc-type bounds from trait hold. And type itself is well-formed.
     for (name, ty) in &imp.associated_types {
@@ -245,7 +244,7 @@ pub fn typecheck_impl(
         return PError::new(imp.name_span, format!("The impl has a different number of implemented methods than its corresponding trait."));
     }
 
-    Ok(imp)
+    Ok((imp, solution))
 }
 
 pub fn typecheck_impl_fn(
@@ -254,20 +253,20 @@ pub fn typecheck_impl_fn(
     fun: AstObjectFunction,
     impl_ty: &AstType,
     trait_ty: &AstTraitType,
-    fn_generics: Vec<AstType>,
-) -> PResult<AstObjectFunction> {
+    fn_generics: &Vec<AstType>,
+) -> PResult<(AstObjectFunction, TyckSolution)> {
     let mut objective_adapter = TyckObjectiveAdapter::new(base_solver.clone(), file.clone());
 
     let fun = fun.visit(&mut objective_adapter)?;
     let mut solver = objective_adapter.solver;
 
     let (expected_params, expected_ret_ty, expected_constraints) =
-        Instantiate::instantiate_trait_fn_signature(
+        GenericsInstantiator::instantiate_trait_fn_signature(
             &file,
             &trait_ty.0,
             &trait_ty.1,
             &fun.name,
-            &fn_generics,
+            fn_generics,
             &impl_ty,
         )?;
 
@@ -305,7 +304,7 @@ pub fn typecheck_impl_fn(
         return PError::new(fun.name_span, format!("Restrictions on this method do not match the restrictions on the trait method. Expected {:?}, got {:?}.", norm_expected_constraints, given_constraints));
     }
 
-    Ok(fun)
+    Ok((fun, solution))
 }
 
 /// Try to typecheck one impl as another. Useful to detect contradictions where one impl can satisfy another.
@@ -321,7 +320,7 @@ fn typecheck_impl_collision(
         .iter()
         .map(|_| AstType::infer())
         .collect();
-    let mut instantiate = Instantiate::from_generics(&other_impl.generics, &fresh_generics)?;
+    let mut instantiate = GenericsInstantiator::from_generics(&other_impl.generics, &fresh_generics)?;
 
     let other_impl_ty = other_impl.impl_ty.clone().visit(&mut instantiate)?;
     let other_trait_ty = other_impl.trait_ty.clone().visit(&mut instantiate)?;

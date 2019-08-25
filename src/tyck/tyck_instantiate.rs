@@ -6,27 +6,34 @@ use crate::util::result::PResult;
 use crate::util::ZipExact;
 use std::collections::HashMap;
 
-pub struct Instantiate(HashMap<GenericId, AstType>);
+pub struct GenericsInstantiator(HashMap<GenericId, AstType>);
 
 // TODO: I really need to give these signatures a long, hard look at. They're somewhat irregular.
 
-impl Instantiate {
+impl GenericsInstantiator {
     pub fn from_signature(
         analyzed_file: &AnalyzedFile,
         i: &TyckImplSignature,
-    ) -> PResult<Instantiate> {
+    ) -> PResult<GenericsInstantiator> {
         let impl_data = &analyzed_file.analyzed_impls[&i.impl_id];
         let mapping = ZipExact::zip_exact(&impl_data.generics, &i.generics, "generics")?
             .map(|(&id, t)| (id, t.clone()))
             .collect();
-        Ok(Instantiate(mapping))
+        Ok(GenericsInstantiator(mapping))
     }
 
-    pub fn from_generics(ids: &Vec<GenericId>, tys: &Vec<AstType>) -> PResult<Instantiate> {
+    pub fn from_generics(ids: &Vec<GenericId>, tys: &Vec<AstType>) -> PResult<GenericsInstantiator> {
         let mapping = ZipExact::zip_exact(ids, tys, "generics")?
             .map(|(&id, t)| (id, t.clone()))
             .collect();
-        Ok(Instantiate(mapping))
+        Ok(GenericsInstantiator(mapping))
+    }
+
+    pub fn from_trait(
+        analyzed_file: &AnalyzedFile,
+        trt: &AstTraitType) -> PResult<GenericsInstantiator> {
+        let trt_data = &analyzed_file.analyzed_traits[&trt.0];
+        GenericsInstantiator::from_generics(&trt_data.generics, &trt.1)
     }
 
     pub fn instantiate_associated_ty(
@@ -35,7 +42,7 @@ impl Instantiate {
         name: &String,
     ) -> PResult<AstType> {
         let impl_data = &analyzed_file.analyzed_impls[&i.impl_id];
-        let mut instantiate = Instantiate::from_signature(analyzed_file, i)?;
+        let mut instantiate = GenericsInstantiator::from_signature(analyzed_file, i)?;
 
         impl_data.associated_tys[name]
             .clone()
@@ -51,7 +58,7 @@ impl Instantiate {
         let mapping = ZipExact::zip_exact(&fn_data.generics, generics, "fn generics")?
             .map(|(&id, t)| (id, t.clone()))
             .collect();
-        let mut instantiate = Instantiate(mapping);
+        let mut instantiate = GenericsInstantiator(mapping);
 
         Ok((
             fn_data.parameters.clone().visit(&mut instantiate)?,
@@ -83,7 +90,7 @@ impl Instantiate {
             self_ty.clone(),
             AstTraitType(trait_name.clone(), trait_generics.clone()),
         );
-        let mut instantiate = Instantiate(mapping);
+        let mut instantiate = GenericsInstantiator(mapping);
 
         Ok((
             fn_data
@@ -114,7 +121,7 @@ impl Instantiate {
         let mapping = ZipExact::zip_exact(&obj_data.generics, generics, "object generics")?
             .map(|(&id, t)| (id, t.clone()))
             .collect();
-        let mut instantiate = Instantiate(mapping);
+        let mut instantiate = GenericsInstantiator(mapping);
 
         obj_data.members[member_name]
             .clone()
@@ -129,7 +136,7 @@ impl Instantiate {
     ) -> PResult<Vec<AstTypeRestriction>> {
         let trait_data = &analyzed_file.analyzed_traits[&trait_ty.0];
 
-        let mut instantiate = Instantiate::from_generics(&trait_data.generics, &trait_ty.1)?;
+        let mut instantiate = GenericsInstantiator::from_generics(&trait_data.generics, &trait_ty.1)?;
         let mut instantiate_self = InstantiateSelfLocal(impl_ty.clone(), trait_ty.clone());
 
         restrictions
@@ -139,7 +146,7 @@ impl Instantiate {
     }
 }
 
-impl Adapter for Instantiate {
+impl Adapter for GenericsInstantiator {
     fn enter_type(&mut self, t: AstType) -> PResult<AstType> {
         match t {
             AstType::GenericPlaceholder(id, _) if self.0.contains_key(&id) => {

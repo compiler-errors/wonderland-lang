@@ -1,9 +1,10 @@
 use crate::analyze::represent::{AnImplData, AnalyzedFile};
 use crate::parser::ast::*;
-use crate::parser::ast_visitor::Adapter;
+use crate::parser::ast_visitor::{Adapter, Visit};
 use crate::util::result::{Expect, PResult};
 use crate::util::Span;
 use std::collections::HashMap;
+use crate::tyck::GenericsInstantiator;
 
 pub struct TyckConstraintAssumptionAdapter {
     pub file: AnalyzedFile,
@@ -23,7 +24,9 @@ impl TyckConstraintAssumptionAdapter {
         }
     }
 
-    pub fn assume(&mut self, ty: &AstType, trt: &AstTraitType) -> PResult<()> {
+    pub fn assume(&mut self, ty: &AstType, trt: &AstTraitType) -> PResult<AnImplData> {
+        println!("Assuming {:?} :- {:?}", ty, trt);
+
         let trt_data =
             self.file
                 .analyzed_traits
@@ -32,11 +35,18 @@ impl TyckConstraintAssumptionAdapter {
         let impl_id = AstImpl::new_id();
 
         let mut associated_tys = HashMap::new();
-        for (name, _) in &trt_data.associated_tys {
-            if &*name == "Self" {
+        for (name, assoc_ty) in trt_data.associated_tys.clone() {
+            if &name == "Self" {
                 associated_tys.insert("Self".to_string(), ty.clone());
             } else {
-                associated_tys.insert(name.clone(), AstType::dummy());
+                let mut instantiate = GenericsInstantiator::from_trait(&self.file, trt)?;
+                let dummy = AstType::dummy();
+
+                for c in &assoc_ty.restrictions {
+                    self.assume(&dummy, &c.clone().visit(&mut instantiate)?)?;
+                }
+
+                associated_tys.insert(name.clone(), dummy);
             }
         }
 
@@ -52,9 +62,10 @@ impl TyckConstraintAssumptionAdapter {
         };
 
         self.dummy_impls.push(dummy.clone());
-        self.file.analyzed_impls.insert(impl_id, dummy);
 
-        Ok(())
+        self.file.analyzed_impls.insert(impl_id, dummy.clone());
+
+        Ok(dummy)
     }
 }
 
@@ -83,30 +94,18 @@ impl Adapter for TyckConstraintAssumptionAdapter {
     }
 
     fn exit_trait(&mut self, t: AstTrait) -> PResult<AstTrait> {
-        for (name, assoc_ty) in &t.associated_types {
-            if name == "Self" {
-                // Handled especially.
-                continue;
-            }
-
-            let dummy = AstType::dummy();
-
-            for c in &assoc_ty.restrictions {
-                self.assume(&dummy, c)?;
-            }
-        }
-
-        let self_trt = AstTraitType(t.name.clone(), Genericizer::from_generics(&t.generics)?);
-        self.assume(&self.self_ty.clone().unwrap(), &self_trt)?;
+        let self_trt = AstTraitType(t.name.clone(), Dummifier::from_generics(&t.generics)?);
+        let assumed_impl_data = self.assume(&self.self_ty.clone().unwrap(), &self_trt)?;
         self.self_ty = None;
 
         Ok(t)
     }
 }
 
-pub struct Genericizer;
+/// An adapter that turns Generics into Dummy types, so we can typecheck generic functions.
+pub struct Dummifier;
 
-impl Genericizer {
+impl Dummifier {
     pub fn from_generics(generics: &Vec<AstGeneric>) -> PResult<Vec<AstType>> {
         let dummies = generics
             .clone()
@@ -118,7 +117,7 @@ impl Genericizer {
     }
 }
 
-impl Adapter for Genericizer {
+impl Adapter for Dummifier {
     fn enter_type(&mut self, t: AstType) -> PResult<AstType> {
         if let AstType::GenericPlaceholder(id, name) = t {
             Ok(AstType::DummyGeneric(id, name))

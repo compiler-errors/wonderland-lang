@@ -1,7 +1,7 @@
 use crate::analyze::represent::AnalyzedFile;
 use crate::parser::ast::*;
 use crate::parser::ast_visitor::Adapter;
-use crate::tyck::tyck_instantiate::Instantiate;
+use crate::tyck::tyck_instantiate::GenericsInstantiator;
 use crate::tyck::tyck_solver::TyckSolver;
 use crate::util::result::*;
 use std::collections::HashMap;
@@ -132,7 +132,7 @@ impl<'a> Adapter for TyckObjectiveAdapter {
                 args,
             } => {
                 let (param_tys, return_ty, objectives) =
-                    Instantiate::instantiate_fn_signature(&*self.analyzed_file, name, generics)?;
+                    GenericsInstantiator::instantiate_fn_signature(&*self.analyzed_file, name, generics)?;
                 let arg_tys = into_types(args);
                 self.solver.unify_all(&param_tys, &arg_tys)?;
                 self.solver.unify(&return_ty, &ty)?;
@@ -151,7 +151,7 @@ impl<'a> Adapter for TyckObjectiveAdapter {
             } => {
                 let associated_trait = associated_trait.as_ref().unwrap();
                 let (param_tys, return_ty, objectives) =
-                    Instantiate::instantiate_trait_fn_signature(
+                    GenericsInstantiator::instantiate_trait_fn_signature(
                         &*self.analyzed_file,
                         &associated_trait.0,
                         &associated_trait.1,

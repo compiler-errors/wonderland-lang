@@ -2,7 +2,7 @@ use crate::analyze::represent::AnalyzedFile;
 
 use crate::parser::ast::*;
 use crate::parser::ast_visitor::*;
-use crate::tyck::tyck_instantiate::Instantiate;
+use crate::tyck::tyck_instantiate::GenericsInstantiator;
 use crate::tyck::*;
 
 use crate::util::result::*;
@@ -102,6 +102,7 @@ impl TyckSolver {
             /* Otherwise, just throw it away. */
         }
 
+        panic!("Yikes! {:#?} {:?}", *self.analyzed_file, self.objectives);
         TyckSolver::error("No more solutions")
     }
 
@@ -133,7 +134,7 @@ impl TyckSolver {
     ) -> PResult<()> {
         let file = self.analyzed_file.clone();
         let obj_data = &file.analyzed_objects[obj_name];
-        let mut instantiate = Instantiate::from_generics(&obj_data.generics, &generics)?;
+        let mut instantiate = GenericsInstantiator::from_generics(&obj_data.generics, &generics)?;
 
         for r in &obj_data.restrictions.clone().visit(&mut instantiate)? {
             self.add_objective(&r.ty, &r.trt)?;
@@ -232,7 +233,7 @@ impl TyckSolver {
             .map(|_| AstType::infer())
             .collect();
         let impl_signature = TyckImplSignature { impl_id, generics };
-        let instantiate = &mut Instantiate::from_signature(&*self.analyzed_file, &impl_signature)?;
+        let instantiate = &mut GenericsInstantiator::from_signature(&*self.analyzed_file, &impl_signature)?;
 
         let obj_ty = impl_data.impl_ty.clone().visit(instantiate)?;
         let trait_ty = impl_data.trait_ty.clone().visit(instantiate)?;
@@ -470,7 +471,7 @@ impl TyckSolver {
                     let member = self.normalize_ty(&member)?;
 
                     if let AstType::Object(object_name, generics) = &object {
-                        let expected_member = Instantiate::instantiate_object_member(
+                        let expected_member = GenericsInstantiator::instantiate_object_member(
                             &*self.analyzed_file,
                             object_name,
                             generics,
@@ -603,7 +604,7 @@ impl<'a> Adapter for Normalize<'a> {
                 };
 
                 if let Some(impl_signature) = self.0.impl_signatures.get(typecheck_objective) {
-                    let instantiate = Instantiate::instantiate_associated_ty(
+                    let instantiate = GenericsInstantiator::instantiate_associated_ty(
                         &*self.0.analyzed_file,
                         impl_signature,
                         name,
