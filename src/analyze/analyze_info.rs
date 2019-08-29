@@ -2,7 +2,7 @@ use crate::analyze::represent::*;
 use crate::parser::ast::*;
 use crate::parser::ast_visitor::*;
 use crate::util::result::*;
-use crate::util::Span;
+
 use std::collections::{HashMap, HashSet};
 
 pub struct InfoAdapter {
@@ -85,9 +85,12 @@ impl Adapter for InfoAdapter {
     }
 
     fn enter_object(&mut self, o: AstObject) -> PResult<AstObject> {
+        let member_indices = o.members.iter().enumerate().map(|(idx, m)| (m.name.clone(), idx)).collect();
+
         let obj_data = AnObjectData {
             generics: self.map_generics(&o.generics)?,
-            members: Self::clone_members(&o.members)?,
+            member_tys: Self::clone_members(&o.members)?,
+            member_indices,
             restrictions: o.restrictions.clone(),
         };
 

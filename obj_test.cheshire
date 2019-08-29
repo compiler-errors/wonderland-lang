@@ -1,0 +1,20 @@
+object Foo {
+    i: Int.
+    j: String.
+}
+
+fn main(o: Foo) -> (Int, String) {
+    while true {
+        let i = 1.
+
+        {
+            let j: String = null.
+            i = o:i.
+            break.
+        }
+
+        i = 2.
+    }
+
+    (1, null)
+}

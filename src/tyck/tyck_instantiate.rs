@@ -22,7 +22,10 @@ impl GenericsInstantiator {
         Ok(GenericsInstantiator(mapping))
     }
 
-    pub fn from_generics(ids: &Vec<GenericId>, tys: &Vec<AstType>) -> PResult<GenericsInstantiator> {
+    pub fn from_generics(
+        ids: &Vec<GenericId>,
+        tys: &Vec<AstType>,
+    ) -> PResult<GenericsInstantiator> {
         let mapping = ZipExact::zip_exact(ids, tys, "generics")?
             .map(|(&id, t)| (id, t.clone()))
             .collect();
@@ -31,7 +34,8 @@ impl GenericsInstantiator {
 
     pub fn from_trait(
         analyzed_file: &AnalyzedFile,
-        trt: &AstTraitType) -> PResult<GenericsInstantiator> {
+        trt: &AstTraitType,
+    ) -> PResult<GenericsInstantiator> {
         let trt_data = &analyzed_file.analyzed_traits[&trt.0];
         GenericsInstantiator::from_generics(&trt_data.generics, &trt.1)
     }
@@ -123,7 +127,7 @@ impl GenericsInstantiator {
             .collect();
         let mut instantiate = GenericsInstantiator(mapping);
 
-        obj_data.members[member_name]
+        obj_data.member_tys[member_name]
             .clone()
             .visit(&mut instantiate)
     }
@@ -134,9 +138,7 @@ impl GenericsInstantiator {
         trait_ty: &AstTraitType,
         restrictions: &Vec<AstTypeRestriction>,
     ) -> PResult<Vec<AstTypeRestriction>> {
-        let trait_data = &analyzed_file.analyzed_traits[&trait_ty.0];
-
-        let mut instantiate = GenericsInstantiator::from_generics(&trait_data.generics, &trait_ty.1)?;
+        let mut instantiate = GenericsInstantiator::from_trait(analyzed_file, &trait_ty)?;
         let mut instantiate_self = InstantiateSelfLocal(impl_ty.clone(), trait_ty.clone());
 
         restrictions

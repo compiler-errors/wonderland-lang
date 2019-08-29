@@ -210,10 +210,18 @@ impl<T: Adapter> Visit<T> for AstTypeRestriction {
 
 impl<T: Adapter> Visit<T> for AstBlock {
     fn visit(self, adapter: &mut T) -> PResult<Self> {
-        let AstBlock { statements } = adapter.enter_block(self)?;
+        let AstBlock {
+            statements,
+            expression,
+            locals,
+        } = adapter.enter_block(self)?;
+
+        let statements = statements.visit(adapter)?;
 
         let i = AstBlock {
-            statements: statements.visit(adapter)?,
+            statements,
+            expression: expression.visit(adapter)?,
+            locals,
         };
 
         adapter.exit_block(i)
@@ -224,9 +232,6 @@ impl<T: Adapter> Visit<T> for AstStatement {
     fn visit(self, adapter: &mut T) -> PResult<Self> {
         let stmt = match adapter.enter_statement(self)? {
             i @ AstStatement::Break | i @ AstStatement::Continue => i,
-            AstStatement::Block { block } => AstStatement::Block {
-                block: block.visit(adapter)?,
-            },
             AstStatement::Let {
                 name_span,
                 var_name,
@@ -237,15 +242,6 @@ impl<T: Adapter> Visit<T> for AstStatement {
                 var_name,
                 ty: ty.visit(adapter)?,
                 value: value.visit(adapter)?,
-            },
-            AstStatement::If {
-                condition,
-                block,
-                else_block,
-            } => AstStatement::If {
-                condition: condition.visit(adapter)?,
-                block: block.visit(adapter)?,
-                else_block: else_block.visit(adapter)?,
             },
             AstStatement::While { condition, block } => AstStatement::While {
                 condition: condition.visit(adapter)?,
@@ -282,6 +278,18 @@ impl<T: Adapter> Visit<T> for AstExpression {
             | i @ AstExpressionData::Char(..)
             | i @ AstExpressionData::Identifier { .. }
             | i @ AstExpressionData::Unimplemented => i,
+            AstExpressionData::Block { block } => AstExpressionData::Block {
+                block: block.visit(adapter)?,
+            },
+            AstExpressionData::If {
+                condition,
+                block,
+                else_block,
+            } => AstExpressionData::If {
+                condition: condition.visit(adapter)?,
+                block: block.visit(adapter)?,
+                else_block: else_block.visit(adapter)?,
+            },
             AstExpressionData::Tuple { values } => AstExpressionData::Tuple {
                 values: values.visit(adapter)?,
             },
@@ -331,13 +339,14 @@ impl<T: Adapter> Visit<T> for AstExpression {
                 accessible: accessible.visit(adapter)?,
                 idx,
             },
-            AstExpressionData::ObjectAccess { object, mem_name } => {
+            AstExpressionData::ObjectAccess { object, mem_name, mem_idx } => {
                 AstExpressionData::ObjectAccess {
                     object: object.visit(adapter)?,
                     mem_name,
+                    mem_idx,
                 }
             }
-            AstExpressionData::Allocate { object } => AstExpressionData::Allocate {
+            AstExpressionData::AllocateObject { object } => AstExpressionData::AllocateObject {
                 object: object.visit(adapter)?,
             },
             AstExpressionData::Not(expr) => AstExpressionData::Not(expr.visit(adapter)?),

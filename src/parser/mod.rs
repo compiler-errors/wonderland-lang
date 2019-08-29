@@ -202,7 +202,9 @@ impl<'a> Parser<'a> {
         let restrictions = self.try_parse_restrictions()?;
 
         let definition = if has_body {
-            Some(self.parse_block()?)
+            let (block, _) = self.parse_block()?;
+
+            Some(block)
         } else {
             self.expect_consume(Token::Dot)?;
             None
@@ -445,47 +447,62 @@ impl<'a> Parser<'a> {
     }
 
     // Parse a block of statements including LBrace and RBrace.
-    fn parse_block(&mut self) -> PResult<AstBlock> {
+    fn parse_block(&mut self) -> PResult<(AstBlock, Span)> {
+        let mut span = self.next_span;
+
         self.expect_consume(Token::LBrace)?;
         let mut statements = Vec::new();
 
-        while !self.check_consume(Token::RBrace)? {
+        let expression = loop {
             while self.check_consume(Token::Dot)? {
                 // Consume any dots.
             }
 
-            statements.push(self.parse_statement()?);
-        }
+            span = span.unite(self.next_span);
+            if self.check_consume(Token::RBrace)? {
+                break AstExpression::nothing(span);
+            }
 
-        Ok(AstBlock::new(statements))
+            let statement = self.parse_statement()?;
+
+            // Either parse a `.`, or an expr to end the block.
+            // If there's no
+            if self.check_consume(Token::Dot)? {
+                statements.push(statement);
+                span = span.unite(self.next_span);
+            } else if self.check(Token::RBrace) {
+                if let AstStatement::Expression { expression } = statement {
+                    self.bump()?; // Consume the rbrace. TODO: Maybe replace this with a check_consume and save the span of the token for the error below.
+                    break expression;
+                } else {
+                    self.error_here(format!("Expected expression to end block, got statement."))?;
+                }
+            } else {
+                self.ensure_no_dot(span, &statement)?;
+                statements.push(statement);
+            }
+        };
+
+        Ok((AstBlock::new(statements, expression), span))
     }
 
     /// Parse a statement.
     fn parse_statement(&mut self) -> PResult<AstStatement> {
         match &self.next_token {
-            &Token::LBrace => self.parse_block_statement(),
             &Token::Let => self.parse_let_statement(),
-            &Token::If => self.parse_if_statement(),
             &Token::While => self.parse_while_loop(),
             &Token::Break => {
                 self.bump()?;
-                self.expect_consume(Token::Dot)?;
                 Ok(AstStatement::break_stmt())
             }
             &Token::Continue => {
                 self.bump()?;
-                self.expect_consume(Token::Dot)?;
                 Ok(AstStatement::continue_stmt())
             }
             &Token::Return => self.parse_return_statement(),
             &Token::Assert => self.parse_assert_statement(),
             _ => self.parse_expression_statement(),
         }
-    }
-
-    fn parse_block_statement(&mut self) -> PResult<AstStatement> {
-        let block = self.parse_block()?;
-        Ok(AstStatement::block(block))
     }
 
     fn parse_let_statement(&mut self) -> PResult<AstStatement> {
@@ -505,34 +522,14 @@ impl<'a> Parser<'a> {
 
         let value = self.parse_expression()?;
 
-        //span = span.unite(self.next_span);
-        self.expect_consume(Token::Dot)?;
-
         //TODO: Use span.
         Ok(AstStatement::let_statement(name_span, var_name, ty, value))
-    }
-
-    fn parse_if_statement(&mut self) -> PResult<AstStatement> {
-        self.expect_consume(Token::If)?;
-        let condition = self.parse_expression()?;
-        let block = self.parse_block()?;
-        let else_block = if self.check_consume(Token::Else)? {
-            if self.check(Token::If) {
-                AstBlock::new(vec![self.parse_if_statement()?])
-            } else {
-                self.parse_block()?
-            }
-        } else {
-            AstBlock::empty()
-        };
-
-        Ok(AstStatement::if_statement(condition, block, else_block))
     }
 
     fn parse_while_loop(&mut self) -> PResult<AstStatement> {
         self.expect_consume(Token::While)?;
         let condition = self.parse_expression()?;
-        let block = self.parse_block()?;
+        let (block, _) = self.parse_block()?;
 
         Ok(AstStatement::while_loop(condition, block))
     }
@@ -541,11 +538,9 @@ impl<'a> Parser<'a> {
         self.expect_consume(Token::Return)?;
 
         if self.check(Token::Dot) {
-            self.expect_consume(Token::Dot)?;
             Ok(AstStatement::return_nothing())
         } else {
             let value = self.parse_expression()?;
-            self.expect_consume(Token::Dot)?;
             Ok(AstStatement::return_statement(value))
         }
     }
@@ -553,29 +548,13 @@ impl<'a> Parser<'a> {
     fn parse_assert_statement(&mut self) -> PResult<AstStatement> {
         self.expect_consume(Token::Assert)?;
         let condition = self.parse_expression()?;
-        self.expect_consume(Token::Dot)?;
         Ok(AstStatement::assert_statement(condition))
     }
 
     fn parse_expression_statement(&mut self) -> PResult<AstStatement> {
-        let expr = self.parse_expression()?;
+        let expression = self.parse_expression()?;
 
-        match &expr.data {
-            &AstExpressionData::BinOp {
-                kind: BinOpKind::Set,
-                ..
-            }
-            | &AstExpressionData::Call { .. }
-            | &AstExpressionData::ObjectCall { .. }
-            | &AstExpressionData::StaticCall { .. }
-            | &AstExpressionData::Unimplemented => {}
-            _ => {
-                return self.error_at(expr.span, format!("Expected expression statement."));
-            }
-        }
-
-        self.expect_consume(Token::Dot)?;
-        Ok(AstStatement::expression_statement(expr))
+        Ok(AstStatement::expression_statement(expression))
     }
 
     fn parse_expression(&mut self) -> PResult<AstExpression> {
@@ -708,6 +687,11 @@ impl<'a> Parser<'a> {
         let mut span = self.next_span;
 
         match &self.next_token {
+            &Token::LBrace => {
+                let (block, span) = self.parse_block()?;
+                Ok(AstExpression::block(span, block))
+            }
+            &Token::If => self.parse_if_statement(),
             &Token::Commalipses => {
                 self.bump()?;
                 Ok(AstExpression::unimplemented(span))
@@ -724,12 +708,7 @@ impl<'a> Parser<'a> {
                 span = span.unite(e.span);
                 Ok(AstExpression::neg(span, e))
             }
-            &Token::Allocate => {
-                self.bump()?;
-                let (ty, ty_span) = self.parse_object_type()?;
-                span = span.unite(ty_span);
-                Ok(AstExpression::allocate(span, ty))
-            }
+            &Token::Allocate => self.parse_allocate_expr(),
             &Token::LParen => self.parse_paren_expr(),
             &Token::LSqBracket => self.parse_array_literal(),
             &Token::VariableName(_) => self.parse_identifier_expr(),
@@ -777,6 +756,31 @@ impl<'a> Parser<'a> {
                 }
             }
         }
+    }
+
+    fn parse_if_statement(&mut self) -> PResult<AstExpression> {
+        let mut span = self.next_span;
+        self.expect_consume(Token::If)?;
+
+        let condition = self.parse_expression()?;
+        let (block, block_span) = self.parse_block()?;
+        span = span.unite(block_span);
+
+        let else_block = if self.check_consume(Token::Else)? {
+            if self.check(Token::If) {
+                AstBlock::new(vec![], self.parse_if_statement()?)
+            } else {
+                let (block, block_span) = self.parse_block()?;
+                span = span.unite(block_span);
+                block
+            }
+        } else {
+            AstBlock::empty(span)
+        };
+
+        Ok(AstExpression::if_statement(
+            span, condition, block, else_block,
+        ))
     }
 
     fn parse_identifier_expr(&mut self) -> PResult<AstExpression> {
@@ -874,6 +878,27 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn parse_allocate_expr(&mut self) -> PResult<AstExpression> {
+        let mut span = self.next_span;
+        self.expect_consume(Token::Allocate)?;
+
+        if self.check_consume(Token::LSqBracket)? {
+            let (ty, ty_span) = self.parse_type()?;
+            unimplemented!(); //self.expect_consume(Token::SemiColon)?;
+            let expr = self.parse_expression()?;
+            span = span.unite(self.next_span);
+            self.expect_consume(Token::RSqBracket)?;
+
+            unimplemented!()
+        //Ok(AstExpression::allocate_array(span, ty, expr))
+        } else {
+            let (ty, ty_span) = self.parse_object_type()?;
+            span = span.unite(ty_span);
+
+            Ok(AstExpression::allocate_object(span, ty))
+        }
+    }
+
     fn parse_paren_expr(&mut self) -> PResult<AstExpression> {
         let mut span = self.next_span;
         self.expect_consume(Token::LParen)?;
@@ -956,17 +981,10 @@ impl<'a> Parser<'a> {
 
     fn ensure_lval(&self, expr: &AstExpression) -> PResult<()> {
         match &expr.data {
-            &AstExpressionData::Identifier { .. } | &AstExpressionData::ArrayAccess { .. } => Ok(()),
+            &AstExpressionData::Identifier { .. }
+            | &AstExpressionData::ArrayAccess { .. }
+            | &AstExpressionData::ObjectAccess { .. } => Ok(()),
             &AstExpressionData::TupleAccess { ref accessible, .. } => self.ensure_lval(accessible),
-            &AstExpressionData::ObjectAccess { ref object, .. } => {
-                if mem::discriminant(&object.data) == mem::discriminant(&AstExpressionData::SelfRef)
-                {
-                    // Because self itself cannot be an lval, but it can be inside an lval...
-                    Ok(())
-                } else {
-                    self.ensure_lval(object)
-                }
-            }
             _ => self.error_at(expr.span, format!("Expected lval for left of `=`")),
         }
     }
@@ -983,6 +1001,27 @@ impl<'a> Parser<'a> {
             // TODO: Add spans to types...
             &AstType::Infer(..) => self.error_at(span, format!("Infer `_` type not expected")),
             _ => Ok(()),
+        }
+    }
+
+    fn ensure_no_dot(&mut self, span: Span, stmt: &AstStatement) -> PResult<()> {
+        match stmt {
+            AstStatement::Expression {
+                expression:
+                    AstExpression {
+                        data: AstExpressionData::Block { .. },
+                        ..
+                    },
+            }
+            | AstStatement::Expression {
+                expression:
+                    AstExpression {
+                        data: AstExpressionData::If { .. },
+                        ..
+                    },
+            }
+            | AstStatement::While { .. } => Ok(()),
+            _ => PError::new(span, format!("Statement must be ended with a `.`")),
         }
     }
 
@@ -1055,8 +1094,10 @@ impl<'a> Parser<'a> {
         let return_type = self.try_parse_return_type()?;
         let restrictions = self.try_parse_restrictions()?;
 
-        let definition = if has_body {
-            Some(self.parse_block()?)
+        let (definition) = if has_body {
+            let (block, _) = self.parse_block()?;
+
+            Some(block)
         } else {
             self.expect_consume(Token::Dot)?;
             None

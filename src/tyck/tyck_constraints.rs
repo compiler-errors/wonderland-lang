@@ -1,10 +1,10 @@
 use crate::analyze::represent::{AnImplData, AnalyzedFile};
 use crate::parser::ast::*;
 use crate::parser::ast_visitor::{Adapter, Visit};
+use crate::tyck::GenericsInstantiator;
 use crate::util::result::{Expect, PResult};
 use crate::util::Span;
 use std::collections::HashMap;
-use crate::tyck::GenericsInstantiator;
 
 pub struct TyckConstraintAssumptionAdapter {
     pub file: AnalyzedFile,
@@ -25,7 +25,7 @@ impl TyckConstraintAssumptionAdapter {
     }
 
     pub fn assume(&mut self, ty: &AstType, trt: &AstTraitType) -> PResult<AnImplData> {
-        println!("Assuming {:?} :- {:?}", ty, trt);
+        println!("; Assuming {:?} :- {:?}", ty, trt);
 
         let trt_data =
             self.file
@@ -96,7 +96,7 @@ impl Adapter for TyckConstraintAssumptionAdapter {
 
     fn exit_trait(&mut self, t: AstTrait) -> PResult<AstTrait> {
         let self_trt = AstTraitType(t.name.clone(), Dummifier::from_generics(&t.generics)?);
-        let assumed_impl_data = self.assume(&self.self_ty.clone().unwrap(), &self_trt)?;
+        self.assume(&self.self_ty.clone().unwrap(), &self_trt)?;
         self.self_ty = None;
 
         Ok(t)

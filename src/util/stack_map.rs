@@ -1,11 +1,13 @@
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::hash::Hash;
 
-pub struct StackMap<K: Eq + Hash, V> {
+#[derive(Debug)]
+pub struct StackMap<K: Eq + Hash + Debug, V: Debug> {
     stack: Vec<HashMap<K, V>>,
 }
 
-impl<K: Eq + Hash, V: Clone> StackMap<K, V> {
+impl<K: Eq + Hash + Debug, V: Clone + Debug> StackMap<K, V> {
     pub fn new() -> StackMap<K, V> {
         StackMap { stack: Vec::new() }
     }
@@ -19,8 +21,8 @@ impl<K: Eq + Hash, V: Clone> StackMap<K, V> {
         self.stack.push(HashMap::new())
     }
 
-    pub fn pop(&mut self) {
-        self.stack.pop().unwrap();
+    pub fn pop(&mut self) -> HashMap<K, V> {
+        self.stack.pop().unwrap()
     }
 
     pub fn get(&self, key: &K) -> Option<V> {

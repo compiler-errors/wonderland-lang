@@ -13,7 +13,7 @@ pub struct PError {
 
 impl PError {
     pub fn new<T>(span: Span, error: String) -> PResult<T> {
-        println!("> {}", error);
+        println!("; > {}", error);
         Err(PError {
             span,
             error_string: error,
@@ -61,6 +61,7 @@ impl<T> Expect<T> for Option<T> {
         if let Some(t) = self {
             Ok(t)
         } else {
+            panic!();
             PError::new(
                 span,
                 format!("Couldn't find {} with name `{}`", type_of, name),

@@ -1,0 +1,41 @@
+trait Add<T> {
+    type AddResult.
+    fn add(self, other: T) -> Self::AddResult.
+}
+
+trait Subtract<T> {
+    type SubtractResult.
+    fn add(self, other: T) -> Self::SubtractResult.
+}
+
+trait Multiply<T> {
+    type MultiplyResult.
+    fn add(self, other: T) -> Self::MultiplyResult.
+}
+
+trait Divide<T> {
+    type DivideResult.
+    fn add(self, other: T) -> Self::DivideResult.
+}
+
+/*************** Strings ***************/
+
+trait ToString {
+    fn to_string(self) -> String.
+}
+
+impl ToString for String {
+    fn to_string(self) -> String {
+        self
+    }
+}
+
+export fn string_append(a: String, b: String) -> String.
+
+impl<T> Add<T> for String where T: ToString {
+    type AddResult = String.
+
+    fn add(self, other: T) -> String {
+        string_append(self, other:to_string())
+    }
+}

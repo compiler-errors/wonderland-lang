@@ -3,20 +3,24 @@
 #[macro_use]
 extern crate lazy_static;
 
+extern crate inkwell;
+
 use crate::analyze::analyze;
+use crate::inst::instantiate;
 use crate::lexer::Lexer;
 use crate::parser::parse_file;
+use crate::tr::translate;
 use crate::tyck::typecheck;
 use crate::util::result::*;
 use crate::util::FileReader;
 use std::io::Read;
-use crate::inst::instantiate;
 
 mod analyze;
+mod inst;
 mod lexer;
 mod parser;
+mod tr;
 mod tyck;
-mod inst;
 mod util;
 
 fn main() {
@@ -29,7 +33,7 @@ fn main() {
     let mut file_reader = FileReader::new(string);
 
     match try_main(&mut file_reader) {
-        Ok(_) => println!("Okay!"),
+        Ok(_) => println!("; Done!"),
         Err(e) => report_err_at(&file_reader, e),
     }
 }
@@ -45,6 +49,8 @@ fn try_main(file_reader: &mut FileReader) -> PResult<()> {
     typecheck(&parsed_file, &analyzed_file)?;
 
     let instantiated_file = instantiate(parsed_file, analyzed_file)?;
+
+    translate(instantiated_file)?;
 
     Ok(())
 }

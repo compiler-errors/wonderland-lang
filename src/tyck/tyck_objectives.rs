@@ -53,6 +53,11 @@ impl<'a> Adapter for TyckObjectiveAdapter {
             .iter()
             .map(|(&k, v)| (k, v.ty.clone()))
             .collect();
+
+        if let Some(block) = &f.definition {
+            self.solver.unify(&f.return_type, &block.expression.ty)?;
+        }
+
         Ok(f)
     }
 
@@ -70,14 +75,8 @@ impl<'a> Adapter for TyckObjectiveAdapter {
 
     fn enter_statement(&mut self, s: AstStatement) -> PResult<AstStatement> {
         match &s {
-            AstStatement::Block { .. }
-            | AstStatement::Expression { .. }
-            | AstStatement::Break
-            | AstStatement::Continue => {}
+            AstStatement::Expression { .. } | AstStatement::Break | AstStatement::Continue => {}
             AstStatement::Let { .. } => unreachable!(),
-            AstStatement::If { condition, .. } => {
-                self.solver.unify(&condition.ty, &AstType::Bool)?;
-            }
             AstStatement::While { condition, .. } => {
                 self.solver.unify(&condition.ty, &AstType::Bool)?;
             }
@@ -97,12 +96,24 @@ impl<'a> Adapter for TyckObjectiveAdapter {
         let AstExpression { data, ty, span } = e;
 
         match &data {
-            AstExpressionData::Unimplemented => { /* Literally do nothing. */ }
+            AstExpressionData::Unimplemented => {}
+            AstExpressionData::Block { block } => {
+                self.solver.unify(&block.expression.ty, &ty)?;
+            }
+            AstExpressionData::If {
+                condition,
+                block,
+                else_block,
+            } => {
+                self.solver.unify(&condition.ty, &AstType::Bool)?;
+                self.solver
+                    .unify(&block.expression.ty, &else_block.expression.ty)?;
+            }
             AstExpressionData::True | AstExpressionData::False => {
                 self.solver.unify(&ty, &AstType::Bool)?;
             }
             AstExpressionData::Null => {
-                self.solver.add_delayed_object_goal(&ty)?;
+                self.solver.add_delayed_nullable_goal(&ty)?;
             }
             AstExpressionData::SelfRef => unreachable!(),
             AstExpressionData::String { .. } => self.solver.unify(&ty, &AstType::String)?,
@@ -122,7 +133,13 @@ impl<'a> Adapter for TyckObjectiveAdapter {
             }
             AstExpressionData::Array { elements } => {
                 let tuple_tys = into_types(elements);
-                self.solver.unify(&ty, &AstType::tuple(tuple_tys))?;
+                let elem_ty = AstType::infer();
+
+                for elem in elements {
+                    self.solver.unify(&elem.ty, &elem_ty)?;
+                }
+
+                self.solver.unify(&AstType::array(elem_ty), &ty)?;
             }
 
             // A regular function call
@@ -132,7 +149,11 @@ impl<'a> Adapter for TyckObjectiveAdapter {
                 args,
             } => {
                 let (param_tys, return_ty, objectives) =
-                    GenericsInstantiator::instantiate_fn_signature(&*self.analyzed_file, name, generics)?;
+                    GenericsInstantiator::instantiate_fn_signature(
+                        &*self.analyzed_file,
+                        name,
+                        generics,
+                    )?;
                 let arg_tys = into_types(args);
                 self.solver.unify_all(&param_tys, &arg_tys)?;
                 self.solver.unify(&return_ty, &ty)?;
@@ -176,13 +197,13 @@ impl<'a> Adapter for TyckObjectiveAdapter {
                 self.solver.add_delayed_tuple_access(tuple_ty, *idx, &ty)?;
             }
             // Call an object's member
-            AstExpressionData::ObjectAccess { object, mem_name } => {
+            AstExpressionData::ObjectAccess { object, mem_name, .. } => {
                 let object_ty = &object.ty;
                 self.solver
                     .add_delayed_object_access(object_ty, mem_name, &ty)?;
             }
 
-            AstExpressionData::Allocate { object } => {
+            AstExpressionData::AllocateObject { object } => {
                 self.solver.unify(object, &ty)?;
             }
 

@@ -320,7 +320,8 @@ fn typecheck_impl_collision(
         .iter()
         .map(|_| AstType::infer())
         .collect();
-    let mut instantiate = GenericsInstantiator::from_generics(&other_impl.generics, &fresh_generics)?;
+    let mut instantiate =
+        GenericsInstantiator::from_generics(&other_impl.generics, &fresh_generics)?;
 
     let other_impl_ty = other_impl.impl_ty.clone().visit(&mut instantiate)?;
     let other_trait_ty = other_impl.trait_ty.clone().visit(&mut instantiate)?;

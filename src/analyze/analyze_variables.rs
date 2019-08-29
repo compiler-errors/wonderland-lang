@@ -1,14 +1,13 @@
 use crate::parser::ast::*;
-use crate::parser::ast_visitor::Adapter;
+use crate::parser::ast_visitor::{Adapter, Visit};
 use crate::util::result::*;
-use crate::util::{Counter, StackMap};
+use crate::util::StackMap;
 use std::collections::HashMap;
 
 pub struct VariableAdapter<'a> {
     variables: &'a mut HashMap<VariableId, AstNamedVariable>,
 
     scope: StackMap<String, VariableId>,
-    variable_counter: Counter,
 }
 
 impl<'a> VariableAdapter<'a> {
@@ -16,7 +15,6 @@ impl<'a> VariableAdapter<'a> {
         VariableAdapter {
             variables,
             scope: StackMap::new(),
-            variable_counter: Counter::new(0),
         }
     }
 
@@ -24,39 +22,21 @@ impl<'a> VariableAdapter<'a> {
      * Assigns an index to the AstNamedVariable, then inserts it into the scope
      * and into the `variables` map.
      */
-    fn assign_index(&mut self, a: AstNamedVariable) -> PResult<AstNamedVariable> {
-        match a {
-            AstNamedVariable {
-                span,
-                name,
-                ty,
-                id: None,
-            } => {
-                self.scope
-                    .get_top(&name)
-                    .not_expected(span, "variable", &name)?;
+    fn assign_index(&mut self, a: &AstNamedVariable) -> PResult<()> {
+        let AstNamedVariable { span, name, ty, id } = a;
+        println!("; Adding variable {:?} to scope {:?}", a, self.scope);
 
-                let id = VariableId(self.variable_counter.next());
-                let var = AstNamedVariable {
-                    span,
-                    name,
-                    ty,
-                    id: Some(id),
-                };
+        self.scope
+            .get_top(&name)
+            .not_expected(*span, "variable", &name)?;
 
-                let name = var.name.clone();
-                self.variables
-                    .insert(id, var.clone())
-                    .not_expected(span, "variable", &name)?;
-                self.scope.add(name, id);
+        let name = name.clone();
+        self.variables
+            .insert(*id, a.clone())
+            .not_expected(*span, "variable", &name)?;
+        self.scope.add(name, *id);
 
-                Ok(var)
-            }
-            AstNamedVariable { span, .. } => PError::new(
-                span,
-                format!("Assigning a duplicate index to variable `{}`", &a.name),
-            ),
-        }
+        Ok(())
     }
 }
 
@@ -83,10 +63,9 @@ impl<'a> Adapter for VariableAdapter<'a> {
             )?;
         }
 
-        let parameter_list = parameter_list
-            .into_iter()
-            .map(|x| self.assign_index(x))
-            .collect::<PResult<Vec<_>>>()?;
+        for x in &parameter_list {
+            self.assign_index(x)?;
+        }
 
         Ok(AstFunction {
             name_span,
@@ -114,16 +93,14 @@ impl<'a> Adapter for VariableAdapter<'a> {
                 ty,
                 value,
             } => {
-                let var = self.assign_index(AstNamedVariable {
-                    span: name_span,
-                    name: var_name,
-                    ty,
-                    id: None,
-                })?;
+                let var = AstNamedVariable::new(name_span, var_name, ty);
+                let value = value.visit(self)?;
+                self.assign_index(&var)?;
+                let id = AstExpression::identifier(name_span, var.name).visit(self)?;
 
                 Ok(AstStatement::expression_statement(AstExpression::binop(
                     name_span.unite(value.span), /* Sum of LHS and RHS spans... */
-                    AstExpression::identifier(name_span, var.name),
+                    id,
                     value,
                     BinOpKind::Set,
                 )))
@@ -140,6 +117,10 @@ impl<'a> Adapter for VariableAdapter<'a> {
                 name,
                 variable_id: None,
             } => {
+                println!(
+                    "; Looking for variable {:?} in scope {:?}",
+                    name, self.scope
+                );
                 let variable_id = Some(self.scope.get(&name).expected(e.span, "variable", &name)?);
                 AstExpressionData::Identifier { name, variable_id }
             }
@@ -183,10 +164,9 @@ impl<'a> Adapter for VariableAdapter<'a> {
             )?;
         }
 
-        let parameter_list = parameter_list
-            .into_iter()
-            .map(|x| self.assign_index(x))
-            .collect::<PResult<Vec<_>>>()?;
+        for x in &parameter_list {
+            self.assign_index(x)?;
+        }
 
         Ok(AstObjectFunction {
             name_span,
@@ -208,16 +188,17 @@ impl<'a> Adapter for VariableAdapter<'a> {
         })
     }
 
+    fn exit_block(&mut self, mut b: AstBlock) -> PResult<AstBlock> {
+        let leaving = self.scope.pop();
+        b.locals.extend(leaving.values());
+
+        Ok(b)
+    }
+
     fn exit_object_function(&mut self, o: AstObjectFunction) -> PResult<AstObjectFunction> {
         Ok(AstObjectFunction {
             variables: self.variables.clone(),
             ..o
         })
-    }
-
-    fn exit_block(&mut self, b: AstBlock) -> PResult<AstBlock> {
-        self.scope.pop();
-
-        Ok(b)
     }
 }

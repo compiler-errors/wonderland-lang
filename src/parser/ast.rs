@@ -1,4 +1,5 @@
 use crate::tyck::TyckImplSignature;
+use crate::util::result::{PError, PResult};
 use crate::util::Span;
 use std::collections::HashMap;
 use std::sync::RwLock;
@@ -94,6 +95,10 @@ impl AstFunction {
     }
 }
 
+lazy_static! {
+    static ref VARIABLE_ID_COUNTER: RwLock<usize> = RwLock::new(0);
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct VariableId(pub usize);
 
@@ -107,16 +112,19 @@ pub struct AstNamedVariable {
     pub ty: AstType,
 
     /// Used in analyzer. Not populated before this.
-    pub id: Option<VariableId>,
+    pub id: VariableId,
 }
 
 impl AstNamedVariable {
     pub fn new(span: Span, name: String, ty: AstType) -> AstNamedVariable {
+        let mut id_ref = VARIABLE_ID_COUNTER.write().unwrap();
+        *id_ref += 1;
+
         AstNamedVariable {
             span,
             name: name,
             ty: ty,
-            id: None,
+            id: VariableId(id_ref.clone()),
         }
     }
 }
@@ -137,6 +145,7 @@ pub struct AstTraitType(pub String, pub Vec<AstType>);
 /// A type as parsed by the Parser module.
 pub enum AstType {
     Infer(InferId),
+
     Int,
     Char,
     Bool,
@@ -189,6 +198,17 @@ impl AstType {
         AstType::Array { ty: Box::new(ty) }
     }
 
+    pub fn get_element(ty: &AstType) -> PResult<AstType> {
+        if let AstType::Array { ty } = ty {
+            Ok(*ty.clone())
+        } else {
+            PError::new(
+                Span::new(0, 0),
+                format!("Trying to access element type of non-array: {:?}", ty),
+            )
+        }
+    }
+
     pub fn tuple(types: Vec<AstType>) -> AstType {
         AstType::Tuple { types }
     }
@@ -218,35 +238,35 @@ impl AstType {
 /// A collection of statements, given by a `{}` block.
 pub struct AstBlock {
     pub statements: Vec<AstStatement>,
+    pub expression: Box<AstExpression>,
+    pub locals: Vec<VariableId>,
 }
 
 impl AstBlock {
-    pub fn new(statements: Vec<AstStatement>) -> AstBlock {
-        AstBlock { statements }
+    pub fn new(statements: Vec<AstStatement>, expr: AstExpression) -> AstBlock {
+        AstBlock {
+            statements,
+            locals: Vec::new(),
+            expression: Box::new(expr),
+        }
     }
 
-    pub fn empty() -> AstBlock {
+    pub fn empty(span: Span) -> AstBlock {
         AstBlock {
             statements: Vec::new(),
+            locals: Vec::new(),
+            expression: Box::new(AstExpression::nothing(span)),
         }
     }
 }
 
 #[derive(Debug, Clone)]
 pub enum AstStatement {
-    Block {
-        block: AstBlock,
-    },
     Let {
         name_span: Span,
         var_name: String,
         ty: AstType,
         value: AstExpression,
-    },
-    If {
-        condition: AstExpression,
-        block: AstBlock,
-        else_block: AstBlock,
     },
     While {
         condition: AstExpression,
@@ -266,10 +286,6 @@ pub enum AstStatement {
 }
 
 impl AstStatement {
-    pub fn block(block: AstBlock) -> AstStatement {
-        AstStatement::Block { block }
-    }
-
     pub fn let_statement(
         name_span: Span,
         var_name: String,
@@ -284,23 +300,8 @@ impl AstStatement {
         }
     }
 
-    pub fn if_statement(
-        condition: AstExpression,
-        block: AstBlock,
-        else_block: AstBlock,
-    ) -> AstStatement {
-        AstStatement::If {
-            condition: condition,
-            block: block,
-            else_block: else_block,
-        }
-    }
-
     pub fn while_loop(condition: AstExpression, block: AstBlock) -> AstStatement {
-        AstStatement::While {
-            condition: condition,
-            block: block,
-        }
+        AstStatement::While { condition, block }
     }
 
     pub fn return_statement(value: AstExpression) -> AstStatement {
@@ -346,6 +347,7 @@ type SubExpression = Box<AstExpression>;
 #[derive(Debug, Clone)]
 pub enum AstExpressionData {
     Unimplemented,
+
     True,
     False,
     Null,
@@ -404,12 +406,17 @@ pub enum AstExpressionData {
     ObjectAccess {
         object: SubExpression,
         mem_name: String,
+        mem_idx: Option<usize>,
     },
 
-    Allocate {
+    AllocateObject {
         object: AstType,
     },
 
+    /*AllocateArray {
+        object: AstType,
+        size: SubExpression,
+    },*/
     Not(SubExpression),
     Negate(SubExpression),
 
@@ -417,6 +424,15 @@ pub enum AstExpressionData {
         kind: BinOpKind,
         lhs: SubExpression,
         rhs: SubExpression,
+    },
+
+    Block {
+        block: AstBlock,
+    },
+    If {
+        condition: SubExpression,
+        block: AstBlock,
+        else_block: AstBlock,
     },
 }
 
@@ -440,6 +456,31 @@ pub enum BinOpKind {
 }
 
 impl AstExpression {
+    pub fn block(span: Span, block: AstBlock) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::Block { block },
+            ty: AstType::infer(),
+        }
+    }
+
+    pub fn if_statement(
+        span: Span,
+        condition: AstExpression,
+        block: AstBlock,
+        else_block: AstBlock,
+    ) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::If {
+                condition: Box::new(condition),
+                block,
+                else_block,
+            },
+            ty: AstType::infer(),
+        }
+    }
+
     pub fn string_literal(span: Span, string: String, len: usize) -> AstExpression {
         AstExpression {
             span,
@@ -594,15 +635,16 @@ impl AstExpression {
             data: AstExpressionData::ObjectAccess {
                 object: Box::new(object),
                 mem_name,
+                mem_idx: None,
             },
             ty: AstType::infer(),
         }
     }
 
-    pub fn allocate(span: Span, object: AstType) -> AstExpression {
+    pub fn allocate_object(span: Span, object: AstType) -> AstExpression {
         AstExpression {
             span,
-            data: AstExpressionData::Allocate { object },
+            data: AstExpressionData::AllocateObject { object },
             ty: AstType::infer(),
         }
     }

@@ -1,11 +1,9 @@
 use crate::analyze::represent::AnalyzedFile;
 
-use crate::parser::ast::*;
 use crate::parser::ast_visitor::*;
 use crate::tyck::tyck_instantiate::GenericsInstantiator;
 use crate::tyck::*;
 
-use crate::util::result::*;
 use crate::util::{Span, ZipExact};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::rc::Rc;
@@ -52,7 +50,7 @@ enum TyckDelayedObjective {
     Unify(AstType, AstType),
     TupleAccess(AstType, usize, AstType),
     ObjectAccess(AstType, String, AstType),
-    Object(AstType),
+    Nullable(AstType),
 }
 
 static MAX_ITERATIONS: usize = 1_000_000_usize;
@@ -85,7 +83,7 @@ impl TyckSolver {
             }
 
             if universe.is_solved() {
-                println!("Done!");
+                // println!("Done!");
                 return Ok(universe.solution);
             }
 
@@ -168,9 +166,9 @@ impl TyckSolver {
         Ok(())
     }
 
-    pub fn add_delayed_object_goal(&mut self, ty: &AstType) -> PResult<()> {
+    pub fn add_delayed_nullable_goal(&mut self, ty: &AstType) -> PResult<()> {
         self.delayed_objectives
-            .push(TyckDelayedObjective::Object(ty.clone()));
+            .push(TyckDelayedObjective::Nullable(ty.clone()));
         Ok(())
     }
 
@@ -232,7 +230,8 @@ impl TyckSolver {
             .map(|_| AstType::infer())
             .collect();
         let impl_signature = TyckImplSignature { impl_id, generics };
-        let instantiate = &mut GenericsInstantiator::from_signature(&*self.analyzed_file, &impl_signature)?;
+        let instantiate =
+            &mut GenericsInstantiator::from_signature(&*self.analyzed_file, &impl_signature)?;
 
         let obj_ty = impl_data.impl_ty.clone().visit(instantiate)?;
         let trait_ty = impl_data.trait_ty.clone().visit(instantiate)?;
@@ -275,7 +274,7 @@ impl TyckSolver {
         let lhs = self.normalize_ty(lhs)?;
         let rhs = self.normalize_ty(rhs)?;
 
-        println!("Unifying {:?} and {:?}", lhs, rhs);
+        println!("; Unifying {:?} and {:?}", lhs, rhs);
 
         match (lhs, rhs) {
             /* Generics should have been repl'ed out. */
@@ -488,16 +487,21 @@ impl TyckSolver {
                         TyckSolver::error(&format!("Object type expected, got {:?}", object))?;
                     }
                 }
-                TyckDelayedObjective::Object(object) => {
-                    let object = self.normalize_ty(&object)?;
-
-                    if let AstType::Object(..) = &object {
-                        /* Okay! That's all we really need to guarantee. */
-                    } else if let AstType::Infer(..) = &object {
-                        self.delayed_objectives
-                            .push(TyckDelayedObjective::Object(object));
-                    } else {
-                        TyckSolver::error(&format!("Object type expected, got {:?}", object))?;
+                TyckDelayedObjective::Nullable(object) => {
+                    match &self.normalize_ty(&object)? {
+                        AstType::Object(..) | AstType::String | AstType::Array { .. } => {
+                            /* Okay! */
+                        }
+                        AstType::Infer(..) => {
+                            self.delayed_objectives
+                                .push(TyckDelayedObjective::Nullable(object));
+                        }
+                        _ => {
+                            return TyckSolver::error(&format!(
+                                "Object type expected, got {:?}",
+                                object
+                            ))
+                        }
                     }
                 }
             }

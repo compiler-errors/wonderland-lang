@@ -13,7 +13,8 @@ pub struct AnalyzedFile {
 #[derive(Debug, Clone)]
 pub struct AnObjectData {
     pub generics: Vec<GenericId>,
-    pub members: HashMap<String, AstType>,
+    pub member_tys: HashMap<String, AstType>,
+    pub member_indices: HashMap<String, usize>,
     pub restrictions: Vec<AstTypeRestriction>,
 }
 
