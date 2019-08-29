@@ -31,13 +31,13 @@ impl TyckConstraintAssumptionAdapter {
             self.file
                 .analyzed_traits
                 .get(&trt.0)
-                .expected(Span::new(0, 0), "trait", &trt.0)?;
+                .is_expected(Span::new(0, 0), "trait", &trt.0)?;
         let impl_id = AstImpl::new_id();
 
         let mut associated_tys = HashMap::new();
         for (name, assoc_ty) in trt_data.associated_tys.clone() {
             if &name == "Self" {
-                associated_tys.insert("Self".to_string(), ty.clone());
+                associated_tys.insert("Self".into(), ty.clone());
             } else {
                 let mut instantiate = GenericsInstantiator::from_trait(&self.file, trt)?;
                 let dummy = AstType::dummy();
@@ -76,7 +76,7 @@ impl Adapter for TyckConstraintAssumptionAdapter {
             AstType::SelfType => self
                 .self_ty
                 .clone()
-                .expected(Span::new(0, 0), "type", "self"),
+                .is_expected(Span::new(0, 0), "type", "self"),
             t => Ok(t),
         }
     }
@@ -107,11 +107,10 @@ impl Adapter for TyckConstraintAssumptionAdapter {
 pub struct Dummifier;
 
 impl Dummifier {
-    pub fn from_generics(generics: &Vec<AstGeneric>) -> PResult<Vec<AstType>> {
+    pub fn from_generics(generics: &[AstGeneric]) -> PResult<Vec<AstType>> {
         let dummies = generics
-            .clone()
-            .into_iter()
-            .map(|AstGeneric(id, name)| AstType::DummyGeneric(id, name))
+            .iter()
+            .map(|AstGeneric(id, name)| AstType::DummyGeneric(*id, name.clone()))
             .collect();
 
         Ok(dummies)

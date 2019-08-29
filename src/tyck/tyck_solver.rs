@@ -1,5 +1,6 @@
 use crate::analyze::represent::AnalyzedFile;
 
+use crate::parser::ast::*;
 use crate::parser::ast_visitor::*;
 use crate::tyck::tyck_instantiate::GenericsInstantiator;
 use crate::tyck::*;
@@ -7,6 +8,7 @@ use crate::tyck::*;
 use crate::util::{Span, ZipExact};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::rc::Rc;
+use crate::util::result::*;
 
 #[derive(Debug, Clone)]
 pub struct TyckSolver {
@@ -116,7 +118,7 @@ impl TyckSolver {
         Ok(())
     }
 
-    pub fn add_objectives(&mut self, objectives: &Vec<AstTypeRestriction>) -> PResult<()> {
+    pub fn add_objectives(&mut self, objectives: &[AstTypeRestriction]) -> PResult<()> {
         for AstTypeRestriction { ty, trt } in objectives {
             self.add_objective(ty, trt)?;
         }
@@ -126,8 +128,8 @@ impl TyckSolver {
 
     pub fn add_objective_well_formed(
         &mut self,
-        obj_name: &String,
-        generics: &Vec<AstType>,
+        obj_name: &str,
+        generics: &[AstType],
     ) -> PResult<()> {
         let file = self.analyzed_file.clone();
         let obj_data = &file.analyzed_objects[obj_name];
@@ -190,13 +192,13 @@ impl TyckSolver {
     pub fn add_delayed_object_access(
         &mut self,
         object_ty: &AstType,
-        member_name: &String,
+        member_name: &str,
         member_ty: &AstType,
     ) -> PResult<()> {
         self.delayed_objectives
             .push(TyckDelayedObjective::ObjectAccess(
                 object_ty.clone(),
-                member_name.clone(),
+                member_name.into(),
                 member_ty.clone(),
             ));
         Ok(())
@@ -276,7 +278,7 @@ impl TyckSolver {
 
         println!("; Unifying {:?} and {:?}", lhs, rhs);
 
-        match (lhs, rhs) {
+        match (&lhs, &rhs) {
             /* Generics should have been repl'ed out. */
             (AstType::Generic(..), _)
             | (_, AstType::Generic(..))
@@ -296,16 +298,16 @@ impl TyckSolver {
             (AstType::Infer(lid), rhs) => {
                 self.solution
                     .inferences
-                    .insert(lid, rhs.clone())
-                    .not_expected(Span::new(0, 0), "inference", &format!("_{}", lid.0))?;
+                    .insert(*lid, rhs.clone())
+                    .is_not_expected(Span::new(0, 0), "inference", &format!("_{}", lid.0))?;
 
                 Ok(())
             }
             (lhs, AstType::Infer(rid)) => {
                 self.solution
                     .inferences
-                    .insert(rid, lhs.clone())
-                    .not_expected(Span::new(0, 0), "inference", &format!("_{}", rid.0))?;
+                    .insert(*rid, lhs.clone())
+                    .is_not_expected(Span::new(0, 0), "inference", &format!("_{}", rid.0))?;
 
                 Ok(())
             }
@@ -326,14 +328,14 @@ impl TyckSolver {
             (AstType::Array { ty: a_ty }, AstType::Array { ty: b_ty }) => {
                 self.unify(&*a_ty, &*b_ty)
             }
-            (AstType::Tuple { types: ref a_tys }, AstType::Tuple { types: ref b_tys }) => {
+            (AstType::Tuple { types:  a_tys }, AstType::Tuple { types:  b_tys }) => {
                 for (a_ty, b_ty) in ZipExact::zip_exact(a_tys, b_tys, "tuple types")? {
                     self.unify(a_ty, b_ty)?;
                 }
 
                 Ok(())
             }
-            (AstType::Object(ref a_name, ref a_tys), AstType::Object(ref b_name, ref b_tys)) => {
+            (AstType::Object( a_name,  a_tys), AstType::Object( b_name,  b_tys)) => {
                 if a_name != b_name {
                     TyckSolver::error(&format!(
                         "Object names won't unify: {} and {}",
@@ -352,7 +354,7 @@ impl TyckSolver {
         }
     }
 
-    pub fn unify_all(&mut self, a: &Vec<AstType>, b: &Vec<AstType>) -> PResult<()> {
+    pub fn unify_all(&mut self, a: &[AstType], b: &[AstType]) -> PResult<()> {
         for (a, b) in ZipExact::zip_exact(a, b, "arguments")? {
             self.unify(a, b)?;
         }
@@ -508,15 +510,6 @@ impl TyckSolver {
         }
 
         Ok(())
-    }
-
-    fn get_impl_signature(
-        &mut self,
-        span: Span,
-        obj_ty: &AstType,
-        trait_ty: &AstTraitType,
-    ) -> PResult<TyckImplSignature> {
-        self.solution.get_impl_signature(span, obj_ty, trait_ty)
     }
 
     fn normalize_ty(&self, t: &AstType) -> PResult<AstType> {

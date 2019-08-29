@@ -52,12 +52,12 @@ impl<T, S: Comment> Comment for Result<T, S> {
 }
 
 pub trait Expect<T> {
-    fn expected(self, span: Span, type_of: &str, name: &str) -> PResult<T>;
-    fn not_expected(self, span: Span, type_of: &str, name: &str) -> PResult<()>;
+    fn is_expected(self, span: Span, type_of: &str, name: &str) -> PResult<T>;
+    fn is_not_expected(self, span: Span, type_of: &str, name: &str) -> PResult<()>;
 }
 
 impl<T> Expect<T> for Option<T> {
-    fn expected(self, span: Span, type_of: &str, name: &str) -> PResult<T> {
+    fn is_expected(self, span: Span, type_of: &str, name: &str) -> PResult<T> {
         if let Some(t) = self {
             Ok(t)
         } else {
@@ -69,7 +69,7 @@ impl<T> Expect<T> for Option<T> {
         }
     }
 
-    fn not_expected(self, span: Span, type_of: &str, name: &str) -> PResult<()> {
+    fn is_not_expected(self, span: Span, type_of: &str, name: &str) -> PResult<()> {
         if self.is_none() {
             Ok(())
         } else {

@@ -1,6 +1,7 @@
 use crate::util::result::{PError, PResult};
 use crate::util::Span;
 use std::iter::Zip;
+use crate::util::len::Len;
 
 pub trait ZipExact<S>: IntoIterator
 where
@@ -9,12 +10,12 @@ where
     fn zip_exact(self, other: S, what: &str) -> PResult<Zip<Self::IntoIter, S::IntoIter>>;
 }
 
-impl<'a, T, S> ZipExact<&'a Vec<S>> for &Vec<T> {
+impl<S: IntoIterator + Len, T: IntoIterator + Len> ZipExact<S> for T {
     fn zip_exact(
         self,
-        other: &'a Vec<S>,
+        other: S,
         what: &str,
-    ) -> PResult<Zip<Self::IntoIter, <&'a Vec<S> as IntoIterator>::IntoIter>> {
+    ) -> PResult<Zip<Self::IntoIter, S::IntoIter>> {
         if self.len() != other.len() {
             PError::new(
                 Span::new(0, 0),
@@ -26,7 +27,7 @@ impl<'a, T, S> ZipExact<&'a Vec<S>> for &Vec<T> {
                 ),
             )
         } else {
-            Ok(Iterator::zip(self.iter(), other.iter()))
+            Ok(Iterator::zip(self.into_iter(), other.into_iter()))
         }
     }
 }

@@ -40,11 +40,11 @@ impl<'a> GenericsAdapter<'a> {
         }
     }
 
-    fn register_generics(&mut self, span: Span, generics: &Vec<AstGeneric>) -> PResult<()> {
+    fn register_generics(&mut self, span: Span, generics: &[AstGeneric]) -> PResult<()> {
         for g in generics {
             self.generic_scope
                 .get_top(&g.1)
-                .not_expected(span, "generic", &g.1)?;
+                .is_not_expected(span, "generic", &g.1)?;
             self.generic_scope.add(g.1.clone(), g.clone());
         }
 
@@ -59,7 +59,7 @@ impl<'a> Adapter for GenericsAdapter<'a> {
 
         self.function_generic_count
             .insert(f.name.clone(), f.generics.len())
-            .not_expected(f.name_span, "function", &f.name)?;
+            .is_not_expected(f.name_span, "function", &f.name)?;
 
         Ok(f)
     }
@@ -70,7 +70,7 @@ impl<'a> Adapter for GenericsAdapter<'a> {
                 let id =
                     self.generic_scope
                         .get(&name)
-                        .expected(Span::new(0, 0), "generic", &name)?;
+                        .is_expected(Span::new(0, 0), "generic", &name)?;
 
                 Ok(id.clone().into())
             }
@@ -84,7 +84,7 @@ impl<'a> Adapter for GenericsAdapter<'a> {
 
         self.object_generic_count
             .insert(o.name.clone(), o.generics.len())
-            .not_expected(o.name_span, "object", &o.name)?;
+            .is_not_expected(o.name_span, "object", &o.name)?;
 
         Ok(o)
     }
@@ -94,7 +94,7 @@ impl<'a> Adapter for GenericsAdapter<'a> {
         self.register_generics(o.name_span, &o.generics)?;
 
         // TODO: ew.
-        if let Some(ref trait_name) = self.current_trait {
+        if let Some( trait_name) = &self.current_trait {
             // TODO: Maybe when I have elaborated types, then I can make this only a thing for has_self methods.
             self.method_to_trait
                 .insert(o.name.clone(), trait_name.clone());
@@ -118,12 +118,12 @@ impl<'a> Adapter for GenericsAdapter<'a> {
 
             self.type_to_trait
                 .insert(associated_ty.name.clone(), t.name.clone())
-                .not_expected(Span::new(0, 0), "associated type", &associated_ty.name)?;
+                .is_not_expected(Span::new(0, 0), "associated type", &associated_ty.name)?;
         }
 
         self.trait_generic_count
             .insert(t.name.clone(), t.generics.len())
-            .not_expected(t.name_span, "trait", &t.name)?;
+            .is_not_expected(t.name_span, "trait", &t.name)?;
 
         Ok(t)
     }

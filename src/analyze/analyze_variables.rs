@@ -27,13 +27,13 @@ impl<'a> VariableAdapter<'a> {
         println!("; Adding variable {:?} to scope {:?}", a, self.scope);
 
         self.scope
-            .get_top(&name)
-            .not_expected(*span, "variable", &name)?;
+            .get_top(name)
+            .is_not_expected(*span, "variable", &name)?;
 
         let name = name.clone();
         self.variables
             .insert(*id, a.clone())
-            .not_expected(*span, "variable", &name)?;
+            .is_not_expected(*span, "variable", &name)?;
         self.scope.add(name, *id);
 
         Ok(())
@@ -121,17 +121,17 @@ impl<'a> Adapter for VariableAdapter<'a> {
                     "; Looking for variable {:?} in scope {:?}",
                     name, self.scope
                 );
-                let variable_id = Some(self.scope.get(&name).expected(e.span, "variable", &name)?);
+                let variable_id = Some(self.scope.get(&name).is_expected(e.span, "variable", &name)?);
                 AstExpressionData::Identifier { name, variable_id }
             }
             AstExpressionData::SelfRef => {
                 let variable_id = Some(
                     self.scope
-                        .get(&"self".to_string() /* <- TODO: ew */)
-                        .expected(e.span, "variable", "self")?,
+                        .get("self" /* <- TODO: ew */)
+                        .is_expected(e.span, "variable", "self")?,
                 );
                 AstExpressionData::Identifier {
-                    name: "self".to_string(),
+                    name: "self".into(),
                     variable_id,
                 }
             }

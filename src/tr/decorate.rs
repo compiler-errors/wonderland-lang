@@ -2,14 +2,14 @@ use crate::parser::ast::*;
 
 pub fn decorate_ty(t: &AstType) -> String {
     match t {
-        AstType::Int => "I".to_string(),
-        AstType::Char => "H".to_string(), /* TODO: `C` and `c` are reserved for closures. */
-        AstType::Bool => "B".to_string(),
-        AstType::String => "N".to_string(),
+        AstType::Int => "I".into(),
+        AstType::Char => "H".into(), /* TODO: `C` and `c` are reserved for closures. */
+        AstType::Bool => "B".into(),
+        AstType::String => "N".into(),
 
         AstType::Array { ty } => format!("A{}", decorate_ty(&ty)),
 
-        AstType::Tuple { types } if types.len() == 0 => "U".to_string(),
+        AstType::Tuple { types } if types.len() == 0 => "U".into(),
 
         AstType::Tuple { types } if types.len() == 1 => format!("t{}", decorate_ty(&types[0])),
 
@@ -41,21 +41,7 @@ pub fn decorate_ty(t: &AstType) -> String {
     }
 }
 
-pub fn decorate_trait_type(trt: &AstTraitType) -> String {
-    if trt.1.len() == 0 {
-        format!("r{}{}", trt.0.len(), trt.0)
-    } else {
-        let mut string = format!("R{}{}{}", trt.0.len(), trt.0, trt.1.len());
-
-        for t in &trt.1 {
-            string.push_str(&decorate_ty(t));
-        }
-
-        string
-    }
-}
-
-pub fn decorate_fn(name: &String, generics: &Vec<AstType>) -> String {
+pub fn decorate_fn(name: &str, generics: &[AstType]) -> String {
     if generics.len() == 0 {
         format!("f{}{}", name.len(), name)
     } else {
@@ -69,7 +55,7 @@ pub fn decorate_fn(name: &String, generics: &Vec<AstType>) -> String {
     }
 }
 
-pub fn decorate_object(name: &String, generics: &Vec<AstType>) -> String {
+pub fn decorate_object(name: &str, generics: &[AstType]) -> String {
     if generics.len() == 0 {
         format!("s{}{}", name.len(), name)
     } else {
@@ -86,8 +72,8 @@ pub fn decorate_object(name: &String, generics: &Vec<AstType>) -> String {
 pub fn decorate_object_fn(
     ty: &AstType,
     trt: &AstTraitType,
-    fn_name: &String,
-    fn_generics: &Vec<AstType>,
+    fn_name: &str,
+    fn_generics: &[AstType],
 ) -> String {
     if trt.1.len() == 0 && fn_generics.len() == 0 {
         format!(

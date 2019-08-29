@@ -56,7 +56,7 @@ impl<'a> Adapter for TraitsAdapter<'a> {
     fn enter_type(&mut self, t: AstType) -> PResult<AstType> {
         match t {
             AstType::Object(name, generics) => {
-                let expected = self.object_generic_count.get(&name).expected(
+                let expected = self.object_generic_count.get(&name).is_expected(
                     Span::new(0, 0),
                     "object",
                     &name,
@@ -73,7 +73,7 @@ impl<'a> Adapter for TraitsAdapter<'a> {
                 name,
             } => {
                 let trait_ty = if trait_ty.is_none() {
-                    let trait_name = self.type_to_trait.get(&name).expected(
+                    let trait_name = self.type_to_trait.get(&name).is_expected(
                         Span::new(0, 0),
                         "associated type",
                         &name,
@@ -105,7 +105,7 @@ impl<'a> Adapter for TraitsAdapter<'a> {
                 let expected = self
                     .function_generic_count
                     .get(&name)
-                    .expected(e.span, "function", &name)?;
+                    .is_expected(e.span, "function", &name)?;
                 let generics = Self::expect_generics(e.span, generics, *expected)?;
 
                 AstExpressionData::Call {
@@ -138,11 +138,11 @@ impl<'a> Adapter for TraitsAdapter<'a> {
                 let trait_name = self
                     .method_to_trait
                     .get(&fn_name)
-                    .expected(e.span, "trait method", &fn_name)?
+                    .is_expected(e.span, "trait method", &fn_name)?
                     .clone();
 
-                if let &Some(AstTraitType(ref expected_trait_name, ..)) = &associated_trait {
-                    if expected_trait_name != &trait_name {
+                if let Some(AstTraitType( expected_trait_name, ..)) = associated_trait {
+                    if expected_trait_name != trait_name {
                         PError::new(span, format!("Expected trait `{}` to be assocated with static call `{}`, got `{}`.", expected_trait_name, fn_name, trait_name))?;
                     }
                 }
@@ -150,7 +150,7 @@ impl<'a> Adapter for TraitsAdapter<'a> {
                 let expected_fn = self
                     .trait_method_generic_count
                     .get(&(trait_name.clone(), fn_name.clone()))
-                    .expected(e.span, "method", &fn_name)?;
+                    .is_expected(e.span, "method", &fn_name)?;
                 let fn_generics = Self::expect_generics(e.span, fn_generics, *expected_fn)?;
 
                 AstExpressionData::StaticCall {
@@ -177,7 +177,7 @@ impl<'a> Adapter for TraitsAdapter<'a> {
         let expected =
             self.trait_generic_count
                 .get(&name)
-                .expected(Span::new(0, 0), "trait", &name)?;
+                .is_expected(Span::new(0, 0), "trait", &name)?;
 
         let generics = Self::expect_generics(Span::new(0, 0), generics, *expected)?;
 

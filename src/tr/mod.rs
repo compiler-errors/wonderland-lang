@@ -47,7 +47,7 @@ pub fn translate(file: InstantiatedFile) -> PResult<()> {
 
     //if let Result::Err(why) = tr.module.verify()
     //{
-    //    panic!("LLVM: {}", why.to_string());
+    //    panic!("LLVM: {}", why.into());
     //}
 
     println!("{}", tr.module.print_to_string().to_string());
@@ -200,7 +200,7 @@ impl Translator {
     fn forward_declare_function(
         &mut self,
         name: &str,
-        parameter_list: &Vec<AstNamedVariable>,
+        parameter_list: &[AstNamedVariable],
         return_type: &AstType,
     ) -> PResult<()> {
         let param_tys = parameter_list
@@ -235,7 +235,7 @@ impl Translator {
     fn translate_function(
         &mut self,
         fun_name: &str,
-        parameter_list: &Vec<AstNamedVariable>,
+        parameter_list: &[AstNamedVariable],
         return_type: &AstType,
         variables: &HashMap<VariableId, AstNamedVariable>,
         definition: &Option<AstBlock>,
@@ -468,7 +468,7 @@ impl Translator {
 
             AstExpressionData::Tuple { values } => {
                 let mapped = values
-                    .into_iter()
+                    .iter()
                     .map(|e| self.translate_expression(builder, e))
                     .collect::<PResult<Vec<(BasicValueEnum, Vec<PointerValue>)>>>()?;
                 let (values, temps): (Vec<BasicValueEnum>, Vec<Vec<_>>) =
@@ -789,7 +789,7 @@ impl Translator {
         Ok(ptrs)
     }
 
-    fn free_temps(&self, builder: &Builder, temps: &Vec<PointerValue>) -> PResult<()> {
+    fn free_temps(&self, builder: &Builder, temps: &[PointerValue]) -> PResult<()> {
         for &val in temps {
             let ptr = val.get_type().get_element_type().into_pointer_type();
             builder.build_store(val, ptr.const_null());

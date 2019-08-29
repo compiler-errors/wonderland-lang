@@ -322,34 +322,34 @@ impl<'a> Parser<'a> {
     /// Try to parse an AstType.
     fn parse_type(&mut self) -> PResult<(AstType, Span)> {
         let (mut ty, mut span) = match &self.next_token {
-            &Token::Int => {
+            Token::Int => {
                 self.bump()?;
                 (AstType::Int, self.next_span)
-            }
-            &Token::Bool => {
+            },
+            Token::Bool => {
                 self.bump()?;
                 (AstType::Bool, self.next_span)
-            }
-            &Token::Char => {
+            },
+            Token::Char => {
                 self.bump()?;
                 (AstType::Char, self.next_span)
-            }
-            &Token::StringType => {
+            },
+            Token::StringType => {
                 self.bump()?;
                 (AstType::String, self.next_span)
-            }
-            &Token::Infer => {
+            },
+            Token::Infer => {
                 self.bump()?;
                 (AstType::infer(), self.next_span)
-            }
-            &Token::SelfType => {
+            },
+            Token::SelfType => {
                 self.bump()?;
                 (AstType::SelfType, self.next_span)
-            }
-            &Token::LSqBracket => self.parse_array_type()?,
-            &Token::LParen => self.parse_tuple_type()?,
-            &Token::TypeName(..) => self.parse_object_type()?,
-            &Token::GenericName(..) => self.parse_generic_type()?,
+            },
+            Token::LSqBracket => self.parse_array_type()?,
+            Token::LParen => self.parse_tuple_type()?,
+            Token::TypeName(..) => self.parse_object_type()?,
+            Token::GenericName(..) => self.parse_generic_type()?,
             _ => self.error_here(format!(
                 "Expected built-in type, `identifier` or `(`, found `{}`",
                 self.next_token
@@ -489,18 +489,18 @@ impl<'a> Parser<'a> {
     /// Parse a statement.
     fn parse_statement(&mut self) -> PResult<AstStatement> {
         match &self.next_token {
-            &Token::Let => self.parse_let_statement(),
-            &Token::While => self.parse_while_loop(),
-            &Token::Break => {
+            Token::Let => self.parse_let_statement(),
+            Token::While => self.parse_while_loop(), 
+            Token::Break => {
                 self.bump()?;
                 Ok(AstStatement::break_stmt())
             }
-            &Token::Continue => {
+            Token::Continue => {
                 self.bump()?;
                 Ok(AstStatement::continue_stmt())
             }
-            &Token::Return => self.parse_return_statement(),
-            &Token::Assert => self.parse_assert_statement(),
+            Token::Return => self.parse_return_statement(),
+            Token::Assert => self.parse_assert_statement(),
             _ => self.parse_expression_statement(),
         }
     }
@@ -563,40 +563,40 @@ impl<'a> Parser<'a> {
 
     fn check_operator(&self) -> bool {
         match &self.next_token {
-            &Token::Star
-            | &Token::Slash
-            | &Token::Modulo
-            | &Token::Plus
-            | &Token::Minus
-            | &Token::Lt
-            | &Token::Gt
-            | &Token::LessEqual
-            | &Token::GreaterEqual
-            | &Token::EqualsEquals
-            | &Token::NotEquals
-            | &Token::And
-            | &Token::Pipe
-            | &Token::Equals
-            | &Token::Colon
-            | &Token::LSqBracket
-            | &Token::LParen => true,
+            Token::Star
+            | Token::Slash
+            | Token::Modulo
+            | Token::Plus
+            | Token::Minus
+            | Token::Lt
+            | Token::Gt
+            | Token::LessEqual
+            | Token::GreaterEqual
+            | Token::EqualsEquals
+            | Token::NotEquals
+            | Token::And
+            | Token::Pipe
+            | Token::Equals
+            | Token::Colon
+            | Token::LSqBracket
+            | Token::LParen => true,
             _ => false,
         }
     }
 
     fn get_precedence(&self, token: &Token, span: Span) -> PResult<usize> {
         match token {
-            &Token::Star | &Token::Slash | &Token::Modulo => Ok(7),
-            &Token::Plus | &Token::Minus => Ok(6),
-            &Token::Lt
-            | &Token::Gt
-            | &Token::LessEqual
-            | &Token::GreaterEqual
-            | &Token::EqualsEquals
-            | &Token::NotEquals => Ok(4),
-            &Token::And => Ok(2),
-            &Token::Pipe => Ok(1),
-            &Token::Equals => Ok(0),
+            Token::Star | Token::Slash | Token::Modulo => Ok(7),
+            Token::Plus | Token::Minus => Ok(6),
+            Token::Lt
+            | Token::Gt
+            | Token::LessEqual
+            | Token::GreaterEqual
+            | Token::EqualsEquals
+            | Token::NotEquals => Ok(4),
+            Token::And => Ok(2),
+            Token::Pipe => Ok(1),
+            Token::Equals => Ok(0),
             _ => self.error_at(span, format!("Uknown token `{}`", token)),
         }
     }
@@ -687,60 +687,60 @@ impl<'a> Parser<'a> {
         let mut span = self.next_span;
 
         match &self.next_token {
-            &Token::LBrace => {
+            Token::LBrace => {
                 let (block, span) = self.parse_block()?;
                 Ok(AstExpression::block(span, block))
             }
-            &Token::If => self.parse_if_statement(),
-            &Token::Commalipses => {
+            Token::If => self.parse_if_statement(),
+            Token::Commalipses => {
                 self.bump()?;
                 Ok(AstExpression::unimplemented(span))
             }
-            &Token::Not => {
+            Token::Not => {
                 self.bump()?;
                 let e = self.parse_expr(9)?;
                 span = span.unite(e.span);
                 Ok(AstExpression::not(span, e))
             }
-            &Token::Minus => {
+            Token::Minus => {
                 self.bump()?;
                 let e = self.parse_expr(9)?;
                 span = span.unite(e.span);
                 Ok(AstExpression::neg(span, e))
             }
-            &Token::Allocate => self.parse_allocate_expr(),
-            &Token::LParen => self.parse_paren_expr(),
-            &Token::LSqBracket => self.parse_array_literal(),
-            &Token::VariableName(_) => self.parse_identifier_expr(),
-            &Token::TypeName(_)
-            | &Token::GenericName(_)
-            | &Token::Infer
+            Token::Allocate => self.parse_allocate_expr(),
+            Token::LParen => self.parse_paren_expr(),
+            Token::LSqBracket => self.parse_array_literal(),
+            Token::VariableName(_) => self.parse_identifier_expr(),
+            Token::TypeName(_)
+            | Token::GenericName(_)
+            | Token::Infer
             | Token::SelfType
             | Token::Lt => self.parse_static_call(),
-            &Token::True => {
+            Token::True => {
                 self.bump()?;
                 Ok(AstExpression::true_lit(span))
             }
-            &Token::False => {
+            Token::False => {
                 self.bump()?;
                 Ok(AstExpression::false_lit(span))
             }
-            &Token::Null => {
+            Token::Null => {
                 self.bump()?;
                 Ok(AstExpression::null_lit(span))
             }
-            &Token::SelfRef => {
+            Token::SelfRef => {
                 self.bump()?;
                 Ok(AstExpression::self_ref(span))
             }
             _ => {
                 // This is wonky, but we don't want to ALWAYS clone...
                 match self.next_token.clone() {
-                    Token::String(ref string, len) => {
+                    Token::String( string, len) => {
                         self.bump()?;
                         Ok(AstExpression::string_literal(span, string.clone(), len))
                     }
-                    Token::IntLiteral(ref num) => {
+                    Token::IntLiteral( num) => {
                         self.bump()?;
                         Ok(AstExpression::int_literal(span, num.clone()))
                     }
@@ -981,25 +981,25 @@ impl<'a> Parser<'a> {
 
     fn ensure_lval(&self, expr: &AstExpression) -> PResult<()> {
         match &expr.data {
-            &AstExpressionData::Identifier { .. }
-            | &AstExpressionData::ArrayAccess { .. }
-            | &AstExpressionData::ObjectAccess { .. } => Ok(()),
-            &AstExpressionData::TupleAccess { ref accessible, .. } => self.ensure_lval(accessible),
+            AstExpressionData::Identifier { .. }
+            | AstExpressionData::ArrayAccess { .. }
+            | AstExpressionData::ObjectAccess { .. } => Ok(()),
+            AstExpressionData::TupleAccess {  accessible, .. } => self.ensure_lval(accessible),
             _ => self.error_at(expr.span, format!("Expected lval for left of `=`")),
         }
     }
 
     fn ensure_not_infer(&mut self, ty: &AstType, span: Span) -> PResult<()> {
         match ty {
-            &AstType::Array { ref ty } => self.ensure_not_infer(ty, span),
-            &AstType::Tuple { ref types } => {
+            AstType::Array {  ty } => self.ensure_not_infer(ty, span),
+            AstType::Tuple {  types } => {
                 for ty in types {
                     self.ensure_not_infer(ty, span)?;
                 }
                 Ok(())
             }
             // TODO: Add spans to types...
-            &AstType::Infer(..) => self.error_at(span, format!("Infer `_` type not expected")),
+            AstType::Infer(..) => self.error_at(span, format!("Infer `_` type not expected")),
             _ => Ok(()),
         }
     }
@@ -1066,7 +1066,7 @@ impl<'a> Parser<'a> {
             self.expect_consume(Token::SelfRef)?;
             parameters.push(AstNamedVariable::new(
                 self_span,
-                "self".to_string(),
+                "self".into(),
                 AstType::SelfType,
             ));
             true

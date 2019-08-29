@@ -859,7 +859,7 @@ pub struct AstAssociatedType {
 impl AstAssociatedType {
     pub fn self_ty() -> AstAssociatedType {
         AstAssociatedType {
-            name: "Self".to_string(),
+            name: "Self".into(),
             restrictions: Vec::new(),
         }
     }

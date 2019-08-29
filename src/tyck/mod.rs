@@ -161,7 +161,7 @@ pub fn typecheck_associated_type(
     impl_ty: &AstType,
     trait_ty: &AstTraitType,
     span: Span,
-    name: &String,
+    name: &str,
     assoc_ty: &AstType,
 ) -> PResult<()> {
     let trait_data = &file.analyzed_traits[&trait_ty.0];
@@ -169,10 +169,10 @@ pub fn typecheck_associated_type(
     let mut objective_adapter = TyckObjectiveAdapter::new(base_solver.clone(), file.clone());
     let assoc_ty = assoc_ty.clone().visit(&mut objective_adapter)?;
 
-    let restrictions = trait_data
+    let restrictions: Vec<_> = trait_data
         .associated_tys
         .get(name)
-        .expected(span, "associated type", &name)?
+        .is_expected(span, "associated type", &name)?
         .restrictions
         .iter()
         .map(|trt| AstTypeRestriction::new(assoc_ty.clone(), trt.clone()))
@@ -201,7 +201,7 @@ pub fn typecheck_impl(
     let trait_data =
         file.analyzed_traits
             .get(trait_name)
-            .expected(imp.name_span, "trait", trait_name)?;
+            .is_expected(imp.name_span, "trait", trait_name)?;
     let mut objective_adapter = TyckObjectiveAdapter::new(base_solver.clone(), file.clone());
 
     // Prove that the impl satisfies the restrictions of the trait, and its own restrictions.
@@ -253,7 +253,7 @@ pub fn typecheck_impl_fn(
     fun: AstObjectFunction,
     impl_ty: &AstType,
     trait_ty: &AstTraitType,
-    fn_generics: &Vec<AstType>,
+    fn_generics: &[AstType],
 ) -> PResult<(AstObjectFunction, TyckSolution)> {
     let mut objective_adapter = TyckObjectiveAdapter::new(base_solver.clone(), file.clone());
 
@@ -315,7 +315,7 @@ fn typecheck_impl_collision(
 ) -> PResult<()> {
     let mut solver = base_solver.clone();
 
-    let fresh_generics = other_impl
+    let fresh_generics: Vec<_> = other_impl
         .generics
         .iter()
         .map(|_| AstType::infer())

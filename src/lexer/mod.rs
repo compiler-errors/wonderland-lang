@@ -214,7 +214,7 @@ impl<'a> Lexer<'a> {
     fn scan_string(&mut self) -> PResult<Token> {
         self.bump(1); // Blindly consume the quote character
         let mut len = 0;
-        let mut string = "".to_string();
+        let mut string = String::new();
 
         loop {
             match self.current_char() {
@@ -239,7 +239,7 @@ impl<'a> Lexer<'a> {
                     break;
                 }
                 '\r' | '\n' | EOF => {
-                    return self.error("Reached end of line in string".to_string());
+                    return self.error("Reached end of line in string".into());
                 }
                 c => {
                     string.push(c);
@@ -279,7 +279,7 @@ impl<'a> Lexer<'a> {
         };
 
         if self.current_char() != '\'' {
-            return self.error("Unclosed character literal".to_string());
+            return self.error("Unclosed character literal".into());
         }
 
         self.bump(1);
@@ -288,7 +288,7 @@ impl<'a> Lexer<'a> {
 
     /// Scans a numeric literal, consuming it and converting it to a token in the process.
     fn scan_numeric_literal(&mut self) -> PResult<Token> {
-        let mut string = "".to_string();
+        let mut string = String::new();
 
         while is_numeric(self.current_char()) {
             string.push(self.current_char());
@@ -325,7 +325,7 @@ impl<'a> Lexer<'a> {
 
     // Scans an identifier, unless it matches a keyword.
     fn scan_identifier_or_keyword(&mut self) -> PResult<Token> {
-        let mut string = "".to_string();
+        let mut string = String::new();
 
         string.push(self.current_char());
         self.bump(1);
@@ -368,7 +368,7 @@ impl<'a> Lexer<'a> {
             "Self" => Token::SelfType,
 
             _ => match string.chars().nth(0).unwrap() {
-                '_' => Token::GenericName(string[1..].to_string()),
+                '_' => Token::GenericName(string[1..].into()),
                 'A'..='Z' => Token::TypeName(string),
                 'a'..='z' => Token::VariableName(string),
                 _ => {
@@ -430,7 +430,7 @@ impl<'a> Lexer<'a> {
 
                         return self.error_at(
                             Span::new(start_pos, end_pos),
-                            "EOF encountered in block comment".to_string(),
+                            "EOF encountered in block comment".into(),
                         );
                     }
                 }

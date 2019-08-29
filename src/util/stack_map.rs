@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::borrow::Borrow;
 
 #[derive(Debug)]
 pub struct StackMap<K: Eq + Hash + Debug, V: Debug> {
@@ -25,7 +26,7 @@ impl<K: Eq + Hash + Debug, V: Clone + Debug> StackMap<K, V> {
         self.stack.pop().unwrap()
     }
 
-    pub fn get(&self, key: &K) -> Option<V> {
+    pub fn get<Q: ?Sized>(&self, key: &Q) -> Option<V> where K: Borrow<Q>, Q: Hash + Eq {
         for map in self.stack.iter().rev() {
             if map.contains_key(key) {
                 return map.get(key).map(Clone::clone);
@@ -35,7 +36,7 @@ impl<K: Eq + Hash + Debug, V: Clone + Debug> StackMap<K, V> {
         None
     }
 
-    pub fn get_top(&self, key: &K) -> Option<V> {
+    pub fn get_top<Q: ?Sized + Hash>(&self, key: &Q) -> Option<V> where K: Borrow<Q>, Q: Hash + Eq {
         self.stack.last().unwrap().get(key).map(Clone::clone)
     }
 

@@ -30,15 +30,15 @@ impl InfoAdapter {
         }
     }
 
-    fn map_generics(&mut self, generics: &Vec<AstGeneric>) -> PResult<Vec<GenericId>> {
-        Ok(generics.clone().into_iter().map(|g| g.0).collect())
+    fn map_generics(&mut self, generics: &[AstGeneric]) -> PResult<Vec<GenericId>> {
+        Ok(generics.iter().map(|g| g.0).collect())
     }
 
-    fn map_parameters(&mut self, generics: &Vec<AstNamedVariable>) -> PResult<Vec<AstType>> {
-        Ok(generics.clone().into_iter().map(|n| n.ty).collect())
+    fn map_parameters(&mut self, generics: &[AstNamedVariable]) -> PResult<Vec<AstType>> {
+        Ok(generics.iter().map(|n| n.ty.clone()).collect())
     }
 
-    fn clone_members(members: &Vec<AstObjectMember>) -> PResult<HashMap<String, AstType>> {
+    fn clone_members(members: &[AstObjectMember]) -> PResult<HashMap<String, AstType>> {
         let mut member_assoc = HashMap::new();
 
         for AstObjectMember {
@@ -49,7 +49,7 @@ impl InfoAdapter {
         {
             member_assoc
                 .insert(name.clone(), member_type.clone())
-                .not_expected(*span, "member", name)?;
+                .is_not_expected(*span, "member", name)?;
         }
 
         Ok(member_assoc)
@@ -79,7 +79,7 @@ impl Adapter for InfoAdapter {
 
         self.functions
             .insert(f.name.clone(), fn_data)
-            .not_expected(f.name_span, "function", &f.name)?;
+            .is_not_expected(f.name_span, "function", &f.name)?;
 
         Ok(f)
     }
@@ -94,7 +94,7 @@ impl Adapter for InfoAdapter {
             restrictions: o.restrictions.clone(),
         };
 
-        self.objects.insert(o.name.clone(), obj_data).not_expected(
+        self.objects.insert(o.name.clone(), obj_data).is_not_expected(
             o.name_span,
             "object",
             &o.name,
@@ -112,21 +112,21 @@ impl Adapter for InfoAdapter {
         };
 
         // TODO: ew.
-        if let Some(ref trait_name) = self.current_trait {
+        if let Some( trait_name) = &self.current_trait {
             /* This unwrap really should NEVER fail...! */
             let an_trait = self.traits.get_mut(trait_name).unwrap();
 
             an_trait
                 .methods
                 .insert(o.name.clone(), fn_data)
-                .not_expected(o.name_span, "method", &o.name)?;
-        } else if let Some(ref impl_id) = self.current_impl {
+                .is_not_expected(o.name_span, "method", &o.name)?;
+        } else if let Some( impl_id) = &self.current_impl {
             let an_impl = self.impls.get_mut(impl_id).unwrap();
 
             an_impl
                 .methods
                 .insert(o.name.clone(), fn_data)
-                .not_expected(o.name_span, "method", &o.name)?;
+                .is_not_expected(o.name_span, "method", &o.name)?;
         }
 
         Ok(o)
@@ -145,7 +145,7 @@ impl Adapter for InfoAdapter {
 
         self.traits
             .insert(t.name.clone(), trait_data)
-            .not_expected(t.name_span, "trait", &t.name)?;
+            .is_not_expected(t.name_span, "trait", &t.name)?;
 
         Ok(t)
     }
@@ -170,7 +170,7 @@ impl Adapter for InfoAdapter {
         let trt = self
             .traits
             .get_mut(trait_name)
-            .expected(i.name_span, "trait", trait_name)?;
+            .is_expected(i.name_span, "trait", trait_name)?;
 
         // Quick and dirty check for impl fn name uniqueness.
         let mut fn_names = HashSet::new();

@@ -21,7 +21,7 @@ impl Adapter for PostSolveAdapter {
             AstType::Infer(..) => {
                 return PError::new(
                     Span::new(0, 0),
-                    "Insufficient information to infer types".to_string(),
+                    "Insufficient information to infer types".into(),
                 );
             }
             _ => {}

@@ -81,7 +81,7 @@ pub fn instantiate(
         solved_impls: HashMap::new(),
     };
 
-    i.instantiate_function(&"main".to_string(), &Vec::new())?;
+    i.instantiate_function("main", &[])?;
 
     Ok(InstantiatedFile {
         instantiated_fns: i.instantiated_fns,
@@ -92,8 +92,8 @@ pub fn instantiate(
 }
 
 impl InstantiationAdapter {
-    fn instantiate_function(&mut self, name: &String, generics: &Vec<AstType>) -> PResult<()> {
-        let sig = InstFunctionSignature(name.clone(), generics.clone());
+    fn instantiate_function(&mut self, name: &str, generics: &[AstType]) -> PResult<()> {
+        let sig = InstFunctionSignature(name.into(), generics.to_vec());
 
         if self.instantiated_fns.contains_key(&sig) {
             return Ok(());
@@ -110,8 +110,8 @@ impl InstantiationAdapter {
         Ok(())
     }
 
-    fn instantiate_object(&mut self, name: &String, generics: &Vec<AstType>) -> PResult<()> {
-        let sig = InstObjectSignature(name.clone(), generics.clone());
+    fn instantiate_object(&mut self, name: &str, generics: &[AstType]) -> PResult<()> {
+        let sig = InstObjectSignature(name.into(), generics.to_vec());
 
         if self.instantiated_objects.contains_key(&sig) {
             return Ok(());
@@ -151,7 +151,7 @@ impl InstantiationAdapter {
         // Ensure that this is the only impl for this specific `<ty as trt>::...`
         self.solved_impls
             .insert(objective, sig.clone())
-            .not_expected(self.impls[&id].name_span, "impl", "<conflicting types>")?;
+            .is_not_expected(self.impls[&id].name_span, "impl", "<conflicting types>")?;
 
         let ids = &self.analyzed_file.clone().analyzed_impls[&id].generics;
         let mut instantiate = GenericsInstantiator::from_generics(ids, generics)?;
@@ -181,8 +181,8 @@ impl InstantiationAdapter {
         call_type: &AstType,
         trt: &AstTraitType,
         impl_sig: &TyckImplSignature,
-        fn_name: &String,
-        fn_generics: &Vec<AstType>,
+        fn_name: &str,
+        fn_generics: &[AstType],
     ) -> PResult<()> {
         self.instantiate_impl(impl_sig, call_type, trt)?;
 
@@ -190,8 +190,8 @@ impl InstantiationAdapter {
         let sig = InstObjectFunctionSignature(
             call_type.clone(),
             trt.clone(),
-            fn_name.clone(),
-            fn_generics.clone(),
+            fn_name.into(),
+            fn_generics.into(),
         );
 
         if self.instantiated_object_fns.contains_key(&sig) {
@@ -211,7 +211,7 @@ impl InstantiationAdapter {
         // Let's first instantiate it.
         let mut obj_instantiate = GenericsInstantiator::from_generics(obj_ids, obj_generics)?;
         let mut fn_instantiate = GenericsInstantiator::from_generics(fn_ids, fn_generics)?;
-        let f = self.obj_fns[&(id, fn_name.clone())]
+        let f = self.obj_fns[&(id, fn_name.into())]
             .clone()
             .visit(&mut obj_instantiate)?
             .visit(&mut fn_instantiate)?;
@@ -232,7 +232,7 @@ impl InstantiationAdapter {
         Ok(())
     }
 
-    fn process_simple<T>(&mut self, t: T, ids: &Vec<GenericId>, tys: &Vec<AstType>) -> PResult<T>
+    fn process_simple<T>(&mut self, t: T, ids: &[GenericId], tys: &[AstType]) -> PResult<T>
     where
         T: Visit<GenericsInstantiator>
             + Visit<TyckObjectiveAdapter>

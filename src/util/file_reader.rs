@@ -99,7 +99,7 @@ mod tests {
 
     #[test]
     fn test_file_reader() {
-        let mut fr = FileReader::new("ABCDEFG".to_string());
+        let mut fr = FileReader::new("ABCDEFG".into());
 
         assert_eq!(fr.current_char(), 'A');
         assert_eq!(fr.next_char(), 'B');
@@ -118,7 +118,7 @@ mod tests {
 
     #[test]
     fn test_unicode_file_reader() {
-        let mut fr = FileReader::new("ÃBあ EFË".to_string());
+        let mut fr = FileReader::new("ÃBあ EFË".into());
 
         assert_eq!(fr.current_char(), 'Ã');
         assert_eq!(fr.next_char(), 'B');
@@ -142,7 +142,7 @@ mod tests {
 
     #[test]
     fn test_short() {
-        let mut fr2 = FileReader::new("あI".to_string());
+        let mut fr2 = FileReader::new("あI".into());
 
         assert_eq!(fr2.current_char(), 'あ');
         assert_eq!(fr2.next_char(), 'I');
@@ -155,7 +155,7 @@ mod tests {
         assert_eq!(fr2.current_char(), EOF);
         assert_eq!(fr2.next_char(), EOF);
 
-        let mut fr1 = FileReader::new("あ".to_string());
+        let mut fr1 = FileReader::new("あ".into());
 
         assert_eq!(fr1.current_char(), 'あ');
         assert_eq!(fr1.next_char(), EOF);
@@ -167,7 +167,7 @@ mod tests {
 
     #[test]
     fn test_pos() {
-        let mut fr = FileReader::new("ABC\nDEFG\nHI\n\nJK\n".to_string());
+        let mut fr = FileReader::new("ABC\nDEFG\nHI\n\nJK\n".into());
 
         assert_eq!("DEFG", fr.get_line_from_pos(6));
         assert_eq!(fr.get_row_col(7), (1, 3));
@@ -175,7 +175,7 @@ mod tests {
         assert_eq!("JK", fr.get_line_from_pos(13));
         assert_eq!("JK", fr.get_line_from_pos(14));
 
-        fr = FileReader::new("ABCあ".to_string());
+        fr = FileReader::new("ABCあ".into());
 
         assert_eq!(fr.current_pos(), 0);
         fr.bump(2);

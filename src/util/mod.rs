@@ -11,3 +11,5 @@ pub use self::span::Span;
 
 mod zip;
 pub use self::zip::ZipExact;
+
+mod len;

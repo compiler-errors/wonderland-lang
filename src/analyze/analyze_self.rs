@@ -20,8 +20,8 @@ impl SelfAdapter {
 impl Adapter for SelfAdapter {
     fn enter_type(&mut self, t: AstType) -> PResult<AstType> {
         match (&self.current_impl, &self.current_trait, t) {
-            (&Some(ref t), _, AstType::SelfType) => Ok(t.clone()),
-            (&None, &None, AstType::SelfType) => PError::new(
+            (Some( t), _, AstType::SelfType) => Ok(t.clone()),
+            (None, None, AstType::SelfType) => PError::new(
                 Span::new(0, 0),
                 format!("Self type in non-self environment"),
             ),
@@ -42,7 +42,7 @@ impl Adapter for SelfAdapter {
         self.current_trait = Some(AstTraitType(name, generics));
 
         t.associated_types
-            .insert("Self".to_string(), AstAssociatedType::self_ty());
+            .insert("Self".into(), AstAssociatedType::self_ty());
 
         Ok(t)
     }
@@ -59,7 +59,7 @@ impl Adapter for SelfAdapter {
         self.current_impl = Some(i.impl_ty.clone());
 
         i.associated_types
-            .insert("Self".to_string(), i.impl_ty.clone());
+            .insert("Self".into(), i.impl_ty.clone());
 
         Ok(i)
     }

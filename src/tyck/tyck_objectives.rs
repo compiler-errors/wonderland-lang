@@ -258,6 +258,6 @@ impl<'a> Adapter for TyckObjectiveAdapter {
     }
 }
 
-fn into_types(exprs: &Vec<AstExpression>) -> Vec<AstType> {
+fn into_types(exprs: &[AstExpression]) -> Vec<AstType> {
     exprs.iter().map(|e| e.ty.clone()).collect()
 }
