@@ -3,38 +3,53 @@ pub mod ast_visitor;
 
 use self::ast::*;
 use crate::lexer::*;
-use crate::util::result::*;
+use crate::util::*;
 
-use crate::util::Span;
+use crate::util::{FileId, FileRegistry, Span};
 use std::collections::HashMap;
 use std::mem;
 use std::str::FromStr;
 
-pub struct Parser<'a> {
-    lexer: &'a mut Lexer<'a>,
+pub struct Parser {
+    file: FileId,
+    lexer: Lexer,
     next_span: Span,
     next_token: Token,
 }
 
-pub fn parse_file<'a>(lexer: &'a mut Lexer<'a>) -> PResult<ParsedFile> {
+pub fn parse_program(files: Vec<FileId>) -> PResult<AstProgram> {
+    let modules = files
+        .into_iter()
+        .map(parse_module)
+        .collect::<PResult<Vec<_>>>()?;
+
+    Ok(AstProgram { modules })
+}
+
+pub fn parse_module(file: FileId) -> PResult<AstModule> {
     let mut parser = Parser {
-        lexer,
-        next_span: Span::new(0, 0),
+        file,
+        lexer: Lexer::new(file)?,
+        next_span: Span::none(),
         next_token: Token::BOF,
     };
 
-    parser.parse_file()
+    parser.parse_module()
 }
 
-impl<'a> Parser<'a> {
+impl Parser {
     /// Report an error at the current position
     fn error_at<T>(&self, span: Span, error: String) -> PResult<T> {
-        PError::new(span, error)
+        PResult::error_at(span, error)
     }
 
     /// Report an error at the current position
     fn error_here<T>(&self, s: String) -> PResult<T> {
         self.error_at(self.next_span, s)
+    }
+
+    fn id(&self) -> FileId {
+        self.lexer.id()
     }
 
     /// Move the parser forward one token
@@ -81,8 +96,16 @@ impl<'a> Parser<'a> {
         Ok(x)
     }
 
+    fn check_typename(&self) -> bool {
+        if let Token::TypeName(_) = self.next_token {
+            true
+        } else {
+            false
+        }
+    }
+
     fn check_identifier(&self) -> bool {
-        if let Token::VariableName(_) = self.next_token {
+        if let Token::Identifier(_) = self.next_token {
             true
         } else {
             false
@@ -106,11 +129,11 @@ impl<'a> Parser<'a> {
     /// `check_consume` but for an Identifier token.
     fn expect_consume_identifier(&mut self) -> PResult<String> {
         let tok = self.next_token.clone();
-        if let Token::VariableName(ident) = tok {
+        if let Token::Identifier(ident) = tok {
             self.bump()?;
             Ok(ident)
         } else {
-            self.error_here(format!("Expected token `VariableName`, found `{}`.", tok))
+            self.error_here(format!("Expected token `Identifier`, found `{}`.", tok))
         }
     }
 
@@ -148,51 +171,122 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse a top level file.
-    fn parse_file(&mut self) -> PResult<ParsedFile> {
+    fn parse_module(mut self) -> PResult<AstModule> {
         self.expect_consume(Token::BOF).unwrap();
 
-        let mut functions = Vec::new();
-        let mut objects = Vec::new();
-        let mut traits = Vec::new();
-        let mut impls = Vec::new();
+        let mut uses = Vec::new();
+        let mut pub_uses = Vec::new();
+        let mut functions = HashMap::new();
+        let mut objects = HashMap::new();
+        let mut traits = HashMap::new();
+        let mut impls = HashMap::new();
+
+        while self.check_consume(Token::Use)? {
+            if self.check_consume(Token::Pub)? {
+                pub_uses.push(self.parse_mod_path()?);
+            } else {
+                uses.push(self.parse_mod_path()?);
+            }
+        }
 
         while !self.check_consume(Token::EOF)? {
             if self.check(Token::Fn) {
-                let fun_result = self.parse_function(true)?;
+                let fun = self.parse_function(true)?;
+                let name = fun.name.clone();
+                let span = fun.name_span;
 
-                functions.push(fun_result);
+                functions
+                    .insert(fun.name.clone(), fun)
+                    .is_not_expected(span, "function", &name)?;
             } else if self.check(Token::Object) {
-                let obj_result = self.parse_object()?;
+                let obj = self.parse_object()?;
+                let name = obj.name.clone();
+                let span = obj.name_span;
 
-                objects.push(obj_result);
+                objects
+                    .insert(obj.name.clone(), obj)
+                    .is_not_expected(span, "object", &name)?;
             } else if self.check(Token::Export) {
-                self.expect_consume(Token::Export)?;
-                let function = self.parse_function(false)?;
+                self.bump()?;
+                let fun = self.parse_function(false)?;
+                let name = fun.name.clone();
+                let span = fun.name_span;
 
-                functions.push(function);
+                functions
+                    .insert(fun.name.clone(), fun)
+                    .is_not_expected(span, "function", &name)?;
             } else if self.check(Token::Trait) {
-                let trait_result = self.parse_trait()?;
+                let trt = self.parse_trait()?;
+                let name = trt.name.clone();
+                let span = trt.name_span;
 
-                traits.push(trait_result);
+                traits
+                    .insert(trt.name.clone(), trt)
+                    .is_not_expected(span, "trait", &name)?;
             } else if self.check(Token::Impl) {
-                let impl_result = self.parse_impl()?;
+                let imp = self.parse_impl()?;
 
-                impls.push(impl_result);
+                impls.insert(imp.impl_id, imp);
             } else {
                 // TODO: wonky
                 self.error_here::<()>(format!(
-                    "Expected `fn`, `export` or `object`, found `{}`",
+                    "Expected `export`, `fn`, `trait`, `impl` or `object`, found `{}`",
                     self.next_token
                 ))?;
             }
         }
 
-        Ok(ParsedFile::new(functions, objects, traits, impls))
+        Ok(AstModule::new(
+            self.id(),
+            FileRegistry::name(self.id())?,
+            pub_uses,
+            uses,
+            functions,
+            objects,
+            traits,
+            impls,
+        ))
+    }
+
+    fn parse_mod_path(&mut self) -> PResult<AstUse> {
+        let mut path = Vec::new();
+
+        loop {
+            if self.check(Token::Star) {
+                // Can't have a path with just `use *`
+                if path.is_empty() {
+                    return self.error_here(format!("Cannot have empty use-all"));
+                }
+
+                self.bump()?;
+                self.expect_consume(Token::Dot)?;
+                return Ok(AstUse::UseAll(path));
+            } else if self.check_typename() {
+                let name = self.expect_consume_typename()?;
+                self.expect_consume(Token::Dot)?;
+                return Ok(AstUse::Use(path, name));
+            } else if self.check_identifier() {
+                path.push(self.expect_consume_identifier()?);
+            } else {
+                return PResult::error(format!(
+                    "Expected identifier, typename or `*`, got `{}`.",
+                    self.next_token
+                ));
+            }
+
+            if self.check_consume(Token::ColonColon)? {
+                continue;
+            } else if self.check_consume(Token::Dot)? {
+                let name = path.pop().unwrap();
+                return Ok(AstUse::Use(path, name));
+            } else {
+                return PResult::error(format!("Expected `.` or `::`, got `{}`.", self.next_token));
+            }
+        }
     }
 
     /// Parse a single function from the file.
     fn parse_function(&mut self, has_body: bool) -> PResult<AstFunction> {
-        // TODO: merge with above fn
         self.expect_consume(Token::Fn)?;
         let name_span = self.next_span;
         let fn_name = self.expect_consume_identifier()?;
@@ -211,6 +305,7 @@ impl<'a> Parser<'a> {
         };
 
         Ok(AstFunction::new(
+            self.id(),
             name_span,
             fn_name,
             generics,
@@ -325,30 +420,30 @@ impl<'a> Parser<'a> {
             Token::Int => {
                 self.bump()?;
                 (AstType::Int, self.next_span)
-            },
+            }
             Token::Bool => {
                 self.bump()?;
                 (AstType::Bool, self.next_span)
-            },
+            }
             Token::Char => {
                 self.bump()?;
                 (AstType::Char, self.next_span)
-            },
+            }
             Token::StringType => {
                 self.bump()?;
                 (AstType::String, self.next_span)
-            },
+            }
             Token::Infer => {
                 self.bump()?;
                 (AstType::infer(), self.next_span)
-            },
+            }
             Token::SelfType => {
                 self.bump()?;
                 (AstType::SelfType, self.next_span)
-            },
+            }
             Token::LSqBracket => self.parse_array_type()?,
             Token::LParen => self.parse_tuple_type()?,
-            Token::TypeName(..) => self.parse_object_type()?,
+            Token::TypeName(..) | Token::Identifier(..) => self.parse_object_type()?,
             Token::GenericName(..) => self.parse_generic_type()?,
             _ => self.error_here(format!(
                 "Expected built-in type, `identifier` or `(`, found `{}`",
@@ -412,7 +507,24 @@ impl<'a> Parser<'a> {
 
     fn parse_object_type(&mut self) -> PResult<(AstType, Span)> {
         let mut span = self.next_span;
-        let obj = self.expect_consume_typename()?;
+        let mut path = Vec::new();
+
+        loop {
+            if self.check_typename() {
+                span = span.unite(self.next_span);
+                path.push(self.expect_consume_typename()?);
+                break;
+            } else if self.check_identifier() {
+                span = span.unite(self.next_span);
+                path.push(self.expect_consume_identifier()?);
+                self.expect_consume(Token::ColonColon)?;
+            } else {
+                return self.error_here(format!(
+                    "Expected a type name or module name, got `{}`",
+                    self.next_token
+                ));
+            }
+        }
 
         let generics = if self.check(Token::Lt) {
             let (generics, generics_span) = self.parse_expr_generics()?;
@@ -422,12 +534,24 @@ impl<'a> Parser<'a> {
             Vec::new()
         };
 
+        let obj = ModuleRef::Denormalized(path);
         Ok((AstType::object(obj, generics), span))
     }
 
     fn parse_trait_type(&mut self) -> PResult<(AstTraitType, Span)> {
         let mut span = self.next_span;
-        let obj = self.expect_consume_typename()?;
+        let mut path = Vec::new();
+
+        loop {
+            if self.check_typename() {
+                path.push(self.expect_consume_typename()?);
+            } else if self.check_identifier() {
+                path.push(self.expect_consume_identifier()?);
+                self.expect_consume(Token::ColonColon)?;
+            } else {
+                unimplemented!("Error! Typename or identifier.");
+            }
+        }
 
         let generics = if self.check(Token::Lt) {
             let (generics, generics_span) = self.parse_expr_generics()?;
@@ -437,6 +561,7 @@ impl<'a> Parser<'a> {
             Vec::new()
         };
 
+        let obj = ModuleRef::Denormalized(path);
         Ok((AstTraitType(obj, generics), span))
     }
 
@@ -472,7 +597,7 @@ impl<'a> Parser<'a> {
                 span = span.unite(self.next_span);
             } else if self.check(Token::RBrace) {
                 if let AstStatement::Expression { expression } = statement {
-                    self.bump()?; // Consume the rbrace. TODO: Maybe replace this with a check_consume and save the span of the token for the error below.
+                    self.bump()?; // Consume the rbrace.
                     break expression;
                 } else {
                     self.error_here(format!("Expected expression to end block, got statement."))?;
@@ -490,7 +615,7 @@ impl<'a> Parser<'a> {
     fn parse_statement(&mut self) -> PResult<AstStatement> {
         match &self.next_token {
             Token::Let => self.parse_let_statement(),
-            Token::While => self.parse_while_loop(), 
+            Token::While => self.parse_while_loop(),
             Token::Break => {
                 self.bump()?;
                 Ok(AstStatement::break_stmt())
@@ -515,14 +640,13 @@ impl<'a> Parser<'a> {
         let (ty, _) = if self.check_consume(Token::Colon)? {
             self.parse_type()?
         } else {
-            (AstType::infer(), Span::new(0, 0))
+            (AstType::infer(), Span::none())
         };
 
         self.expect_consume(Token::Equals)?;
 
         let value = self.parse_expression()?;
 
-        //TODO: Use span.
         Ok(AstStatement::let_statement(name_span, var_name, ty, value))
     }
 
@@ -535,10 +659,11 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_return_statement(&mut self) -> PResult<AstStatement> {
+        let span = self.next_span;
         self.expect_consume(Token::Return)?;
 
         if self.check(Token::Dot) {
-            Ok(AstStatement::return_nothing())
+            Ok(AstStatement::return_nothing(span))
         } else {
             let value = self.parse_expression()?;
             Ok(AstStatement::return_statement(value))
@@ -711,12 +836,11 @@ impl<'a> Parser<'a> {
             Token::Allocate => self.parse_allocate_expr(),
             Token::LParen => self.parse_paren_expr(),
             Token::LSqBracket => self.parse_array_literal(),
-            Token::VariableName(_) => self.parse_identifier_expr(),
-            Token::TypeName(_)
-            | Token::GenericName(_)
-            | Token::Infer
-            | Token::SelfType
-            | Token::Lt => self.parse_static_call(),
+            Token::Identifier(_) | Token::TypeName(_) => self.parse_path_expr(),
+            Token::GenericName(_) | Token::Infer | Token::SelfType | Token::Lt => {
+                let (ty, _) = self.parse_type()?;
+                self.parse_static_call(ty)
+            }
             Token::True => {
                 self.bump()?;
                 Ok(AstExpression::true_lit(span))
@@ -733,28 +857,27 @@ impl<'a> Parser<'a> {
                 self.bump()?;
                 Ok(AstExpression::self_ref(span))
             }
-            _ => {
-                // This is wonky, but we don't want to ALWAYS clone...
-                match self.next_token.clone() {
-                    Token::String( string, len) => {
-                        self.bump()?;
-                        Ok(AstExpression::string_literal(span, string.clone(), len))
-                    }
-                    Token::IntLiteral( num) => {
-                        self.bump()?;
-                        Ok(AstExpression::int_literal(span, num.clone()))
-                    }
-                    Token::CharLiteral(ch) => {
-                        self.bump()?;
-                        Ok(AstExpression::char_literal(span, ch))
-                    }
-                    _ => self.error_here(format!(
-                        "Expected literal, identifier, `new` or `(`, found \
-                         `{}`",
-                        self.next_token
-                    )),
-                }
+            Token::String(string, len) => {
+                let string = string.clone();
+                let len = *len;
+                self.bump()?;
+                Ok(AstExpression::string_literal(span, string, len))
             }
+            Token::IntLiteral(num) => {
+                let num = num.clone();
+                self.bump()?;
+                Ok(AstExpression::int_literal(span, num))
+            }
+            Token::CharLiteral(ch) => {
+                let ch = *ch;
+                self.bump()?;
+                Ok(AstExpression::char_literal(span, ch))
+            }
+            _ => self.error_here(format!(
+                "Expected literal, identifier, `new` or `(`, found \
+                 `{}`",
+                self.next_token
+            )),
         }
     }
 
@@ -783,36 +906,76 @@ impl<'a> Parser<'a> {
         ))
     }
 
-    fn parse_identifier_expr(&mut self) -> PResult<AstExpression> {
+    fn parse_path_expr(&mut self) -> PResult<AstExpression> {
         let mut span = self.next_span;
-        let identifier = self.expect_consume_identifier()?;
+        let mut path = Vec::new();
+
+        loop {
+            if self.check_typename() {
+                span = span.unite(self.next_span);
+                path.push(self.expect_consume_typename()?);
+
+                let generics = if self.check(Token::Lt) {
+                    let (generics, generics_span) = self.parse_expr_generics()?;
+                    span = span.unite(generics_span);
+                    generics
+                } else {
+                    Vec::new()
+                };
+
+                let ty = AstType::object(ModuleRef::Denormalized(path), generics);
+                return self.parse_static_call(ty);
+            } else if self.check_identifier() {
+                span = span.unite(self.next_span);
+                path.push(self.expect_consume_identifier()?);
+
+                if !self.check_consume(Token::ColonColon)? {
+                    return self.parse_identifier_expr(path);
+                }
+            } else {
+                return self.error_here(format!(
+                    "Expected a type name or module name, got `{}`",
+                    self.next_token
+                ));
+            }
+        }
+    }
+
+    fn parse_identifier_expr(&mut self, path: Vec<String>) -> PResult<AstExpression> {
+        let mut span = self.next_span;
 
         if self.check(Token::LParen) {
             span = span.unite(self.next_span);
             let (args, args_span) = self.parse_expr_args()?;
             span = span.unite(args_span);
-            Ok(AstExpression::call(span, identifier, Vec::new(), args))
+            Ok(AstExpression::call(
+                span,
+                ModuleRef::Denormalized(path),
+                Vec::new(),
+                args,
+            ))
         } else if self.check(Token::ColonLt) {
             span = span.unite(self.next_span);
             self.expect_colon_push_lt()?;
             let (generics, generics_span) = self.parse_expr_generics()?;
             let (args, args_span) = self.parse_expr_args()?;
             span = span.unite(generics_span).unite(args_span);
-            Ok(AstExpression::call(span, identifier, generics, args))
-        } else {
+            Ok(AstExpression::call(
+                span,
+                ModuleRef::Denormalized(path),
+                generics,
+                args,
+            ))
+        } else if path.len() == 1 {
+            let identifier = path[0].clone();
             Ok(AstExpression::identifier(span, identifier))
+        } else {
+            unimplemented!("Error: Identifiers must be path-length 1. No global variables yet.");
         }
     }
 
-    fn parse_static_call(&mut self) -> PResult<AstExpression> {
+    fn parse_static_call(&mut self, ty: AstType) -> PResult<AstExpression> {
         let mut span = self.next_span;
-        let bracketed = self.check_consume(Token::Lt)?;
-        let (ty, _) = self.parse_type()?;
-
-        if bracketed {
-            self.expect_consume(Token::Gt)?;
-        }
-
         self.expect_consume(Token::Colon)?;
         let identifier = self.expect_consume_identifier()?;
 
@@ -884,13 +1047,13 @@ impl<'a> Parser<'a> {
 
         if self.check_consume(Token::LSqBracket)? {
             let (ty, ty_span) = self.parse_type()?;
-            unimplemented!(); //self.expect_consume(Token::SemiColon)?;
+            // self.expect_consume(Token::SemiColon)?;
             let expr = self.parse_expression()?;
             span = span.unite(self.next_span);
             self.expect_consume(Token::RSqBracket)?;
 
-            unimplemented!()
-        //Ok(AstExpression::allocate_array(span, ty, expr))
+            // Ok(AstExpression::allocate_array(span, ty, expr))
+            unimplemented!("TODO implement [T; 10]");
         } else {
             let (ty, ty_span) = self.parse_object_type()?;
             span = span.unite(ty_span);
@@ -984,15 +1147,15 @@ impl<'a> Parser<'a> {
             AstExpressionData::Identifier { .. }
             | AstExpressionData::ArrayAccess { .. }
             | AstExpressionData::ObjectAccess { .. } => Ok(()),
-            AstExpressionData::TupleAccess {  accessible, .. } => self.ensure_lval(accessible),
+            AstExpressionData::TupleAccess { accessible, .. } => self.ensure_lval(accessible),
             _ => self.error_at(expr.span, format!("Expected lval for left of `=`")),
         }
     }
 
     fn ensure_not_infer(&mut self, ty: &AstType, span: Span) -> PResult<()> {
         match ty {
-            AstType::Array {  ty } => self.ensure_not_infer(ty, span),
-            AstType::Tuple {  types } => {
+            AstType::Array { ty } => self.ensure_not_infer(ty, span),
+            AstType::Tuple { types } => {
                 for ty in types {
                     self.ensure_not_infer(ty, span)?;
                 }
@@ -1021,7 +1184,7 @@ impl<'a> Parser<'a> {
                     },
             }
             | AstStatement::While { .. } => Ok(()),
-            _ => PError::new(span, format!("Statement must be ended with a `.`")),
+            _ => PResult::error_at(span, format!("Statement must be ended with a `.`")),
         }
     }
 
@@ -1045,6 +1208,7 @@ impl<'a> Parser<'a> {
         }
 
         Ok(AstObject::new(
+            self.id(),
             name_span,
             generics,
             name,
@@ -1059,12 +1223,12 @@ impl<'a> Parser<'a> {
         let name = self.expect_consume_identifier()?;
         let generics = self.try_parse_decl_generics()?;
         self.expect_consume(Token::LParen)?;
-        let mut parameters = Vec::new();
+        let mut parameter_list = Vec::new();
 
         let has_self = if self.check(Token::SelfRef) {
             let self_span = self.next_span;
             self.expect_consume(Token::SelfRef)?;
-            parameters.push(AstNamedVariable::new(
+            parameter_list.push(AstNamedVariable::new(
                 self_span,
                 "self".into(),
                 AstType::SelfType,
@@ -1075,7 +1239,7 @@ impl<'a> Parser<'a> {
         };
 
         while !self.check_consume(Token::RParen)? {
-            if parameters.len() != 0 || has_self {
+            if !parameter_list.is_empty() {
                 // If it's not the first, then we need a comma
                 self.expect_consume(Token::Comma)?;
             }
@@ -1088,13 +1252,13 @@ impl<'a> Parser<'a> {
             param_span = param_span.unite(ty_span);
             // parameter types can't have infer(s) in them
             self.ensure_not_infer(&param_type, ty_span)?;
-            parameters.push(AstNamedVariable::new(param_span, param_name, param_type));
+            parameter_list.push(AstNamedVariable::new(param_span, param_name, param_type));
         }
 
         let return_type = self.try_parse_return_type()?;
         let restrictions = self.try_parse_restrictions()?;
 
-        let (definition) = if has_body {
+        let definition = if has_body {
             let (block, _) = self.parse_block()?;
 
             Some(block)
@@ -1108,7 +1272,7 @@ impl<'a> Parser<'a> {
             name,
             generics,
             has_self,
-            parameters,
+            parameter_list,
             return_type,
             restrictions,
             definition,
@@ -1137,13 +1301,13 @@ impl<'a> Parser<'a> {
         restrictions.extend(self.try_parse_restrictions()?);
         self.expect_consume(Token::LBrace)?;
 
-        let mut fns = Vec::new();
+        let mut fns = HashMap::new();
         let mut tys = HashMap::new();
 
         while !self.check_consume(Token::RBrace)? {
             if self.check(Token::Fn) {
                 let fun = self.parse_object_function(false)?;
-                fns.push(fun);
+                fns.insert(fun.name.clone(), fun);
             } else if self.check(Token::Type) {
                 let (name, ty) = self.parse_trait_associated_ty()?;
                 tys.insert(name, ty);
@@ -1155,8 +1319,8 @@ impl<'a> Parser<'a> {
             }
         }
 
-        // PARSE_TODO
         Ok(AstTrait::new(
+            self.id(),
             name_span,
             name,
             generics,
@@ -1197,13 +1361,13 @@ impl<'a> Parser<'a> {
         let restrictions = self.try_parse_restrictions()?;
         self.expect_consume(Token::LBrace)?;
 
-        let mut fns = Vec::new();
+        let mut fns = HashMap::new();
         let mut tys = HashMap::new();
 
         while !self.check_consume(Token::RBrace)? {
             if self.check(Token::Fn) {
                 let obj_fn = self.parse_object_function(true)?;
-                fns.push(obj_fn);
+                fns.insert(obj_fn.name.clone(), obj_fn);
             } else if self.check(Token::Type) {
                 let (name, ty) = self.parse_impl_associated_ty()?;
                 tys.insert(name, ty);

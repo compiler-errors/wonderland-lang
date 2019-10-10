@@ -1,13 +1,13 @@
-use crate::analyze::represent::{AnImplData, AnalyzedFile};
+use crate::analyze::represent::{AnImplData, AnalyzedProgram};
 use crate::parser::ast::*;
-use crate::parser::ast_visitor::{Adapter, Visit};
+use crate::parser::ast_visitor::{AstAdapter, Visit};
 use crate::tyck::GenericsInstantiator;
 use crate::util::result::{Expect, PResult};
 use crate::util::Span;
 use std::collections::HashMap;
 
 pub struct TyckConstraintAssumptionAdapter {
-    pub file: AnalyzedFile,
+    pub file: AnalyzedProgram,
     pub dummy_impls: Vec<AnImplData>,
 
     /// Dummy type that I use to populate the self_instantiate.
@@ -16,7 +16,7 @@ pub struct TyckConstraintAssumptionAdapter {
 }
 
 impl TyckConstraintAssumptionAdapter {
-    pub fn new(file: AnalyzedFile) -> TyckConstraintAssumptionAdapter {
+    pub fn new(file: AnalyzedProgram) -> TyckConstraintAssumptionAdapter {
         TyckConstraintAssumptionAdapter {
             file,
             dummy_impls: Vec::new(),
@@ -31,7 +31,7 @@ impl TyckConstraintAssumptionAdapter {
             self.file
                 .analyzed_traits
                 .get(&trt.0)
-                .is_expected(Span::new(0, 0), "trait", &trt.0)?;
+                .is_expected(Span::none(), "trait", &trt.0)?;
         let impl_id = AstImpl::new_id();
 
         let mut associated_tys = HashMap::new();
@@ -70,13 +70,13 @@ impl TyckConstraintAssumptionAdapter {
     }
 }
 
-impl Adapter for TyckConstraintAssumptionAdapter {
+impl AstAdapter for TyckConstraintAssumptionAdapter {
     fn enter_type(&mut self, t: AstType) -> PResult<AstType> {
         match t {
             AstType::SelfType => self
                 .self_ty
                 .clone()
-                .is_expected(Span::new(0, 0), "type", "self"),
+                .is_expected(Span::none(), "type", "self"),
             t => Ok(t),
         }
     }
@@ -117,7 +117,7 @@ impl Dummifier {
     }
 }
 
-impl Adapter for Dummifier {
+impl AstAdapter for Dummifier {
     fn enter_type(&mut self, t: AstType) -> PResult<AstType> {
         if let AstType::GenericPlaceholder(id, name) = t {
             Ok(AstType::DummyGeneric(id, name))

@@ -2,8 +2,7 @@ mod token;
 
 pub use self::token::Token;
 
-use crate::util::result::*;
-use crate::util::{FileReader, Span};
+use crate::util::{FileId, FileReader, IntoError, PError, PResult, Span};
 
 pub struct SpanToken(pub Token, pub Span);
 
@@ -12,21 +11,21 @@ const EOF: char = '\x00';
 
 /// A `Lexer` is a stream of relevant tokens that can be used by
 /// the Cheshire parser.
-pub struct Lexer<'a> {
-    file: &'a mut FileReader,
+pub struct Lexer {
+    file: FileReader,
     next_token_span: Span,
     next_token: Token,
 }
 
-impl<'a> Lexer<'a> {
-    pub fn new(file: &'a mut FileReader) -> Lexer<'a> {
+impl Lexer {
+    pub fn new(file: FileId) -> PResult<Lexer> {
         let lexer = Lexer {
-            file,
-            next_token_span: Span::new(0, 0),
+            next_token_span: Span::new(file, 0, 0),
+            file: FileReader::new(file)?,
             next_token: Token::BOF,
         };
 
-        lexer
+        Ok(lexer)
     }
 
     /// Retrieves the token waiting to be consumed by the parser.
@@ -55,7 +54,11 @@ impl<'a> Lexer<'a> {
         let next_token_span_start = self.file.current_pos();
         self.next_token = self.get_token_internal()?;
         let next_token_span_end = self.file.current_pos();
-        self.next_token_span = Span::new(next_token_span_start, next_token_span_end);
+        self.next_token_span = Span::new(
+            self.file.file_id,
+            next_token_span_start,
+            next_token_span_end,
+        );
 
         Ok(SpanToken(last_token, last_token_span))
     }
@@ -336,6 +339,10 @@ impl<'a> Lexer<'a> {
         }
 
         let token = match &*string {
+            "use" => Token::Use,
+            "pub" => Token::Pub,
+            "mod" => Token::Mod,
+
             "fn" => Token::Fn,
             "export" => Token::Export,
             "trait" => Token::Trait,
@@ -370,7 +377,7 @@ impl<'a> Lexer<'a> {
             _ => match string.chars().nth(0).unwrap() {
                 '_' => Token::GenericName(string[1..].into()),
                 'A'..='Z' => Token::TypeName(string),
-                'a'..='z' => Token::VariableName(string),
+                'a'..='z' => Token::Identifier(string),
                 _ => {
                     return self.error(format!(
                         "TODO: This should never happen, ever. `{}`",
@@ -429,7 +436,7 @@ impl<'a> Lexer<'a> {
                         let end_pos = self.file.current_pos();
 
                         return self.error_at(
-                            Span::new(start_pos, end_pos),
+                            Span::new(self.file.file_id, start_pos, end_pos),
                             "EOF encountered in block comment".into(),
                         );
                     }
@@ -443,14 +450,18 @@ impl<'a> Lexer<'a> {
     }
 
     fn error<T>(&self, s: String) -> PResult<T> {
-        PError::new(self.next_token_span, s)
+        PResult::error_at(self.next_token_span, s)
     }
 
     fn error_at<T>(&self, span: Span, string: String) -> PResult<T> {
-        PError::new(span, string)
+        PResult::error_at(span, string)
     }
 
     // These are just shortcuts so we don't need to type `self.file`.
+
+    pub fn id(&self) -> FileId {
+        self.file.file_id
+    }
 
     fn bump(&mut self, n: usize) {
         self.file.bump(n);

@@ -1,9 +1,14 @@
-pub mod result;
+mod result;
+pub use self::result::{report_err, Expect, IntoError, PError, PResult};
+
+mod file_registry;
+pub use self::file_registry::FileId;
+pub use self::file_registry::FileRegistry;
 
 mod file_reader;
 pub use self::file_reader::FileReader;
 
-pub mod stack_map;
+mod stack_map;
 pub use self::stack_map::StackMap;
 
 mod span;
@@ -13,3 +18,6 @@ mod zip;
 pub use self::zip::ZipExact;
 
 mod len;
+
+mod visitor;
+pub use self::visitor::Visit;

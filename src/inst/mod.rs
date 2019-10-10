@@ -1,7 +1,7 @@
-use crate::analyze::represent::AnalyzedFile;
+use crate::analyze::represent::AnalyzedProgram;
 use crate::inst::post_solve::PostSolveAdapter;
 use crate::parser::ast::*;
-use crate::parser::ast_visitor::{Adapter, Visit};
+use crate::parser::ast_visitor::{AstAdapter, Visit};
 use crate::tyck::*;
 use crate::util::result::{Expect, PResult};
 use std::collections::HashMap;
@@ -12,11 +12,11 @@ mod represent;
 pub use self::represent::*;
 
 struct InstantiationAdapter {
-    analyzed_file: Rc<AnalyzedFile>,
+    analyzed_file: Rc<AnalyzedProgram>,
     base_solver: TyckSolver,
 
-    fns: HashMap<String, AstFunction>,
-    objects: HashMap<String, AstObject>,
+    fns: HashMap<ModuleRef, AstFunction>,
+    objects: HashMap<ModuleRef, AstObject>,
     impls: HashMap<ImplId, AstImpl>,
     obj_fns: HashMap<(ImplId, String), AstObjectFunction>,
 
@@ -37,8 +37,8 @@ pub struct InstantiatedFile {
 }
 
 pub fn instantiate(
-    parsed_file: ParsedFile,
-    analyzed_file: AnalyzedFile,
+    parsed_file: AstModule,
+    analyzed_file: AnalyzedProgram,
 ) -> PResult<InstantiatedFile> {
     let fns: HashMap<_, _> = parsed_file
         .functions
@@ -81,7 +81,7 @@ pub fn instantiate(
         solved_impls: HashMap::new(),
     };
 
-    i.instantiate_function("main", &[])?;
+    unimplemented!("i.instantiate_function(\"main\", &[])?;");
 
     Ok(InstantiatedFile {
         instantiated_fns: i.instantiated_fns,
@@ -92,7 +92,7 @@ pub fn instantiate(
 }
 
 impl InstantiationAdapter {
-    fn instantiate_function(&mut self, name: &str, generics: &[AstType]) -> PResult<()> {
+    fn instantiate_function(&mut self, name: &ModuleRef, generics: &[AstType]) -> PResult<()> {
         let sig = InstFunctionSignature(name.into(), generics.to_vec());
 
         if self.instantiated_fns.contains_key(&sig) {
@@ -110,7 +110,7 @@ impl InstantiationAdapter {
         Ok(())
     }
 
-    fn instantiate_object(&mut self, name: &str, generics: &[AstType]) -> PResult<()> {
+    fn instantiate_object(&mut self, name: &ModuleRef, generics: &[AstType]) -> PResult<()> {
         let sig = InstObjectSignature(name.into(), generics.to_vec());
 
         if self.instantiated_objects.contains_key(&sig) {
@@ -130,7 +130,7 @@ impl InstantiationAdapter {
 
     fn instantiate_impl(
         &mut self,
-        sig: &TyckImplSignature,
+        sig: &AstImplSignature,
         ty: &AstType,
         trt: &AstTraitType,
     ) -> PResult<()> {
@@ -180,7 +180,7 @@ impl InstantiationAdapter {
         &mut self,
         call_type: &AstType,
         trt: &AstTraitType,
-        impl_sig: &TyckImplSignature,
+        impl_sig: &AstImplSignature,
         fn_name: &str,
         fn_generics: &[AstType],
     ) -> PResult<()> {
@@ -251,7 +251,7 @@ impl InstantiationAdapter {
     }
 }
 
-impl Adapter for InstantiationAdapter {
+impl AstAdapter for InstantiationAdapter {
     fn enter_type(&mut self, t: AstType) -> PResult<AstType> {
         match &t {
             AstType::Object(name, generics) => {

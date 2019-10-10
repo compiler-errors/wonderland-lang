@@ -1,14 +1,14 @@
-use crate::analyze::represent::AnalyzedFile;
+use crate::analyze::represent::AnalyzedProgram;
 
 use crate::parser::ast::*;
 use crate::parser::ast_visitor::*;
 use crate::tyck::tyck_instantiate::GenericsInstantiator;
 use crate::tyck::*;
 
+use crate::util::result::*;
 use crate::util::{Span, ZipExact};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::rc::Rc;
-use crate::util::result::*;
 
 #[derive(Debug, Clone)]
 pub struct TyckSolver {
@@ -20,18 +20,18 @@ pub struct TyckSolver {
     /// Type-space, so we make sure that every encountered type is normalized...
     types: HashSet<AstType>,
 
-    analyzed_file: Rc<AnalyzedFile>,
+    analyzed_file: Rc<AnalyzedProgram>,
 }
 
 #[derive(Debug, Clone)]
 pub struct TyckSolution {
-    analyzed_file: Rc<AnalyzedFile>,
+    analyzed_file: Rc<AnalyzedProgram>,
     inferences: HashMap<InferId, AstType>,
-    impl_signatures: HashMap<TyckObjective, TyckImplSignature>,
+    impl_signatures: HashMap<TyckObjective, AstImplSignature>,
 }
 
 impl TyckSolver {
-    pub fn new(analyzed_file: Rc<AnalyzedFile>) -> TyckSolver {
+    pub fn new(analyzed_file: Rc<AnalyzedProgram>) -> TyckSolver {
         TyckSolver {
             solution: TyckSolution {
                 analyzed_file: analyzed_file.clone(),
@@ -59,8 +59,8 @@ static MAX_ITERATIONS: usize = 1_000_000_usize;
 
 impl TyckSolver {
     fn error<T>(why: &str) -> PResult<T> {
-        PError::new(
-            Span::new(0, 0),
+        PResult::error_at(
+            Span::none(),
             format!("Problem during type checker! {}.", why),
         )
     }
@@ -231,7 +231,7 @@ impl TyckSolver {
             .iter()
             .map(|_| AstType::infer())
             .collect();
-        let impl_signature = TyckImplSignature { impl_id, generics };
+        let impl_signature = AstImplSignature { impl_id, generics };
         let instantiate =
             &mut GenericsInstantiator::from_signature(&*self.analyzed_file, &impl_signature)?;
 
@@ -299,7 +299,7 @@ impl TyckSolver {
                 self.solution
                     .inferences
                     .insert(*lid, rhs.clone())
-                    .is_not_expected(Span::new(0, 0), "inference", &format!("_{}", lid.0))?;
+                    .is_not_expected(Span::none(), "inference", &format!("_{}", lid.0))?;
 
                 Ok(())
             }
@@ -307,7 +307,7 @@ impl TyckSolver {
                 self.solution
                     .inferences
                     .insert(*rid, lhs.clone())
-                    .is_not_expected(Span::new(0, 0), "inference", &format!("_{}", rid.0))?;
+                    .is_not_expected(Span::none(), "inference", &format!("_{}", rid.0))?;
 
                 Ok(())
             }
@@ -328,14 +328,14 @@ impl TyckSolver {
             (AstType::Array { ty: a_ty }, AstType::Array { ty: b_ty }) => {
                 self.unify(&*a_ty, &*b_ty)
             }
-            (AstType::Tuple { types:  a_tys }, AstType::Tuple { types:  b_tys }) => {
+            (AstType::Tuple { types: a_tys }, AstType::Tuple { types: b_tys }) => {
                 for (a_ty, b_ty) in ZipExact::zip_exact(a_tys, b_tys, "tuple types")? {
                     self.unify(a_ty, b_ty)?;
                 }
 
                 Ok(())
             }
-            (AstType::Object( a_name,  a_tys), AstType::Object( b_name,  b_tys)) => {
+            (AstType::Object(a_name, a_tys), AstType::Object(b_name, b_tys)) => {
                 if a_name != b_name {
                     TyckSolver::error(&format!(
                         "Object names won't unify: {} and {}",
@@ -527,10 +527,10 @@ impl TyckSolver {
         Ok(TyckObjective { obj_ty, trait_ty })
     }
 
-    fn normalize_impl_signature(&self, i: &TyckImplSignature) -> PResult<TyckImplSignature> {
+    fn normalize_impl_signature(&self, i: &AstImplSignature) -> PResult<AstImplSignature> {
         let generics = i.generics.clone().visit(&mut Normalize(&self.solution))?;
 
-        Ok(TyckImplSignature {
+        Ok(AstImplSignature {
             impl_id: i.impl_id,
             generics,
         })
@@ -543,7 +543,7 @@ impl TyckSolution {
         span: Span,
         obj_ty: &AstType,
         trait_ty: &AstTraitType,
-    ) -> PResult<TyckImplSignature> {
+    ) -> PResult<AstImplSignature> {
         let t = TyckObjective {
             obj_ty: obj_ty.clone(),
             trait_ty: trait_ty.clone(),
@@ -552,7 +552,7 @@ impl TyckSolution {
         if let Some(sig) = self.impl_signatures.get(&t) {
             Ok(sig.clone())
         } else {
-            PError::new(
+            PResult::error_at(
                 span,
                 format!(
                     "Can't find implementation for {:?} :- {:?}",
@@ -576,7 +576,7 @@ impl TyckSolution {
 
 struct Normalize<'a>(&'a TyckSolution);
 
-impl<'a> Adapter for Normalize<'a> {
+impl<'a> AstAdapter for Normalize<'a> {
     /* We do this as we walk the tree back up, just in case some replacement of a child causes
      * a type to now associate correctly to an impl signature.
      *

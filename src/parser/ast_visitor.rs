@@ -1,13 +1,23 @@
 use crate::parser::ast::*;
-use crate::util::result::*;
+use crate::util::{PResult, Visit};
 use std::collections::HashMap;
 use std::hash::Hash;
 
-pub trait Visit<A>: Sized {
-    fn visit(self, adapter: &mut A) -> PResult<Self>;
-}
+pub trait AstAdapter {
+    fn enter_program(&mut self, p: AstProgram) -> PResult<AstProgram> {
+        Ok(p)
+    }
 
-pub trait Adapter {
+    fn enter_module(&mut self, m: AstModule) -> PResult<AstModule> {
+        Ok(m)
+    }
+    fn enter_module_ref(&mut self, m: ModuleRef) -> PResult<ModuleRef> {
+        Ok(m)
+    }
+    fn enter_use(&mut self, u: AstUse) -> PResult<AstUse> {
+        Ok(u)
+    }
+
     fn enter_function(&mut self, f: AstFunction) -> PResult<AstFunction> {
         Ok(f)
     }
@@ -49,6 +59,20 @@ pub trait Adapter {
     }
     fn enter_impl(&mut self, i: AstImpl) -> PResult<AstImpl> {
         Ok(i)
+    }
+
+    fn exit_program(&mut self, p: AstProgram) -> PResult<AstProgram> {
+        Ok(p)
+    }
+
+    fn exit_module(&mut self, m: AstModule) -> PResult<AstModule> {
+        Ok(m)
+    }
+    fn exit_module_ref(&mut self, m: ModuleRef) -> PResult<ModuleRef> {
+        Ok(m)
+    }
+    fn exit_use(&mut self, u: AstUse) -> PResult<AstUse> {
+        Ok(u)
     }
 
     fn exit_function(&mut self, f: AstFunction) -> PResult<AstFunction> {
@@ -95,67 +119,73 @@ pub trait Adapter {
     }
 }
 
-impl<T: Adapter, S: Visit<T>> Visit<T> for Box<S> {
+impl<T: AstAdapter> Visit<T> for AstProgram {
     fn visit(self, adapter: &mut T) -> PResult<Self> {
-        (*self).visit(adapter).map(Box::new)
+        let AstProgram { modules } = adapter.enter_program(self)?;
+
+        let i = AstProgram {
+            modules: modules.visit(adapter)?,
+        };
+
+        adapter.exit_program(i)
     }
 }
 
-impl<T: Adapter, S: Visit<T>> Visit<T> for Option<S> {
+impl<T: AstAdapter> Visit<T> for ModuleRef {
     fn visit(self, adapter: &mut T) -> PResult<Self> {
-        Ok(if let Some(s) = self {
-            Some(s.visit(adapter)?)
-        } else {
-            None
-        })
+        let ref_ = adapter.enter_module_ref(self)?;
+        adapter.exit_module_ref(ref_)
     }
 }
 
-impl<T: Adapter, S: Visit<T>> Visit<T> for Vec<S> {
-    fn visit(self, adapter: &mut T) -> PResult<Vec<S>> {
-        self.into_iter().map(|s| s.visit(adapter)).collect()
-    }
-}
-
-impl<T: Adapter, K: Eq + Hash, V: Visit<T>> Visit<T> for HashMap<K, V> {
-    fn visit(self, adapter: &mut T) -> PResult<HashMap<K, V>> {
-        let mut out = HashMap::new();
-
-        for (k, v) in self.into_iter() {
-            out.insert(k, v.visit(adapter)?);
-        }
-
-        Ok(out)
-    }
-}
-
-impl<T: Adapter> Visit<T> for ParsedFile {
-    fn visit(self, adapter: &mut T) -> PResult<ParsedFile> {
-        let ParsedFile {
+impl<T: AstAdapter> Visit<T> for AstModule {
+    fn visit(self, adapter: &mut T) -> PResult<AstModule> {
+        let AstModule {
+            id,
+            name,
+            pub_uses,
+            uses,
             objects,
             traits,
             impls,
             functions,
-        } = self;
+        } = adapter.enter_module(self)?;
 
+        let uses = uses.visit(adapter)?;
+        let pub_uses = pub_uses.visit(adapter)?;
         let objects = objects.visit(adapter)?;
         let traits = traits.visit(adapter)?;
         let impls = impls.visit(adapter)?;
         let functions = functions.visit(adapter)?;
 
-        Ok(ParsedFile {
+        let i = AstModule {
+            id,
+            name,
+            pub_uses,
+            uses,
             objects,
             traits,
             impls,
             functions,
-        })
+        };
+
+        adapter.exit_module(i)
     }
 }
 
-impl<T: Adapter> Visit<T> for AstFunction {
+impl<T: AstAdapter> Visit<T> for AstUse {
+    fn visit(self, adapter: &mut T) -> PResult<Self> {
+        let use_ = adapter.enter_use(self)?;
+
+        adapter.exit_use(use_)
+    }
+}
+
+impl<T: AstAdapter> Visit<T> for AstFunction {
     fn visit(self, adapter: &mut T) -> PResult<Self> {
         let AstFunction {
             name_span,
+            module_ref,
             name,
             generics,
             parameter_list,
@@ -169,6 +199,7 @@ impl<T: Adapter> Visit<T> for AstFunction {
             name_span,
             name,
             generics,
+            module_ref: module_ref.visit(adapter)?,
             parameter_list: parameter_list.visit(adapter)?,
             return_type: return_type.visit(adapter)?,
             restrictions: restrictions.visit(adapter)?,
@@ -180,7 +211,7 @@ impl<T: Adapter> Visit<T> for AstFunction {
     }
 }
 
-impl<T: Adapter> Visit<T> for AstNamedVariable {
+impl<T: AstAdapter> Visit<T> for AstNamedVariable {
     fn visit(self, adapter: &mut T) -> PResult<Self> {
         let AstNamedVariable { span, name, ty, id } = adapter.enter_named_variable(self)?;
 
@@ -195,7 +226,7 @@ impl<T: Adapter> Visit<T> for AstNamedVariable {
     }
 }
 
-impl<T: Adapter> Visit<T> for AstTypeRestriction {
+impl<T: AstAdapter> Visit<T> for AstTypeRestriction {
     fn visit(self, adapter: &mut T) -> PResult<Self> {
         let AstTypeRestriction { ty, trt } = adapter.enter_type_restriction(self)?;
 
@@ -208,7 +239,7 @@ impl<T: Adapter> Visit<T> for AstTypeRestriction {
     }
 }
 
-impl<T: Adapter> Visit<T> for AstBlock {
+impl<T: AstAdapter> Visit<T> for AstBlock {
     fn visit(self, adapter: &mut T) -> PResult<Self> {
         let AstBlock {
             statements,
@@ -228,7 +259,7 @@ impl<T: Adapter> Visit<T> for AstBlock {
     }
 }
 
-impl<T: Adapter> Visit<T> for AstStatement {
+impl<T: AstAdapter> Visit<T> for AstStatement {
     fn visit(self, adapter: &mut T) -> PResult<Self> {
         let stmt = match adapter.enter_statement(self)? {
             i @ AstStatement::Break | i @ AstStatement::Continue => i,
@@ -262,7 +293,7 @@ impl<T: Adapter> Visit<T> for AstStatement {
     }
 }
 
-impl<T: Adapter> Visit<T> for AstExpression {
+impl<T: AstAdapter> Visit<T> for AstExpression {
     fn visit(self, adapter: &mut T) -> PResult<Self> {
         let AstExpression { data, ty, span } = adapter.enter_expression(self)?;
 
@@ -297,11 +328,11 @@ impl<T: Adapter> Visit<T> for AstExpression {
                 elements: elements.visit(adapter)?,
             },
             AstExpressionData::Call {
-                name,
+                fn_name,
                 generics,
                 args,
             } => AstExpressionData::Call {
-                name,
+                fn_name: fn_name.visit(adapter)?,
                 generics: generics.visit(adapter)?,
                 args: args.visit(adapter)?,
             },
@@ -339,13 +370,15 @@ impl<T: Adapter> Visit<T> for AstExpression {
                 accessible: accessible.visit(adapter)?,
                 idx,
             },
-            AstExpressionData::ObjectAccess { object, mem_name, mem_idx } => {
-                AstExpressionData::ObjectAccess {
-                    object: object.visit(adapter)?,
-                    mem_name,
-                    mem_idx,
-                }
-            }
+            AstExpressionData::ObjectAccess {
+                object,
+                mem_name,
+                mem_idx,
+            } => AstExpressionData::ObjectAccess {
+                object: object.visit(adapter)?,
+                mem_name,
+                mem_idx,
+            },
             AstExpressionData::AllocateObject { object } => AstExpressionData::AllocateObject {
                 object: object.visit(adapter)?,
             },
@@ -362,7 +395,7 @@ impl<T: Adapter> Visit<T> for AstExpression {
     }
 }
 
-impl<T: Adapter> Visit<T> for AstType {
+impl<T: AstAdapter> Visit<T> for AstType {
     fn visit(self, adapter: &mut T) -> PResult<Self> {
         let ty = adapter.enter_type(self)?;
 
@@ -383,7 +416,9 @@ impl<T: Adapter> Visit<T> for AstType {
             AstType::Tuple { types } => AstType::Tuple {
                 types: types.visit(adapter)?,
             },
-            AstType::Object(name, types) => AstType::Object(name, types.visit(adapter)?),
+            AstType::Object(name, types) => {
+                AstType::Object(name.visit(adapter)?, types.visit(adapter)?)
+            }
             AstType::AssociatedType {
                 obj_ty,
                 trait_ty,
@@ -399,20 +434,22 @@ impl<T: Adapter> Visit<T> for AstType {
     }
 }
 
-impl<T: Adapter> Visit<T> for AstTraitType {
+impl<T: AstAdapter> Visit<T> for AstTraitType {
     fn visit(self, adapter: &mut T) -> PResult<Self> {
         let AstTraitType(name, tys) = adapter.enter_trait_type(self)?;
+        let name = name.visit(adapter)?;
         let tys = tys.visit(adapter)?;
 
         adapter.exit_trait_type(AstTraitType(name, tys))
     }
 }
 
-impl<T: Adapter> Visit<T> for AstObject {
+impl<T: AstAdapter> Visit<T> for AstObject {
     fn visit(self, adapter: &mut T) -> PResult<Self> {
         let AstObject {
             name_span,
             generics,
+            module_ref,
             name,
             members,
             restrictions,
@@ -422,6 +459,7 @@ impl<T: Adapter> Visit<T> for AstObject {
             name_span,
             generics,
             name,
+            module_ref: module_ref.visit(adapter)?,
             members: members.visit(adapter)?,
             restrictions: restrictions.visit(adapter)?,
         };
@@ -430,7 +468,7 @@ impl<T: Adapter> Visit<T> for AstObject {
     }
 }
 
-impl<T: Adapter> Visit<T> for AstObjectFunction {
+impl<T: AstAdapter> Visit<T> for AstObjectFunction {
     fn visit(self, adapter: &mut T) -> PResult<Self> {
         let AstObjectFunction {
             name_span,
@@ -460,7 +498,7 @@ impl<T: Adapter> Visit<T> for AstObjectFunction {
     }
 }
 
-impl<T: Adapter> Visit<T> for AstObjectMember {
+impl<T: AstAdapter> Visit<T> for AstObjectMember {
     fn visit(self, adapter: &mut T) -> PResult<Self> {
         let AstObjectMember {
             span,
@@ -478,10 +516,11 @@ impl<T: Adapter> Visit<T> for AstObjectMember {
     }
 }
 
-impl<T: Adapter> Visit<T> for AstTrait {
+impl<T: AstAdapter> Visit<T> for AstTrait {
     fn visit(self, adapter: &mut T) -> PResult<Self> {
         let AstTrait {
             name_span,
+            module_ref,
             name,
             generics,
             functions,
@@ -493,6 +532,7 @@ impl<T: Adapter> Visit<T> for AstTrait {
             name_span,
             name,
             generics,
+            module_ref: module_ref.visit(adapter)?,
             functions: functions.visit(adapter)?,
             restrictions: restrictions.visit(adapter)?,
             associated_types: associated_types.visit(adapter)?,
@@ -502,7 +542,7 @@ impl<T: Adapter> Visit<T> for AstTrait {
     }
 }
 
-impl<T: Adapter> Visit<T> for AstAssociatedType {
+impl<T: AstAdapter> Visit<T> for AstAssociatedType {
     fn visit(self, adapter: &mut T) -> PResult<AstAssociatedType> {
         let AstAssociatedType { name, restrictions } = adapter.enter_associated_type(self)?;
 
@@ -515,7 +555,7 @@ impl<T: Adapter> Visit<T> for AstAssociatedType {
     }
 }
 
-impl<T: Adapter> Visit<T> for AstImpl {
+impl<T: AstAdapter> Visit<T> for AstImpl {
     fn visit(self, adapter: &mut T) -> PResult<Self> {
         let AstImpl {
             impl_id,

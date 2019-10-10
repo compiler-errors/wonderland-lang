@@ -2,11 +2,11 @@ use crate::parser::ast::*;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
-pub struct AnalyzedFile {
+pub struct AnalyzedProgram {
     pub variable_ids: HashMap<VariableId, AstNamedVariable>,
-    pub analyzed_functions: HashMap<String, AnFunctionData>,
-    pub analyzed_traits: HashMap<String, AnTraitData>,
-    pub analyzed_objects: HashMap<String, AnObjectData>,
+    pub analyzed_functions: HashMap<ModuleRef, AnFunctionData>,
+    pub analyzed_traits: HashMap<ModuleRef, AnTraitData>,
+    pub analyzed_objects: HashMap<ModuleRef, AnObjectData>,
     pub analyzed_impls: HashMap<ImplId, AnImplData>,
 }
 

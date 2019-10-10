@@ -1,7 +1,7 @@
 use self::decorate::*;
 use crate::inst::{InstFunctionSignature, InstObjectSignature, InstantiatedFile};
 use crate::parser::ast::*;
-use crate::util::result::{PError, PResult};
+use crate::util::result::*;
 use crate::util::Span;
 use crate::util::ZipExact;
 use either::Either;
@@ -389,7 +389,6 @@ impl Translator {
             }
             AstStatement::Return { value } => {
                 let (val, temps) = self.translate_expression(builder, value)?;
-                self.free_temps(builder, &temps)?;
 
                 builder.build_return(Some(&val));
 
@@ -698,26 +697,38 @@ impl Translator {
 
                 (elem, arr_temps)
             }
-            AstExpressionData::ObjectAccess { object, mem_idx, .. } => {
+            AstExpressionData::ObjectAccess {
+                object, mem_idx, ..
+            } => {
                 let (object, temps) = self.translate_expression(builder, &object)?;
 
                 let member = unsafe {
-                    builder.build_gep(object.into_pointer_value(), &[
-                        self.context.i64_type().const_int(0, false),
-                        self.context.i32_type().const_int(mem_idx.unwrap() as u64, false),
-                    ], &temp_name())
+                    builder.build_gep(
+                        object.into_pointer_value(),
+                        &[
+                            self.context.i64_type().const_int(0, false),
+                            self.context
+                                .i32_type()
+                                .const_int(mem_idx.unwrap() as u64, false),
+                        ],
+                        &temp_name(),
+                    )
                 };
 
                 (member, temps)
-            },
+            }
             AstExpressionData::TupleAccess { accessible, idx } => {
                 let (object, temps) = self.translate_expression_lval(builder, &accessible)?;
 
                 let member = unsafe {
-                    builder.build_gep(object, &[
-                        self.context.i32_type().const_int(0, false),
-                        self.context.i64_type().const_int(*idx as u64, false),
-                    ], &temp_name())
+                    builder.build_gep(
+                        object,
+                        &[
+                            self.context.i32_type().const_int(0, false),
+                            self.context.i64_type().const_int(*idx as u64, false),
+                        ],
+                        &temp_name(),
+                    )
                 };
 
                 (member, temps)

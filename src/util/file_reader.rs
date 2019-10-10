@@ -1,18 +1,28 @@
+use crate::util::{FileId, FileRegistry, PResult};
+use std::sync::Arc;
+
 const EOF: char = '\x00';
 
 #[derive(Debug)]
 pub struct FileReader {
-    file: String,
+    pub file_id: FileId,
+    file_contents: Arc<str>,
+
     pos: usize,
+
     current: char,
     next: char,
+
     reached_end: bool,
 }
 
 impl FileReader {
-    pub fn new(file_contents: String) -> FileReader {
+    pub fn new(file_id: FileId) -> PResult<FileReader> {
+        let file_contents = FileRegistry::open(file_id)?;
+
         let mut fr = FileReader {
-            file: file_contents,
+            file_id,
+            file_contents,
             pos: 0,
             current: EOF,
             next: EOF,
@@ -23,7 +33,7 @@ impl FileReader {
         fr.next = fr.char_at(0);
         fr.bump(1);
 
-        fr
+        Ok(fr)
     }
 
     pub fn current_char(&self) -> char {
@@ -47,20 +57,11 @@ impl FileReader {
         self.pos - self.current.len_utf8()
     }
 
-    pub fn get_line_from_pos(&self, pos: usize) -> &str {
-        if pos > self.file.len() {
-            return "<EOF>";
-        }
-
-        let (line, _) = self.get_row_col(pos);
-        self.file.lines().nth(line).unwrap()
-    }
-
     fn bump_once(&mut self) {
         self.current = self.next;
         self.next = if !self.reached_end {
             self.pos += self.next.len_utf8();
-            if self.pos < self.file.len() {
+            if self.pos < self.file_contents.len() {
                 self.char_at(self.pos)
             } else {
                 self.reached_end = true;
@@ -72,116 +73,6 @@ impl FileReader {
     }
 
     fn char_at(&self, n: usize) -> char {
-        self.file[n..].chars().next().unwrap_or(EOF)
-    }
-
-    pub fn get_row_col(&self, pos: usize) -> (usize, usize) {
-        let mut row = 0;
-        let mut col = 0;
-
-        for c in self.file[0..pos].chars() {
-            if c == '\n' {
-                row += 1;
-                col = 0;
-            } else {
-                col += 1;
-            }
-        }
-
-        (row, col)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    const EOF: char = '\x00';
-
-    #[test]
-    fn test_file_reader() {
-        let mut fr = FileReader::new("ABCDEFG".into());
-
-        assert_eq!(fr.current_char(), 'A');
-        assert_eq!(fr.next_char(), 'B');
-
-        fr.bump(1);
-        assert_eq!(fr.current_char(), 'B');
-        assert_eq!(fr.next_char(), 'C');
-
-        fr.bump(5);
-        assert_eq!(fr.current_char(), 'G');
-        assert_eq!(fr.next_char(), EOF);
-
-        fr.bump(1);
-        assert_eq!(fr.current_char(), EOF);
-    }
-
-    #[test]
-    fn test_unicode_file_reader() {
-        let mut fr = FileReader::new("ÃBあ EFË".into());
-
-        assert_eq!(fr.current_char(), 'Ã');
-        assert_eq!(fr.next_char(), 'B');
-
-        fr.bump(1);
-        assert_eq!(fr.current_char(), 'B');
-        assert_eq!(fr.next_char(), 'あ');
-
-        fr.bump(1);
-        assert_eq!(fr.current_char(), 'あ');
-        assert_eq!(fr.next_char(), ' ');
-
-        fr.bump(4);
-        assert_eq!(fr.current_char(), 'Ë');
-        assert_eq!(fr.next_char(), EOF);
-
-        fr.bump(1);
-        assert_eq!(fr.current_char(), EOF);
-        assert_eq!(fr.next_char(), EOF);
-    }
-
-    #[test]
-    fn test_short() {
-        let mut fr2 = FileReader::new("あI".into());
-
-        assert_eq!(fr2.current_char(), 'あ');
-        assert_eq!(fr2.next_char(), 'I');
-
-        fr2.bump(1);
-        assert_eq!(fr2.current_char(), 'I');
-        assert_eq!(fr2.next_char(), EOF);
-
-        fr2.bump(1);
-        assert_eq!(fr2.current_char(), EOF);
-        assert_eq!(fr2.next_char(), EOF);
-
-        let mut fr1 = FileReader::new("あ".into());
-
-        assert_eq!(fr1.current_char(), 'あ');
-        assert_eq!(fr1.next_char(), EOF);
-
-        fr1.bump(1);
-        assert_eq!(fr1.current_char(), EOF);
-        assert_eq!(fr1.next_char(), EOF);
-    }
-
-    #[test]
-    fn test_pos() {
-        let mut fr = FileReader::new("ABC\nDEFG\nHI\n\nJK\n".into());
-
-        assert_eq!("DEFG", fr.get_line_from_pos(6));
-        assert_eq!(fr.get_row_col(7), (1, 3));
-        assert_eq!(fr.get_row_col(12), (3, 0));
-        assert_eq!("JK", fr.get_line_from_pos(13));
-        assert_eq!("JK", fr.get_line_from_pos(14));
-
-        fr = FileReader::new("ABCあ".into());
-
-        assert_eq!(fr.current_pos(), 0);
-        fr.bump(2);
-        assert_eq!(fr.current_pos(), 2);
-        fr.bump(2);
-        assert_eq!(fr.current_pos(), 5); // Because Japanese A is 2-bytes long.
-        assert_eq!(fr.current_char(), EOF);
+        self.file_contents[n..].chars().next().unwrap_or(EOF)
     }
 }

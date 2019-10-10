@@ -35,6 +35,9 @@ pub enum Token {
     Modulo,       //    %
 
     // Special keywords -- all are lowercase
+    Use,
+    Pub,
+    Mod,
     Fn,
     Export,
     Let,
@@ -71,7 +74,7 @@ pub enum Token {
     IntLiteral(String),
     CharLiteral(char),
 
-    VariableName(String),
+    Identifier(String),
     TypeName(String),
     GenericName(String),
 
@@ -112,6 +115,9 @@ impl Display for Token {
             &Token::Star => write!(f, "*"),
             &Token::Slash => write!(f, "/"),
             &Token::Modulo => write!(f, "%"),
+            &Token::Use => write!(f, "use"),
+            &Token::Pub => write!(f, "pub"),
+            &Token::Mod => write!(f, "mod"),
             &Token::Fn => write!(f, "fn"),
             &Token::Export => write!(f, "export"),
             &Token::Trait => write!(f, "trait"),
@@ -142,7 +148,7 @@ impl Display for Token {
             &Token::String(..) => write!(f, "String"),
             &Token::IntLiteral(_) => write!(f, "Number"),
             &Token::CharLiteral(_) => write!(f, "CharLiteral"),
-            &Token::VariableName(_) => write!(f, "VariableName"),
+            &Token::Identifier(_) => write!(f, "Identifier"),
             &Token::TypeName(_) => write!(f, "TypeName"),
             &Token::GenericName(_) => write!(f, "GenericName"),
             &Token::EOF => write!(f, "EOF"),

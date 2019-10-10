@@ -1,27 +1,69 @@
-use crate::tyck::TyckImplSignature;
-use crate::util::result::{PError, PResult};
-use crate::util::Span;
+use crate::util::{FileId, FileRegistry, IntoError, PError, PResult, Span};
+use inkwell::module::Module;
 use std::collections::HashMap;
 use std::sync::RwLock;
 
 #[derive(Debug, Clone)]
-/// A file that is being parsed, along with the associated
-/// parsed functions that are contained in the file.
-pub struct ParsedFile {
-    pub functions: Vec<AstFunction>,
-    pub objects: Vec<AstObject>,
-    pub traits: Vec<AstTrait>,
-    pub impls: Vec<AstImpl>,
+pub struct AstProgram {
+    pub modules: Vec<AstModule>,
 }
 
-impl ParsedFile {
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ModuleRef {
+    Denormalized(Vec<String>),
+    Normalized(FileId, String),
+}
+
+impl ModuleRef {
+    pub fn full_name(&self) -> PResult<String> {
+        match self {
+            ModuleRef::Denormalized(path) => Ok(path.join("::")),
+            ModuleRef::Normalized(file, name) => Ok(format!(
+                "{}::{}",
+                FileRegistry::mod_path(*file)?.join("::"),
+                name
+            )),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum AstUse {
+    Use(Vec<String>, String),
+    UseAll(Vec<String>),
+}
+
+#[derive(Debug, Clone)]
+/// A file that is being parsed, along with the associated
+/// parsed functions that are contained in the file.
+pub struct AstModule {
+    pub id: FileId,
+    pub name: String,
+
+    pub pub_uses: Vec<AstUse>,
+    pub uses: Vec<AstUse>,
+    pub functions: HashMap<String, AstFunction>,
+    pub objects: HashMap<String, AstObject>,
+    pub traits: HashMap<String, AstTrait>,
+    pub impls: HashMap<ImplId, AstImpl>,
+}
+
+impl AstModule {
     pub fn new(
-        functions: Vec<AstFunction>,
-        objects: Vec<AstObject>,
-        traits: Vec<AstTrait>,
-        impls: Vec<AstImpl>,
-    ) -> ParsedFile {
-        ParsedFile {
+        id: FileId,
+        name: String,
+        pub_uses: Vec<AstUse>,
+        uses: Vec<AstUse>,
+        functions: HashMap<String, AstFunction>,
+        objects: HashMap<String, AstObject>,
+        traits: HashMap<String, AstTrait>,
+        impls: HashMap<ImplId, AstImpl>,
+    ) -> AstModule {
+        AstModule {
+            id,
+            name,
+            pub_uses,
+            uses,
             functions,
             objects,
             traits,
@@ -54,10 +96,13 @@ impl From<AstGeneric> for AstType {
 
 #[derive(Debug, Clone)]
 pub struct AstFunction {
-    pub name_span: Span,
     /// The beginning position of the function
+    pub name_span: Span,
+
     /// The simple name of the function
     pub name: String,
+    pub module_ref: ModuleRef,
+
     pub generics: Vec<AstGeneric>,
     /// The parameter list that the function receives
     pub parameter_list: Vec<AstNamedVariable>,
@@ -74,6 +119,7 @@ pub struct AstFunction {
 
 impl AstFunction {
     pub fn new(
+        file: FileId,
         name_span: Span,
         name: String,
         generics: Vec<AstGeneric>,
@@ -85,10 +131,11 @@ impl AstFunction {
         AstFunction {
             name_span,
             generics,
-            name: name,
-            parameter_list: parameter_list,
-            return_type: return_type,
-            restrictions: restrictions,
+            module_ref: ModuleRef::Normalized(file, name.clone()),
+            name,
+            parameter_list,
+            return_type,
+            restrictions,
             definition,
             variables: HashMap::new(),
         }
@@ -139,7 +186,7 @@ pub struct GenericId(pub usize);
 pub struct DummyId(pub usize);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct AstTraitType(pub String, pub Vec<AstType>);
+pub struct AstTraitType(pub ModuleRef, pub Vec<AstType>);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 /// A type as parsed by the Parser module.
@@ -160,7 +207,7 @@ pub enum AstType {
     Tuple {
         types: Vec<AstType>,
     },
-    Object(String, Vec<AstType>),
+    Object(ModuleRef, Vec<AstType>),
     AssociatedType {
         obj_ty: Box<AstType>,
         trait_ty: Option<AstTraitType>,
@@ -202,8 +249,8 @@ impl AstType {
         if let AstType::Array { ty } = ty {
             Ok(*ty.clone())
         } else {
-            PError::new(
-                Span::new(0, 0),
+            PResult::error_at(
+                Span::none(),
                 format!("Trying to access element type of non-array: {:?}", ty),
             )
         }
@@ -217,8 +264,8 @@ impl AstType {
         AstType::Tuple { types: Vec::new() }
     }
 
-    pub fn object(obj: String, generics: Vec<AstType>) -> AstType {
-        AstType::Object(obj, generics)
+    pub fn object(object: ModuleRef, generics: Vec<AstType>) -> AstType {
+        AstType::Object(object, generics)
     }
 
     pub fn generic(generic: String) -> AstType {
@@ -305,25 +352,21 @@ impl AstStatement {
     }
 
     pub fn return_statement(value: AstExpression) -> AstStatement {
-        AstStatement::Return { value: value }
+        AstStatement::Return { value }
     }
 
-    pub fn return_nothing() -> AstStatement {
+    pub fn return_nothing(span: Span) -> AstStatement {
         AstStatement::Return {
-            value: AstExpression::nothing(Span::new(0, 0)),
+            value: AstExpression::nothing(span),
         }
     }
 
     pub fn assert_statement(condition: AstExpression) -> AstStatement {
-        AstStatement::Assert {
-            condition: condition,
-        }
+        AstStatement::Assert { condition }
     }
 
     pub fn expression_statement(expression: AstExpression) -> AstStatement {
-        AstStatement::Expression {
-            expression: expression,
-        }
+        AstStatement::Expression { expression }
     }
 
     pub fn break_stmt() -> AstStatement {
@@ -371,7 +414,7 @@ pub enum AstExpressionData {
 
     /// A regular function call
     Call {
-        name: String,
+        fn_name: ModuleRef,
         generics: Vec<AstType>,
         args: Vec<AstExpression>,
     },
@@ -390,7 +433,7 @@ pub enum AstExpressionData {
         args: Vec<AstExpression>,
 
         associated_trait: Option<AstTraitType>,
-        impl_signature: Option<TyckImplSignature>,
+        impl_signature: Option<AstImplSignature>,
     },
     /// An array access `a[1u]`
     ArrayAccess {
@@ -544,14 +587,14 @@ impl AstExpression {
 
     pub fn call(
         span: Span,
-        name: String,
+        fn_name: ModuleRef,
         generics: Vec<AstType>,
         args: Vec<AstExpression>,
     ) -> AstExpression {
         AstExpression {
             span,
             data: AstExpressionData::Call {
-                name,
+                fn_name,
                 generics,
                 args,
             },
@@ -589,9 +632,9 @@ impl AstExpression {
             span,
             data: AstExpressionData::StaticCall {
                 call_type,
-                fn_name: fn_name,
-                fn_generics: fn_generics,
-                args: args,
+                fn_name,
+                fn_generics,
+                args,
                 associated_trait: None,
                 impl_signature: None,
             },
@@ -726,11 +769,12 @@ impl AstExpression {
 #[derive(Debug, Clone)]
 pub struct AstObject {
     pub name_span: Span,
+    pub module_ref: ModuleRef,
+    /// The object name
+    pub name: String,
 
     /// The beginning position of the object
     pub generics: Vec<AstGeneric>,
-    /// The object name
-    pub name: String,
     /// The members that are contained in the object
     pub members: Vec<AstObjectMember>,
     pub restrictions: Vec<AstTypeRestriction>,
@@ -738,6 +782,7 @@ pub struct AstObject {
 
 impl AstObject {
     pub fn new(
+        file: FileId,
         name_span: Span,
         generics: Vec<AstGeneric>,
         name: String,
@@ -746,10 +791,11 @@ impl AstObject {
     ) -> AstObject {
         AstObject {
             name_span,
-            generics: generics,
-            name: name,
-            restrictions: restrictions,
-            members: members,
+            generics,
+            module_ref: ModuleRef::Normalized(file, name.clone()),
+            name,
+            restrictions,
+            members,
         }
     }
 }
@@ -761,14 +807,16 @@ pub struct AstObjectFunction {
     /// The beginning position of the function
     /// The simple name of the function
     pub name: String,
+
     pub generics: Vec<AstGeneric>,
+    pub restrictions: Vec<AstTypeRestriction>,
+
     /// Whether the function is a member or static function of the type
     pub has_self: bool,
     /// The parameter list that the function receives
     pub parameter_list: Vec<AstNamedVariable>,
     /// The return type of the function, or AstType::None
     pub return_type: AstType,
-    pub restrictions: Vec<AstTypeRestriction>,
 
     /// The collection of statements associated with the function
     pub definition: Option<AstBlock>,
@@ -824,23 +872,28 @@ pub struct AstTrait {
     pub name_span: Span,
 
     pub name: String,
+    pub module_ref: ModuleRef,
+
     pub generics: Vec<AstGeneric>,
-    pub functions: Vec<AstObjectFunction>,
     pub restrictions: Vec<AstTypeRestriction>,
+
+    pub functions: HashMap<String, AstObjectFunction>,
     pub associated_types: HashMap<String, AstAssociatedType>,
 }
 
 impl AstTrait {
     pub fn new(
+        file: FileId,
         name_span: Span,
         name: String,
         generics: Vec<AstGeneric>,
-        functions: Vec<AstObjectFunction>,
+        functions: HashMap<String, AstObjectFunction>,
         restrictions: Vec<AstTypeRestriction>,
         associated_types: HashMap<String, AstAssociatedType>,
     ) -> AstTrait {
         AstTrait {
             name_span,
+            module_ref: ModuleRef::Normalized(file, name.clone()),
             name,
             generics,
             functions,
@@ -884,11 +937,14 @@ pub struct ImplId(pub usize);
 pub struct AstImpl {
     pub impl_id: ImplId,
     pub name_span: Span,
+
     pub generics: Vec<AstGeneric>,
+    pub restrictions: Vec<AstTypeRestriction>,
+
     pub trait_ty: AstTraitType,
     pub impl_ty: AstType,
-    pub fns: Vec<AstObjectFunction>,
-    pub restrictions: Vec<AstTypeRestriction>,
+
+    pub fns: HashMap<String, AstObjectFunction>,
     pub associated_types: HashMap<String, AstType>,
 }
 
@@ -903,7 +959,7 @@ impl AstImpl {
         generics: Vec<AstGeneric>,
         trait_ty: AstTraitType,
         impl_ty: AstType,
-        fns: Vec<AstObjectFunction>,
+        fns: HashMap<String, AstObjectFunction>,
         restrictions: Vec<AstTypeRestriction>,
         associated_types: HashMap<String, AstType>,
     ) -> AstImpl {
@@ -928,4 +984,11 @@ impl AstImpl {
 
         ImplId(id_ref.clone())
     }
+}
+
+/// Used in tyck
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AstImplSignature {
+    pub impl_id: ImplId,
+    pub generics: Vec<AstType>,
 }

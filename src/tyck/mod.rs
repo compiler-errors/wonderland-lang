@@ -23,15 +23,9 @@ pub struct TyckObjective {
     pub trait_ty: AstTraitType,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TyckImplSignature {
-    pub impl_id: ImplId,
-    pub generics: Vec<AstType>,
-}
-
-pub fn typecheck(parsed_file: &ParsedFile, analyzed_file: &AnalyzedFile) -> PResult<()> {
+pub fn typecheck(parsed_file: &AstModule, analyzed_file: &AnalyzedProgram) -> PResult<()> {
     let mut constraint_assumptions = TyckConstraintAssumptionAdapter::new(analyzed_file.clone());
-    let ParsedFile {
+    let AstModule {
         functions,
         objects,
         traits,
@@ -71,7 +65,7 @@ pub fn typecheck(parsed_file: &ParsedFile, analyzed_file: &AnalyzedFile) -> PRes
             }
 
             if typecheck_impl_collision(&base_solver, &imp, &other_impl).is_ok() {
-                return PError::new(
+                return PResult::error_at(
                     imp.name_span,
                     format!(
                         "This impl overlaps with another: impl {:?} for {:?}",
@@ -100,7 +94,7 @@ pub fn typecheck(parsed_file: &ParsedFile, analyzed_file: &AnalyzedFile) -> PRes
 }
 
 fn typecheck_dummy_impl(
-    file: Rc<AnalyzedFile>,
+    file: Rc<AnalyzedProgram>,
     base_solver: &TyckSolver,
     imp: AnImplData,
 ) -> PResult<()> {
@@ -130,7 +124,7 @@ fn typecheck_dummy_impl(
             &base_solver,
             &impl_ty,
             &trait_ty,
-            Span::new(0, 0),
+            Span::none(),
             name,
             ty,
         )?;
@@ -140,7 +134,7 @@ fn typecheck_dummy_impl(
 }
 
 pub fn typecheck_simple<T>(
-    file: Rc<AnalyzedFile>,
+    file: Rc<AnalyzedProgram>,
     base_solver: &TyckSolver,
     t: T,
 ) -> PResult<(T, TyckSolution)>
@@ -156,7 +150,7 @@ where
 }
 
 pub fn typecheck_associated_type(
-    file: Rc<AnalyzedFile>,
+    file: Rc<AnalyzedProgram>,
     base_solver: &TyckSolver,
     impl_ty: &AstType,
     trait_ty: &AstTraitType,
@@ -193,7 +187,7 @@ pub fn typecheck_associated_type(
 }
 
 pub fn typecheck_impl(
-    file: Rc<AnalyzedFile>,
+    file: Rc<AnalyzedProgram>,
     base_solver: &TyckSolver,
     imp: AstImpl,
 ) -> PResult<(AstImpl, TyckSolution)> {
@@ -229,7 +223,7 @@ pub fn typecheck_impl(
             &base_solver,
             &imp.impl_ty,
             &imp.trait_ty,
-            Span::new(0, 0),
+            Span::none(),
             name,
             ty,
         )?;
@@ -237,18 +231,18 @@ pub fn typecheck_impl(
 
     // If it's not a dummy impl, functions and types should all be matched to one in the trait. (<=>).
     if imp.associated_types.len() != trait_data.associated_tys.len() {
-        return PError::new(imp.name_span, format!("The impl has a different number of provided associated types than its corresponding trait."));
+        return PResult::error_at(imp.name_span, format!("The impl has a different number of provided associated types than its corresponding trait."));
     }
 
     if imp.fns.len() != trait_data.methods.len() {
-        return PError::new(imp.name_span, format!("The impl has a different number of implemented methods than its corresponding trait."));
+        return PResult::error_at(imp.name_span, format!("The impl has a different number of implemented methods than its corresponding trait."));
     }
 
     Ok((imp, solution))
 }
 
 pub fn typecheck_impl_fn(
-    file: Rc<AnalyzedFile>,
+    file: Rc<AnalyzedProgram>,
     base_solver: &TyckSolver,
     fun: AstObjectFunction,
     impl_ty: &AstType,
@@ -301,7 +295,7 @@ pub fn typecheck_impl_fn(
     }
 
     if norm_expected_constraints != given_constraints {
-        return PError::new(fun.name_span, format!("Restrictions on this method do not match the restrictions on the trait method. Expected {:?}, got {:?}.", norm_expected_constraints, given_constraints));
+        return PResult::error_at(fun.name_span, format!("Restrictions on this method do not match the restrictions on the trait method. Expected {:?}, got {:?}.", norm_expected_constraints, given_constraints));
     }
 
     Ok((fun, solution))

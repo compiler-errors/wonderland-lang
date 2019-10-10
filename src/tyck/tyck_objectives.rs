@@ -1,6 +1,6 @@
-use crate::analyze::represent::AnalyzedFile;
+use crate::analyze::represent::AnalyzedProgram;
 use crate::parser::ast::*;
-use crate::parser::ast_visitor::Adapter;
+use crate::parser::ast_visitor::AstAdapter;
 use crate::tyck::tyck_instantiate::GenericsInstantiator;
 use crate::tyck::tyck_solver::TyckSolver;
 use crate::util::result::*;
@@ -10,12 +10,12 @@ use std::rc::Rc;
 pub struct TyckObjectiveAdapter {
     pub solver: TyckSolver,
     variables: HashMap<VariableId, AstType>,
-    analyzed_file: Rc<AnalyzedFile>,
+    analyzed_file: Rc<AnalyzedProgram>,
     return_type: Option<AstType>,
 }
 
 impl TyckObjectiveAdapter {
-    pub fn new(solver: TyckSolver, analyzed_file: Rc<AnalyzedFile>) -> TyckObjectiveAdapter {
+    pub fn new(solver: TyckSolver, analyzed_file: Rc<AnalyzedProgram>) -> TyckObjectiveAdapter {
         TyckObjectiveAdapter {
             solver,
             variables: HashMap::new(),
@@ -25,7 +25,7 @@ impl TyckObjectiveAdapter {
     }
 }
 
-impl<'a> Adapter for TyckObjectiveAdapter {
+impl<'a> AstAdapter for TyckObjectiveAdapter {
     fn enter_impl(&mut self, _i: AstImpl) -> PResult<AstImpl> {
         unreachable!()
     }
@@ -197,7 +197,9 @@ impl<'a> Adapter for TyckObjectiveAdapter {
                 self.solver.add_delayed_tuple_access(tuple_ty, *idx, &ty)?;
             }
             // Call an object's member
-            AstExpressionData::ObjectAccess { object, mem_name, .. } => {
+            AstExpressionData::ObjectAccess {
+                object, mem_name, ..
+            } => {
                 let object_ty = &object.ty;
                 self.solver
                     .add_delayed_object_access(object_ty, mem_name, &ty)?;

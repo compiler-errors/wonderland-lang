@@ -1,24 +1,46 @@
-use crate::util::{FileReader, Span};
+use crate::util::{FileId, FileReader, FileRegistry, Span};
 use std::process::exit;
 
 pub type PResult<T> = Result<T, PError>;
 
+pub trait IntoError {
+    fn error(error: String) -> Self;
+    fn error_at(span: Span, error: String) -> Self;
+}
+
+impl<T> IntoError for PResult<T> {
+    fn error(error: String) -> PResult<T> {
+        Err(PError::new(error))
+    }
+
+    fn error_at(span: Span, error: String) -> PResult<T> {
+        Err(PError::new_at(span, error))
+    }
+}
+
 #[derive(Debug)]
 /// An error with a location, error string, and possible comments
 pub struct PError {
-    pub span: Span,
-    pub error_string: String,
-    pub comments: Vec<String>,
+    span: Option<Span>,
+    error_string: String,
+    comments: Vec<String>,
 }
 
 impl PError {
-    pub fn new<T>(span: Span, error: String) -> PResult<T> {
-        println!("; > {}", error);
-        Err(PError {
-            span,
+    pub fn new(error: String) -> PError {
+        PError {
+            span: None,
             error_string: error,
             comments: Vec::new(),
-        })
+        }
+    }
+
+    pub fn new_at(span: Span, error: String) -> PError {
+        PError {
+            span: Some(span),
+            error_string: error,
+            comments: Vec::new(),
+        }
     }
 }
 
@@ -61,8 +83,7 @@ impl<T> Expect<T> for Option<T> {
         if let Some(t) = self {
             Ok(t)
         } else {
-            panic!();
-            PError::new(
+            PResult::error_at(
                 span,
                 format!("Couldn't find {} with name `{}`", type_of, name),
             )
@@ -73,74 +94,110 @@ impl<T> Expect<T> for Option<T> {
         if self.is_none() {
             Ok(())
         } else {
-            PError::new(span, format!("Duplicate {} with name `{}`", type_of, name))
+            PResult::error_at(span, format!("Duplicate {} with name `{}`", type_of, name))
         }
     }
 }
 
-pub fn report_err_at(fr: &FileReader, err: PError) -> ! {
+pub fn get_row_col(file_contents: &str, pos: usize) -> (usize, usize) {
+    let mut row = 0;
+    let mut col = 0;
+
+    for c in file_contents[0..pos].chars() {
+        if c == '\n' {
+            row += 1;
+            col = 0;
+        } else {
+            col += 1;
+        }
+    }
+
+    (row, col)
+}
+
+pub fn get_line_from_pos(file_contents: &str, pos: usize) -> &str {
+    if pos > file_contents.len() {
+        return "<EOF>";
+    }
+
+    let (line, _) = get_row_col(file_contents, pos);
+    file_contents.lines().nth(line).unwrap_or_else(|| "<EOF>")
+}
+
+pub fn report_err(err: PError) -> ! {
     let PError {
-        span: Span { start, end },
+        span,
         error_string,
         comments,
     } = err;
 
-    let (start_row, start_col) = fr.get_row_col(start);
-    let (end_row, end_col) = fr.get_row_col(end);
-
-    println!();
-
-    if start_row == end_row {
-        println!(
-            "Error \"{}\" encountered on line {}:",
-            error_string,
-            start_row + 1,
-        );
-    } else {
-        println!(
-            "Error \"{}\" encountered on lines {}-{}:",
-            error_string,
-            start_row + 1,
-            end_row + 1,
-        );
-    }
-
-    for comment in comments {
-        println!("   * {}", comment);
-    }
-
-    if start_row == end_row {
-        let line_str = fr.get_line_from_pos(start);
-
-        println!("| {}", line_str);
-        for _ in 0..(start_col + 2) {
-            print!(" ");
-        }
-
-        for _ in start_col..end_col {
-            print!("~")
-        }
+    if let Some(Span { file, start, end }) = span {
+        let file_contents_borrow = FileRegistry::open(file).unwrap();
+        let file_contents = file_contents_borrow.as_ref();
+        let (start_row, start_col) = get_row_col(file_contents, start);
+        let (end_row, end_col) = get_row_col(file_contents, end);
 
         println!();
+
+        if start_row == end_row {
+            println!(
+                "Error \"{}\" encountered on line {}:",
+                error_string,
+                start_row + 1,
+            );
+        } else {
+            println!(
+                "Error \"{}\" encountered on lines {}-{}:",
+                error_string,
+                start_row + 1,
+                end_row + 1,
+            );
+        }
+
+        if start_row == end_row {
+            let line_str = get_line_from_pos(file_contents, start);
+
+            println!("| {}", line_str);
+            for _ in 0..(start_col + 2) {
+                print!(" ");
+            }
+
+            for _ in start_col..end_col {
+                print!("~")
+            }
+
+            println!();
+        } else {
+            let start_line_str = get_line_from_pos(file_contents, start);
+            let end_line_str = get_line_from_pos(file_contents, end);
+
+            println!("| {}", start_line_str);
+            for _ in 0..(start_col + 2) {
+                print!(" ");
+            }
+            println!("^-");
+
+            if start_row + 1 != end_row {
+                println!("| [...lines omitted...]");
+            }
+
+            println!("| {}", end_line_str);
+            for _ in 0..end_col {
+                print!(" ");
+            }
+            println!("-^");
+        }
     } else {
-        let start_line_str = fr.get_line_from_pos(start);
-        let end_line_str = fr.get_line_from_pos(end);
+        println!("Error \"{}\" occurred.", error_string);
+    }
 
-        println!("| {}", start_line_str);
-        for _ in 0..(start_col + 2) {
-            print!(" ");
-        }
-        println!("^-");
+    if !comments.is_empty() {
+        println!();
+        println!("Additional comments: ");
 
-        if start_row + 1 != end_row {
-            println!("| [...lines omitted...]");
+        for comment in comments {
+            println!("   * {}", comment);
         }
-
-        println!("| {}", end_line_str);
-        for _ in 0..end_col {
-            print!(" ");
-        }
-        println!("-^");
     }
 
     exit(1);

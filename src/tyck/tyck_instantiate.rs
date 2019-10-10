@@ -1,4 +1,4 @@
-use crate::analyze::represent::AnalyzedFile;
+use crate::analyze::represent::AnalyzedProgram;
 use crate::parser::ast::*;
 use crate::parser::ast_visitor::*;
 use crate::tyck::TyckImplSignature;
@@ -12,7 +12,7 @@ pub struct GenericsInstantiator(HashMap<GenericId, AstType>);
 
 impl GenericsInstantiator {
     pub fn from_signature(
-        analyzed_file: &AnalyzedFile,
+        analyzed_file: &AnalyzedProgram,
         i: &TyckImplSignature,
     ) -> PResult<GenericsInstantiator> {
         let impl_data = &analyzed_file.analyzed_impls[&i.impl_id];
@@ -22,10 +22,7 @@ impl GenericsInstantiator {
         Ok(GenericsInstantiator(mapping))
     }
 
-    pub fn from_generics(
-        ids: &[GenericId],
-        tys: &[AstType],
-    ) -> PResult<GenericsInstantiator> {
+    pub fn from_generics(ids: &[GenericId], tys: &[AstType]) -> PResult<GenericsInstantiator> {
         let mapping = ZipExact::zip_exact(ids, tys, "generics")?
             .map(|(&id, t)| (id, t.clone()))
             .collect();
@@ -33,7 +30,7 @@ impl GenericsInstantiator {
     }
 
     pub fn from_trait(
-        analyzed_file: &AnalyzedFile,
+        analyzed_file: &AnalyzedProgram,
         trt: &AstTraitType,
     ) -> PResult<GenericsInstantiator> {
         let trt_data = &analyzed_file.analyzed_traits[&trt.0];
@@ -41,7 +38,7 @@ impl GenericsInstantiator {
     }
 
     pub fn instantiate_associated_ty(
-        analyzed_file: &AnalyzedFile,
+        analyzed_file: &AnalyzedProgram,
         i: &TyckImplSignature,
         name: &str,
     ) -> PResult<AstType> {
@@ -54,7 +51,7 @@ impl GenericsInstantiator {
     }
 
     pub fn instantiate_fn_signature(
-        analyzed_file: &AnalyzedFile,
+        analyzed_file: &AnalyzedProgram,
         name: &str,
         generics: &[AstType],
     ) -> PResult<(Vec<AstType>, AstType, Vec<AstTypeRestriction>)> {
@@ -72,7 +69,7 @@ impl GenericsInstantiator {
     }
 
     pub fn instantiate_trait_fn_signature(
-        analyzed_file: &AnalyzedFile,
+        analyzed_file: &AnalyzedProgram,
         trait_name: &str,
         trait_generics: &[AstType],
         fn_name: &str,
@@ -116,7 +113,7 @@ impl GenericsInstantiator {
     }
 
     pub fn instantiate_object_member(
-        analyzed_file: &AnalyzedFile,
+        analyzed_file: &AnalyzedProgram,
         obj_name: &str,
         generics: &[AstType],
         member_name: &str,
@@ -133,7 +130,7 @@ impl GenericsInstantiator {
     }
 
     pub fn instantiate_restrictions(
-        analyzed_file: &AnalyzedFile,
+        analyzed_file: &AnalyzedProgram,
         impl_ty: &AstType,
         trait_ty: &AstTraitType,
         restrictions: &[AstTypeRestriction],
@@ -148,7 +145,7 @@ impl GenericsInstantiator {
     }
 }
 
-impl Adapter for GenericsInstantiator {
+impl AstAdapter for GenericsInstantiator {
     fn enter_type(&mut self, t: AstType) -> PResult<AstType> {
         match t {
             AstType::GenericPlaceholder(id, _) if self.0.contains_key(&id) => {
@@ -161,7 +158,7 @@ impl Adapter for GenericsInstantiator {
 
 pub struct InstantiateSelfLocal(AstType, AstTraitType);
 
-impl Adapter for InstantiateSelfLocal {
+impl AstAdapter for InstantiateSelfLocal {
     fn enter_type(&mut self, t: AstType) -> PResult<AstType> {
         match t {
             AstType::SelfType => Ok(AstType::AssociatedType {

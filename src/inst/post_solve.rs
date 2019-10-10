@@ -1,14 +1,14 @@
+use crate::analyze::represent::AnalyzedProgram;
 use crate::parser::ast::{AstExpression, AstExpressionData, AstType};
-use crate::parser::ast_visitor::Adapter;
+use crate::parser::ast_visitor::AstAdapter;
 use crate::tyck::TyckSolution;
 use crate::util::result::{PError, PResult};
 use crate::util::Span;
-use crate::analyze::represent::AnalyzedFile;
 use std::rc::Rc;
 
-pub struct PostSolveAdapter(pub TyckSolution, pub Rc<AnalyzedFile>);
+pub struct PostSolveAdapter(pub TyckSolution, pub Rc<AnalyzedProgram>);
 
-impl Adapter for PostSolveAdapter {
+impl AstAdapter for PostSolveAdapter {
     fn exit_type(&mut self, t: AstType) -> PResult<AstType> {
         let ty = self.0.normalize_ty(&t)?;
 
@@ -19,8 +19,8 @@ impl Adapter for PostSolveAdapter {
             | AstType::GenericPlaceholder(..)
             | AstType::SelfType => unreachable!(),
             AstType::Infer(..) => {
-                return PError::new(
-                    Span::new(0, 0),
+                return PResult::error_at(
+                    Span::none(),
                     "Insufficient information to infer types".into(),
                 );
             }
@@ -62,8 +62,12 @@ impl Adapter for PostSolveAdapter {
                     associated_trait,
                     impl_signature: Some(expected_signature),
                 }
-            },
-            AstExpressionData::ObjectAccess { object, mem_name, mem_idx: None } => {
+            }
+            AstExpressionData::ObjectAccess {
+                object,
+                mem_name,
+                mem_idx: None,
+            } => {
                 if let AstType::Object(obj_name, _) = &object.ty {
                     let mem_idx = self.1.analyzed_objects[obj_name].member_indices[&mem_name];
 
@@ -75,7 +79,7 @@ impl Adapter for PostSolveAdapter {
                 } else {
                     unreachable!()
                 }
-            },
+            }
             e => e,
         };
 

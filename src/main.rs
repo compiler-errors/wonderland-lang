@@ -2,55 +2,218 @@
 
 #[macro_use]
 extern crate lazy_static;
-
+extern crate getopts;
 extern crate inkwell;
 
-use crate::analyze::analyze;
-use crate::inst::instantiate;
-use crate::lexer::Lexer;
-use crate::parser::parse_file;
-use crate::tr::translate;
-use crate::tyck::typecheck;
-use crate::util::result::*;
-use crate::util::FileReader;
+use crate::ana::analyze;
+use crate::lexer::{Lexer, Token};
+use crate::parser::parse_program;
+use crate::util::{report_err, FileId, FileReader, FileRegistry, PResult};
+use getopts::{Matches, Options};
+use std::fs::File;
 use std::io::Read;
+use std::path::Path;
+use std::process::exit;
 
-mod analyze;
-mod inst;
+mod ana;
 mod lexer;
 mod parser;
-mod tr;
-mod tyck;
 mod util;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Mode {
+    Help,
+    Lex,
+    Parse,
+    Analyze,
+}
+
+const DEFAULT_MODE: Mode = Mode::Analyze;
+
 fn main() {
-    let mut string = String::new();
+    let args: Vec<_> = std::env::args().collect();
+    let program = args[0].clone();
 
-    if let e @ Err(_) = std::io::stdin().lock().read_to_string(&mut string) {
-        panic!("File reading issue: {:?}", e);
+    let mut opts = Options::new();
+    opts.optopt("o", "output", "set output file name", "FILE");
+    opts.optflag("l", "lex", "Tokenize file(s)");
+    opts.optflag("p", "parse", "Parse file(s)");
+    opts.optflag("a", "analyze", "Analyze file(s)");
+    opts.optflag("h", "help", "print this help menu");
+
+    let matches = opts.parse(&args[1..]).unwrap_or_else(|_| {
+        println!("Something went wrong when parsing...");
+        help(true);
+    });
+
+    let mode = select_mode(&matches).unwrap_or_else(|_| {
+        println!("Duplicated options, please choose one compiler mode!");
+        help(true);
+    });
+
+    let files = get_files(mode, &matches.free).unwrap_or_else(|e| report_err(e));
+
+    match mode {
+        Mode::Help => help(false),
+        Mode::Lex => try_lex(files),
+        Mode::Parse => try_parse(files),
+        Mode::Analyze => try_analyze(files),
     }
+    .unwrap_or_else(|e| report_err(e));
 
-    let mut file_reader = FileReader::new(string);
+    println!("Okay!");
+}
 
-    match try_main(&mut file_reader) {
-        Ok(_) => println!("; Done!"),
-        Err(e) => report_err_at(&file_reader, e),
+fn get_files(mode: Mode, matches: &[String]) -> PResult<Vec<FileId>> {
+    if matches.is_empty() {
+        if mode == Mode::Help {
+            help(false);
+        } else {
+            println!("Please provide a filename!");
+            help(true);
+        }
+    } else {
+        let (paths, stdin): (Vec<_>, Vec<_>) = matches.iter().partition(|s| *s != "-");
+        let mut files = Vec::new();
+
+        for p in paths {
+            let p = Path::new(p);
+            let f = FileRegistry::seek_path(p)?;
+            files.extend(f);
+        }
+
+        if !stdin.is_empty() {
+            files.push(read_stdin());
+        }
+
+        Ok(files)
     }
 }
 
-fn try_main(file_reader: &mut FileReader) -> PResult<()> {
-    let mut lexer = Lexer::new(file_reader);
+fn select_mode(matches: &Matches) -> Result<Mode, ()> {
+    let mut mode = Option::None;
 
-    let parsed_file = parse_file(&mut lexer)?;
+    if matches.opt_present("h") {
+        if mode.is_some() {
+            return Err(());
+        }
 
-    // (Transformed) parsed file and analyzed file.
-    let (parsed_file, analyzed_file) = analyze(parsed_file)?;
+        mode = Some(Mode::Help);
+    }
 
-    typecheck(&parsed_file, &analyzed_file)?;
+    if matches.opt_present("l") {
+        if mode.is_some() {
+            return Err(());
+        }
 
-    let instantiated_file = instantiate(parsed_file, analyzed_file)?;
+        mode = Some(Mode::Lex);
+    }
 
-    translate(instantiated_file)?;
+    if matches.opt_present("p") {
+        if mode.is_some() {
+            return Err(());
+        }
+
+        mode = Some(Mode::Parse);
+    }
+
+    if matches.opt_present("a") {
+        if mode.is_some() {
+            return Err(());
+        }
+
+        mode = Some(Mode::Analyze);
+    }
+
+    Ok(mode.unwrap_or(DEFAULT_MODE))
+}
+
+fn read_stdin() -> FileId {
+    unimplemented!()
+}
+
+fn help(fail: bool) -> ! {
+    println!(
+        "
+------------------------------------------------------------
+
+CHESHIRE - A smart compiler.
+
+cheshire (-l | --lex) FILE...
+  Tokenize files in order to verify that they are all proper
+  Cheshire tokens.
+
+
+cheshire (-p | --parse) FILE...
+  Parse files in order to verify that they are all proper
+  Cheshire syntax.
+
+
+cheshire (-a --analyze) FILE...
+  Analyze files, doing some basic semantic analysis to
+  verify that certain assumptions about the Cheshire program
+  are true. This includes checking argument parity, `Self`
+  type usage, etc.
+
+
+cheshire (-t | --tyck) FILE...
+  Type-check a program. This will type-check generic
+  functions in their generic state.
+
+
+cheshire (-i | --instantiate) FILE...
+  Instantiate a program's generics. This will type-check
+  generic functions in their instantiated state, verifying
+  that every fully-typed version of the method is valid.
+
+
+cheshire (-c | --compile) [--llvm-ir] FILE... [-O OUTPUT]
+  Compile files to LLVM IR, which is then linked into a
+  file and outputted into OUTPUT. If the `-O` argument is
+  not provided, then this defaults to 'cheshire.out' in
+  the current directory.
+
+  If `--llvm-ir` is provided, then the program will halt
+  before the linking phase and produce plain LLVM IR files.
+  The output argument `-O` is interpreted as an output
+  directory, where corresponding `.ll` LLVM IR file is
+  produced for each input file.
+
+------------------------------------------------------------
+    "
+    );
+    exit(if fail { 1 } else { 0 });
+}
+
+fn try_lex(files: Vec<FileId>) -> PResult<()> {
+    let lexers = files
+        .into_iter()
+        .map(Lexer::new)
+        .collect::<PResult<Vec<Lexer>>>()?;
+
+    for mut lex in lexers {
+        // Consume token stream until EOF.
+        while lex.bump_token()?.0 != Token::EOF {}
+    }
+
+    Ok(())
+}
+
+fn try_parse(files: Vec<FileId>) -> PResult<()> {
+    parse_program(files).and(Ok(()))
+}
+
+fn try_analyze(files: Vec<FileId>) -> PResult<()> {
+    for f in &files {
+        println!(
+            "Parsed {:?} as {}",
+            FileRegistry::path(*f)?,
+            FileRegistry::mod_path(*f)?.join("::")
+        );
+    }
+
+    let program = parse_program(files)?;
+    analyze(program)?;
 
     Ok(())
 }

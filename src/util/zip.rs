@@ -1,7 +1,7 @@
-use crate::util::result::{PError, PResult};
+use crate::util::len::Len;
+use crate::util::result::{IntoError, PError, PResult};
 use crate::util::Span;
 use std::iter::Zip;
-use crate::util::len::Len;
 
 pub trait ZipExact<S>: IntoIterator
 where
@@ -11,14 +11,10 @@ where
 }
 
 impl<S: IntoIterator + Len, T: IntoIterator + Len> ZipExact<S> for T {
-    fn zip_exact(
-        self,
-        other: S,
-        what: &str,
-    ) -> PResult<Zip<Self::IntoIter, S::IntoIter>> {
+    fn zip_exact(self, other: S, what: &str) -> PResult<Zip<Self::IntoIter, S::IntoIter>> {
         if self.len() != other.len() {
-            PError::new(
-                Span::new(0, 0),
+            PResult::error_at(
+                Span::none(),
                 format!(
                     "Mismatched {}! LHS has {}, RHS has {}.",
                     what,
