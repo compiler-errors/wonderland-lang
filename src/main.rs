@@ -206,7 +206,7 @@ fn try_parse(files: Vec<FileId>) -> PResult<()> {
 fn try_analyze(files: Vec<FileId>) -> PResult<()> {
     for f in &files {
         println!(
-            "Parsed {:?} as {}",
+            "File {:?} is module `{}`",
             FileRegistry::path(*f)?,
             FileRegistry::mod_path(*f)?.join("::")
         );

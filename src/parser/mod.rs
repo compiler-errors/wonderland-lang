@@ -252,7 +252,16 @@ impl Parser {
         let mut path = Vec::new();
 
         loop {
-            if self.check(Token::Star) {
+            if self.check(Token::Mod) {
+                if !path.is_empty() {
+                    return self.error_here(format!(
+                        "`mod` keyword can only appear at the beginning of a module path!"
+                    ));
+                }
+
+                self.bump()?;
+                path.extend(FileRegistry::parent_mod_path(self.file)?);
+            } else if self.check(Token::Star) {
                 // Can't have a path with just `use *`
                 if path.is_empty() {
                     return self.error_here(format!("Cannot have empty use-all"));

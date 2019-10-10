@@ -7,7 +7,7 @@ use crate::util::PResult;
 use std::collections::HashMap;
 use std::iter::Repeat;
 
-struct AnalyzeGenerics {
+pub struct AnalyzeGenerics {
     parity: HashMap<ModuleRef, usize>,
 }
 

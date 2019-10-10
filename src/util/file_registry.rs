@@ -152,6 +152,18 @@ impl FileRegistry {
         Ok(reg.mod_paths[&file_id].clone())
     }
 
+    pub fn parent_mod_path(file_id: FileId) -> PResult<Vec<String>> {
+        let mut mod_path = Self::mod_path(file_id)?;
+
+        // mod_path of `x/mod.cheshire` is already `x`, so we only need
+        // to pop the last part of the path off if it's not a mod file.
+        if Self::path(file_id)?.file_stem().unwrap() != "mod" {
+            mod_path.pop();
+        }
+
+        Ok(mod_path)
+    }
+
     pub fn name(file_id: FileId) -> PResult<String> {
         let reg = FILE_REGISTRY.write().unwrap();
         Ok(reg.mod_paths[&file_id].last().unwrap().clone())

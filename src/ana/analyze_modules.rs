@@ -71,13 +71,13 @@ fn get_module(module: &SharedModule, mod_path: &[String]) -> PResult<SharedModul
 
     for child_name in mod_path {
         let next_module = {
-            let mut module_mut = (*module).borrow_mut();
+            let mut module = (*module).borrow();
 
-            if !module_mut.children.contains_key(child_name) {
+            if !module.children.contains_key(child_name) {
                 return PResult::error(format!("No submodule with the name `{}`", child_name));
             }
 
-            if let ModuleItem::Submodule(submodule) = &module_mut.children[child_name] {
+            if let ModuleItem::Submodule(submodule) = &module.children[child_name] {
                 submodule.clone()
             } else {
                 return PResult::error(format!(
@@ -177,28 +177,24 @@ impl<'a> AstAdapter for AnalyzeModules<'a> {
 /// I know the signature for this function is kinda icky...
 /// But I wanted to be able to share this between PubUse and Use.
 pub fn import(
-    mod_map: &ModuleMap,
     this_id: FileId,
     this_children: &mut HashMap<String, ModuleItem>,
     module: &[String],
-    item: &str,
+    name: &str,
+    child: ModuleItem,
 ) -> PResult<bool> {
-    let use_module_ref = mod_map.get_module(module)?;
-    let use_module = (*use_module_ref).borrow();
-    let child = use_module.get_child(item, module)?;
-
-    if this_children.contains_key(item) {
-        if this_children[item] != child {
+    if this_children.contains_key(name) {
+        if this_children[name] != child {
             return PResult::error(format!(
                 "Cannot import symbol `{}` from module `{}` when it already exists in the module `{}`!",
-                item,
+                name,
                 module.join("::"),
                 FileRegistry::mod_path(this_id)?.join("::")
             ));
         }
         Ok(false)
     } else {
-        this_children.insert(item.into(), child.clone());
+        this_children.insert(name.into(), child.clone());
         Ok(true)
     }
 }
@@ -221,13 +217,17 @@ impl<'a> AnalyzePubUses<'a> {
 
 impl<'a> AstAdapter for AnalyzePubUses<'a> {
     fn enter_module(&mut self, m: AstModule) -> PResult<AstModule> {
-        let this_module_ref = self.mod_map.get_module(&FileRegistry::mod_path(m.id)?)?;
-        let mut this_module = (*this_module_ref).borrow_mut();
-
         for u in &m.pub_uses {
             match u {
                 AstUse::Use(module, item) => {
-                    let res = import(&self.mod_map, m.id, &mut this_module.children, module, item);
+                    let use_module_ref = self.mod_map.get_module(module)?;
+                    let child = (*use_module_ref).borrow().get_child(item, module)?;
+
+                    let this_module_ref =
+                        self.mod_map.get_module(&FileRegistry::mod_path(m.id)?)?;
+                    let mut this_module = (*this_module_ref).borrow_mut();
+
+                    let res = import(m.id, &mut this_module.children, module, item, child);
 
                     match res {
                         Ok(true) => self.modified = true,
@@ -239,9 +239,13 @@ impl<'a> AstAdapter for AnalyzePubUses<'a> {
                     let use_module_ref = self.mod_map.get_module(module)?;
                     let use_module = (*use_module_ref).borrow();
 
-                    for item in use_module.children.keys() {
+                    for (name, child) in &use_module.children {
+                        let this_module_ref =
+                            self.mod_map.get_module(&FileRegistry::mod_path(m.id)?)?;
+                        let mut this_module = (*this_module_ref).borrow_mut();
+
                         let res =
-                            import(&self.mod_map, m.id, &mut this_module.children, module, item);
+                            import(m.id, &mut this_module.children, module, name, child.clone());
 
                         match res {
                             Ok(true) => self.modified = true,
@@ -281,37 +285,50 @@ impl<'a> AstAdapter for AnalyzeUses<'a> {
 
         // Explicitly denote the borrow of current_mod_ref.
         {
-            let mut current_mod = (*current_mod_ref).borrow_mut();
-
             // I know I could process these in an enter* function,
             // but I want to make sure they all happen at the beginning.
             // That's also already determined to happen, but whatever.
             for u in &m.uses {
                 match u {
                     AstUse::Use(module, item) => {
-                        import(&self.mod_map, m.id, &mut current_mod.children, module, item)?;
+                        let use_module_ref = self.mod_map.get_module(module)?;
+                        let child = (*use_module_ref).borrow().get_child(item, module)?;
+
+                        let mut current_mod = (*current_mod_ref).borrow_mut();
+
+                        import(m.id, &mut current_mod.children, module, item, child)?;
                     }
                     AstUse::UseAll(module) => {
                         let use_module_ref = self.mod_map.get_module(module)?;
                         let use_module = (*use_module_ref).borrow();
 
-                        for item in use_module.children.keys() {
-                            import(&self.mod_map, m.id, &mut current_mod.children, module, item)?;
+                        for (name, child) in &use_module.children {
+                            let mut current_mod_ref = (*current_mod_ref).borrow_mut();
+
+                            import(
+                                m.id,
+                                &mut current_mod_ref.children,
+                                module,
+                                name,
+                                child.clone(),
+                            )?;
                         }
                     }
                 }
             }
 
+            let mut current_mod_ref = (*current_mod_ref).borrow_mut();
+
             // Import everything from the top-level module, SHADOWED!!
             // In other words, if something explicitly imported is
             // shadowing that import then ignore it.
-            for item in (*self.mod_map.top).borrow().children.keys() {
+            for (item, child) in &(*self.mod_map.top).borrow().children {
                 let _res = import(
-                    &self.mod_map,
                     m.id,
-                    &mut current_mod.children,
+                    &mut current_mod_ref.children,
                     &vec![],
                     item,
+                    child.clone(),
                 );
                 // EXPLICITLY ignore result.
             }

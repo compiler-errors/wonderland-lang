@@ -12,7 +12,15 @@ pub struct AnalyzeInfo {
 
 impl AnalyzeInfo {
     pub fn new() -> AnalyzeInfo {
-        unimplemented!()
+        AnalyzeInfo {
+            analyzed_program: AnalyzedProgram {
+                variable_ids: HashMap::new(),
+                analyzed_functions: HashMap::new(),
+                analyzed_traits: HashMap::new(),
+                analyzed_objects: HashMap::new(),
+                analyzed_impls: HashMap::new(),
+            },
+        }
     }
 
     pub fn map_object_function(fun: &AstObjectFunction) -> AnFunctionData {

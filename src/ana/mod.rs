@@ -3,6 +3,7 @@ use self::analyze_modules::{AnalyzeModules, AnalyzeUses};
 use self::analyze_modules::{AnalyzePubUses, ModuleMap};
 use self::represent::*;
 use self::represent_visitor::*;
+use crate::ana::analyze_generics::AnalyzeGenerics;
 use crate::parser::ast::AstProgram;
 use crate::parser::ast_visitor::AstAdapter;
 use crate::util::{PResult, Visit};
@@ -21,6 +22,8 @@ pub fn analyze(p: AstProgram) -> PResult<(AnalyzedProgram, AstProgram)> {
     let mut analyze_modules = AnalyzeModules::new(&mut mm);
     let mut p = p.visit(&mut analyze_modules)?;
 
+    println!("Before pub uses: {:#?}", mm);
+
     loop {
         let mut analyze_pub_uses = AnalyzePubUses::new(&mut mm);
         p = p.visit(&mut analyze_pub_uses)?;
@@ -36,6 +39,8 @@ pub fn analyze(p: AstProgram) -> PResult<(AnalyzedProgram, AstProgram)> {
         }
     }
 
+    println!("After pub uses: {:#?}", mm);
+
     let mut analyze_uses = AnalyzeUses::new(&mm);
     let p = p.visit(&mut analyze_uses)?;
 
@@ -44,7 +49,8 @@ pub fn analyze(p: AstProgram) -> PResult<(AnalyzedProgram, AstProgram)> {
     let mut p = p.visit(&mut analyze_info)?;
     let mut a = analyze_info.analyzed_program;
 
-    let passes: Vec<(&str, AnalysisPassFn)> = vec![];
+    let passes: Vec<(&str, AnalysisPassFn)> =
+        vec![("analyze_generics", Box::new(AnalyzeGenerics::analyze))];
 
     for (name, pass) in passes {
         let (a_new, p_new) = pass(a, p)?;
