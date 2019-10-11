@@ -115,7 +115,7 @@ impl MappedModule {
                     path.join("::")
                 ))
             })
-            .map(Clone::clone)
+            .cloned()
     }
 }
 

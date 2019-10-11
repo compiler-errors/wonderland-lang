@@ -1,5 +1,5 @@
 mod result;
-pub use self::result::{report_err, Expect, IntoError, PError, PResult};
+pub use self::result::{report_err, Comment, Expect, IntoError, PError, PResult};
 
 mod file_registry;
 pub use self::file_registry::FileId;

@@ -44,6 +44,11 @@ impl PError {
     }
 }
 
+pub trait Comment {
+    fn add_comment(&mut self, comment: String);
+    fn with_comment(self, comment: String) -> Self;
+}
+
 impl Comment for PError {
     fn add_comment(&mut self, comment: String) {
         self.comments.push(comment);
@@ -54,11 +59,6 @@ impl Comment for PError {
 
         self
     }
-}
-
-pub trait Comment {
-    fn add_comment(&mut self, comment: String);
-    fn with_comment(self, comment: String) -> Self;
 }
 
 impl<T, S: Comment> Comment for Result<T, S> {

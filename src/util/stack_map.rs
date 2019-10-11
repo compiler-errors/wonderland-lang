@@ -33,7 +33,7 @@ impl<K: Eq + Hash + Debug, V: Clone + Debug> StackMap<K, V> {
     {
         for map in self.stack.iter().rev() {
             if map.contains_key(key) {
-                return map.get(key).map(Clone::clone);
+                return map.get(key).cloned();
             }
         }
 
@@ -45,7 +45,7 @@ impl<K: Eq + Hash + Debug, V: Clone + Debug> StackMap<K, V> {
         K: Borrow<Q>,
         Q: Hash + Eq,
     {
-        self.stack.last().unwrap().get(key).map(Clone::clone)
+        self.stack.last().unwrap().get(key).cloned()
     }
 
     pub fn add(&mut self, key: K, value: V) {

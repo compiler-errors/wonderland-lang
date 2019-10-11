@@ -6,12 +6,24 @@ use crate::util::{PResult, Visit};
 pub type AnalysisPassFn =
     Box<dyn FnOnce(AnalyzedProgram, AstProgram) -> PResult<(AnalyzedProgram, AstProgram)>>;
 
+pub trait AstAnalysisPass: AstAdapter + Sized {
+    fn new() -> Self;
+
+    fn analyze(a: AnalyzedProgram, mut p: AstProgram) -> PResult<(AnalyzedProgram, AstProgram)> {
+        let p = p.visit(&mut Self::new())?;
+
+        Ok((a, p))
+    }
+}
+
 pub trait PureAnalysisPass: AstAdapter + Sized {
-    fn new(a: &AnalyzedProgram) -> Self;
+    fn new(a: AnalyzedProgram) -> PResult<Self>;
+    fn drop(self) -> AnalyzedProgram;
 
     fn analyze(a: AnalyzedProgram, p: AstProgram) -> PResult<(AnalyzedProgram, AstProgram)> {
-        let mut pass = Self::new(&a);
+        let mut pass = Self::new(a)?;
         let p = p.visit(&mut pass)?;
+        let a = pass.drop();
 
         Ok((a, p))
     }
@@ -19,11 +31,11 @@ pub trait PureAnalysisPass: AstAdapter + Sized {
 
 // An analysis pass which mutably affects the AnalyzedProgram.
 pub trait DirtyAnalysisPass: AnAdapter + Sized {
-    fn new(a: &AnalyzedProgram) -> Self;
+    fn new(a: &AnalyzedProgram) -> PResult<Self>;
 
     fn analyze(a: AnalyzedProgram, p: AstProgram) -> PResult<(AnalyzedProgram, AstProgram)> {
         let a_copy = a.clone();
-        let mut pass = <Self as DirtyAnalysisPass>::new(&a_copy);
+        let mut pass = Self::new(&a_copy)?;
         let a = a.visit(&mut pass)?;
         let p = p.visit(&mut pass)?;
 
@@ -98,6 +110,7 @@ impl<T: AnAdapter> Visit<T> for AnalyzedProgram {
 impl<T: AnAdapter> Visit<T> for AnFunctionData {
     fn visit(self, adapter: &mut T) -> PResult<AnFunctionData> {
         let AnFunctionData {
+            name,
             generics,
             parameters,
             return_type,
@@ -105,6 +118,7 @@ impl<T: AnAdapter> Visit<T> for AnFunctionData {
         } = adapter.enter_analyzed_function(self)?;
 
         let i = AnFunctionData {
+            name: name.visit(adapter)?,
             generics,
             parameters: parameters.visit(adapter)?,
             return_type: return_type.visit(adapter)?,
@@ -118,6 +132,8 @@ impl<T: AnAdapter> Visit<T> for AnFunctionData {
 impl<T: AnAdapter> Visit<T> for AnObjectData {
     fn visit(self, adapter: &mut T) -> PResult<AnObjectData> {
         let AnObjectData {
+            name,
+            self_type,
             generics,
             member_tys,
             member_indices,
@@ -125,6 +141,8 @@ impl<T: AnAdapter> Visit<T> for AnObjectData {
         } = adapter.enter_analyzed_object(self)?;
 
         let i = AnObjectData {
+            name: name.visit(adapter)?,
+            self_type: self_type.visit(adapter)?,
             generics,
             member_tys: member_tys.visit(adapter)?,
             member_indices,
@@ -138,6 +156,7 @@ impl<T: AnAdapter> Visit<T> for AnObjectData {
 impl<T: AnAdapter> Visit<T> for AnTraitData {
     fn visit(self, adapter: &mut T) -> PResult<AnTraitData> {
         let AnTraitData {
+            name,
             generics,
             methods,
             associated_tys,
@@ -146,6 +165,7 @@ impl<T: AnAdapter> Visit<T> for AnTraitData {
         } = adapter.enter_analyzed_trait(self)?;
 
         let i = AnTraitData {
+            name: name.visit(adapter)?,
             generics,
             methods: methods.visit(adapter)?,
             associated_tys: associated_tys.visit(adapter)?,

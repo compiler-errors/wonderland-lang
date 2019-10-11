@@ -152,6 +152,10 @@ impl FileRegistry {
         Ok(reg.mod_paths[&file_id].clone())
     }
 
+    /// Gets the mod_path of the folder containing the given file.
+    ///
+    /// For `mod.cheshire` files, this is the same as the file's own
+    /// mod_path.
     pub fn parent_mod_path(file_id: FileId) -> PResult<Vec<String>> {
         let mut mod_path = Self::mod_path(file_id)?;
 

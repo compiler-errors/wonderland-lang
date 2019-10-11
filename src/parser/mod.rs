@@ -21,7 +21,7 @@ pub fn parse_program(files: Vec<FileId>) -> PResult<AstProgram> {
     let modules = files
         .into_iter()
         .map(parse_module)
-        .collect::<PResult<Vec<_>>>()?;
+        .collect::<PResult<_>>()?;
 
     Ok(AstProgram { modules })
 }
@@ -229,10 +229,10 @@ impl Parser {
                 impls.insert(imp.impl_id, imp);
             } else {
                 // TODO: wonky
-                self.error_here::<()>(format!(
+                return self.error_here(format!(
                     "Expected `export`, `fn`, `trait`, `impl` or `object`, found `{}`",
                     self.next_token
-                ))?;
+                ));
             }
         }
 
@@ -554,6 +554,7 @@ impl Parser {
         loop {
             if self.check_typename() {
                 path.push(self.expect_consume_typename()?);
+                break;
             } else if self.check_identifier() {
                 path.push(self.expect_consume_identifier()?);
                 self.expect_consume(Token::ColonColon)?;
@@ -1249,7 +1250,8 @@ impl Parser {
 
         while !self.check_consume(Token::RParen)? {
             if !parameter_list.is_empty() {
-                // If it's not the first, then we need a comma
+                // If there are params before this, then we need a comma
+                // This includes if the first param is `self`
                 self.expect_consume(Token::Comma)?;
             }
 

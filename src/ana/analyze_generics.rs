@@ -31,8 +31,8 @@ impl AnalyzeGenerics {
 }
 
 impl DirtyAnalysisPass for AnalyzeGenerics {
-    fn new(a: &AnalyzedProgram) -> AnalyzeGenerics {
-        AnalyzeGenerics {
+    fn new(a: &AnalyzedProgram) -> PResult<AnalyzeGenerics> {
+        Ok(AnalyzeGenerics {
             parity: ((a.analyzed_functions)
                 .iter()
                 .map(|(r, i)| (r.clone(), i.generics.len())))
@@ -47,7 +47,7 @@ impl DirtyAnalysisPass for AnalyzeGenerics {
                     .map(|(r, i)| (r.clone(), i.generics.len())),
             )
             .collect(),
-        }
+        })
     }
 }
 
