@@ -1,9 +1,7 @@
-use crate::analyze::represent::AnalyzedProgram;
+use crate::ana::represent::AnalyzedProgram;
 use crate::parser::ast::*;
 use crate::parser::ast_visitor::*;
-use crate::tyck::TyckImplSignature;
-use crate::util::result::PResult;
-use crate::util::ZipExact;
+use crate::util::{PResult, Visit, ZipExact};
 use std::collections::HashMap;
 
 pub struct GenericsInstantiator(HashMap<GenericId, AstType>);
@@ -12,10 +10,10 @@ pub struct GenericsInstantiator(HashMap<GenericId, AstType>);
 
 impl GenericsInstantiator {
     pub fn from_signature(
-        analyzed_file: &AnalyzedProgram,
-        i: &TyckImplSignature,
+        analyzed_program: &AnalyzedProgram,
+        i: &AstImplSignature,
     ) -> PResult<GenericsInstantiator> {
-        let impl_data = &analyzed_file.analyzed_impls[&i.impl_id];
+        let impl_data = &analyzed_program.analyzed_impls[&i.impl_id];
         let mapping = ZipExact::zip_exact(&impl_data.generics, &i.generics, "generics")?
             .map(|(&id, t)| (id, t.clone()))
             .collect();
@@ -30,20 +28,20 @@ impl GenericsInstantiator {
     }
 
     pub fn from_trait(
-        analyzed_file: &AnalyzedProgram,
+        analyzed_program: &AnalyzedProgram,
         trt: &AstTraitType,
     ) -> PResult<GenericsInstantiator> {
-        let trt_data = &analyzed_file.analyzed_traits[&trt.0];
+        let trt_data = &analyzed_program.analyzed_traits[&trt.0];
         GenericsInstantiator::from_generics(&trt_data.generics, &trt.1)
     }
 
     pub fn instantiate_associated_ty(
-        analyzed_file: &AnalyzedProgram,
-        i: &TyckImplSignature,
+        analyzed_program: &AnalyzedProgram,
+        i: &AstImplSignature,
         name: &str,
     ) -> PResult<AstType> {
-        let impl_data = &analyzed_file.analyzed_impls[&i.impl_id];
-        let mut instantiate = GenericsInstantiator::from_signature(analyzed_file, i)?;
+        let impl_data = &analyzed_program.analyzed_impls[&i.impl_id];
+        let mut instantiate = GenericsInstantiator::from_signature(analyzed_program, i)?;
 
         impl_data.associated_tys[name]
             .clone()
@@ -51,11 +49,11 @@ impl GenericsInstantiator {
     }
 
     pub fn instantiate_fn_signature(
-        analyzed_file: &AnalyzedProgram,
-        name: &str,
+        analyzed_program: &AnalyzedProgram,
+        name: &ModuleRef,
         generics: &[AstType],
     ) -> PResult<(Vec<AstType>, AstType, Vec<AstTypeRestriction>)> {
-        let fn_data = &analyzed_file.analyzed_functions[name];
+        let fn_data = &analyzed_program.analyzed_functions[name];
         let mapping = ZipExact::zip_exact(&fn_data.generics, generics, "fn generics")?
             .map(|(&id, t)| (id, t.clone()))
             .collect();
@@ -69,14 +67,14 @@ impl GenericsInstantiator {
     }
 
     pub fn instantiate_trait_fn_signature(
-        analyzed_file: &AnalyzedProgram,
-        trait_name: &str,
+        analyzed_program: &AnalyzedProgram,
+        trait_name: &ModuleRef,
         trait_generics: &[AstType],
         fn_name: &str,
         fn_generics: &[AstType],
         self_ty: &AstType,
     ) -> PResult<(Vec<AstType>, AstType, Vec<AstTypeRestriction>)> {
-        let trait_data = &analyzed_file.analyzed_traits[trait_name];
+        let trait_data = &analyzed_program.analyzed_traits[trait_name];
         let fn_data = &trait_data.methods[fn_name];
         let mapping = ZipExact::zip_exact(&trait_data.generics, trait_generics, "object generics")?
             .chain(ZipExact::zip_exact(
@@ -89,7 +87,7 @@ impl GenericsInstantiator {
 
         let mut instantiate_self = InstantiateSelfLocal(
             self_ty.clone(),
-            AstTraitType(trait_name.into(), trait_generics.to_vec()),
+            AstTraitType(trait_name.clone(), trait_generics.to_vec()),
         );
         let mut instantiate = GenericsInstantiator(mapping);
 
@@ -113,12 +111,12 @@ impl GenericsInstantiator {
     }
 
     pub fn instantiate_object_member(
-        analyzed_file: &AnalyzedProgram,
-        obj_name: &str,
+        analyzed_program: &AnalyzedProgram,
+        obj_name: &ModuleRef,
         generics: &[AstType],
         member_name: &str,
     ) -> PResult<AstType> {
-        let obj_data = &analyzed_file.analyzed_objects[obj_name];
+        let obj_data = &analyzed_program.analyzed_objects[obj_name];
         let mapping = ZipExact::zip_exact(&obj_data.generics, generics, "object generics")?
             .map(|(&id, t)| (id, t.clone()))
             .collect();
@@ -130,12 +128,12 @@ impl GenericsInstantiator {
     }
 
     pub fn instantiate_restrictions(
-        analyzed_file: &AnalyzedProgram,
+        analyzed_program: &AnalyzedProgram,
         impl_ty: &AstType,
         trait_ty: &AstTraitType,
         restrictions: &[AstTypeRestriction],
     ) -> PResult<Vec<AstTypeRestriction>> {
-        let mut instantiate = GenericsInstantiator::from_trait(analyzed_file, &trait_ty)?;
+        let mut instantiate = GenericsInstantiator::from_trait(analyzed_program, &trait_ty)?;
         let mut instantiate_self = InstantiateSelfLocal(impl_ty.clone(), trait_ty.clone());
 
         restrictions

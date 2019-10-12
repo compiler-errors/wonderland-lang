@@ -9,6 +9,7 @@ extern crate inkwell;
 use crate::ana::analyze;
 use crate::lexer::{Lexer, Token};
 use crate::parser::parse_program;
+use crate::tyck::typecheck;
 use crate::util::{report_err, FileId, FileReader, FileRegistry, PResult};
 use getopts::{Matches, Options};
 use std::fs::File;
@@ -19,6 +20,7 @@ use std::process::exit;
 mod ana;
 mod lexer;
 mod parser;
+mod tyck;
 mod util;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -27,20 +29,23 @@ enum Mode {
     Lex,
     Parse,
     Analyze,
+    Typecheck,
 }
 
-const DEFAULT_MODE: Mode = Mode::Analyze;
+const DEFAULT_MODE: Mode = Mode::Typecheck;
 
 fn main() {
     let args: Vec<_> = std::env::args().collect();
     let program = args[0].clone();
 
     let mut opts = Options::new();
+    opts.optflag("h", "help", "print this help menu");
     opts.optopt("o", "output", "set output file name", "FILE");
+
     opts.optflag("l", "lex", "Tokenize file(s)");
     opts.optflag("p", "parse", "Parse file(s)");
     opts.optflag("a", "analyze", "Analyze file(s)");
-    opts.optflag("h", "help", "print this help menu");
+    opts.optflag("t", "tyck", "Typecheck file(s)");
 
     let matches = opts.parse(&args[1..]).unwrap_or_else(|_| {
         println!("Something went wrong when parsing...");
@@ -59,6 +64,7 @@ fn main() {
         Mode::Lex => try_lex(files),
         Mode::Parse => try_parse(files),
         Mode::Analyze => try_analyze(files),
+        Mode::Typecheck => try_typecheck(files),
     }
     .unwrap_or_else(|e| report_err(e));
 
@@ -92,41 +98,26 @@ fn get_files(mode: Mode, matches: &[String]) -> PResult<Vec<FileId>> {
 }
 
 fn select_mode(matches: &Matches) -> Result<Mode, ()> {
-    let mut mode = Option::None;
+    let mut chosen_mode = Option::None;
 
-    if matches.opt_present("h") {
-        if mode.is_some() {
-            return Err(());
+    let options = [
+        ("l", Mode::Lex),
+        ("p", Mode::Parse),
+        ("a", Mode::Analyze),
+        ("t", Mode::Typecheck),
+    ];
+
+    for (flag, mode) in &options {
+        if matches.opt_present(flag) {
+            if chosen_mode.is_some() {
+                return Err(());
+            }
+
+            chosen_mode = Some(mode.clone());
         }
-
-        mode = Some(Mode::Help);
     }
 
-    if matches.opt_present("l") {
-        if mode.is_some() {
-            return Err(());
-        }
-
-        mode = Some(Mode::Lex);
-    }
-
-    if matches.opt_present("p") {
-        if mode.is_some() {
-            return Err(());
-        }
-
-        mode = Some(Mode::Parse);
-    }
-
-    if matches.opt_present("a") {
-        if mode.is_some() {
-            return Err(());
-        }
-
-        mode = Some(Mode::Analyze);
-    }
-
-    Ok(mode.unwrap_or(DEFAULT_MODE))
+    Ok(chosen_mode.unwrap_or(DEFAULT_MODE))
 }
 
 fn read_stdin() -> FileId {
@@ -205,16 +196,18 @@ fn try_parse(files: Vec<FileId>) -> PResult<()> {
 }
 
 fn try_analyze(files: Vec<FileId>) -> PResult<()> {
-    for f in &files {
-        println!(
-            "File {:?} is module `{}`",
-            FileRegistry::path(*f)?,
-            FileRegistry::mod_path(*f)?.join("::")
-        );
-    }
-
     let program = parse_program(files)?;
     analyze(program)?;
+
+    Ok(())
+}
+
+fn try_typecheck(files: Vec<FileId>) -> PResult<()> {
+    let program = parse_program(files)?;
+    let (a, p) = analyze(program)?;
+
+    // Wow!
+    typecheck(&a, &p)?;
 
     Ok(())
 }

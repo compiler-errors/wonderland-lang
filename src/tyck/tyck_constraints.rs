@@ -1,13 +1,12 @@
-use crate::analyze::represent::{AnImplData, AnalyzedProgram};
+use crate::ana::represent::*;
 use crate::parser::ast::*;
-use crate::parser::ast_visitor::{AstAdapter, Visit};
-use crate::tyck::GenericsInstantiator;
-use crate::util::result::{Expect, PResult};
-use crate::util::Span;
+use crate::parser::ast_visitor::AstAdapter;
+use crate::tyck::tyck_instantiate::GenericsInstantiator;
+use crate::util::{Expect, PResult, Span, Visit};
 use std::collections::HashMap;
 
 pub struct TyckConstraintAssumptionAdapter {
-    pub file: AnalyzedProgram,
+    pub analyzed_program: AnalyzedProgram,
     pub dummy_impls: Vec<AnImplData>,
 
     /// Dummy type that I use to populate the self_instantiate.
@@ -16,9 +15,9 @@ pub struct TyckConstraintAssumptionAdapter {
 }
 
 impl TyckConstraintAssumptionAdapter {
-    pub fn new(file: AnalyzedProgram) -> TyckConstraintAssumptionAdapter {
+    pub fn new(program: AnalyzedProgram) -> TyckConstraintAssumptionAdapter {
         TyckConstraintAssumptionAdapter {
-            file,
+            analyzed_program: program,
             dummy_impls: Vec::new(),
             self_ty: None,
         }
@@ -27,11 +26,11 @@ impl TyckConstraintAssumptionAdapter {
     pub fn assume(&mut self, ty: &AstType, trt: &AstTraitType) -> PResult<AnImplData> {
         println!("; Assuming {:?} :- {:?}", ty, trt);
 
-        let trt_data =
-            self.file
-                .analyzed_traits
-                .get(&trt.0)
-                .is_expected(Span::none(), "trait", &trt.0)?;
+        let trt_data = self
+            .analyzed_program
+            .analyzed_traits
+            .get(&trt.0)
+            .is_expected(Span::none(), "trait", &trt.0.full_name()?)?;
         let impl_id = AstImpl::new_id();
 
         let mut associated_tys = HashMap::new();
@@ -39,7 +38,8 @@ impl TyckConstraintAssumptionAdapter {
             if &name == "Self" {
                 associated_tys.insert("Self".into(), ty.clone());
             } else {
-                let mut instantiate = GenericsInstantiator::from_trait(&self.file, trt)?;
+                let mut instantiate =
+                    GenericsInstantiator::from_trait(&self.analyzed_program, trt)?;
                 let dummy = AstType::dummy();
 
                 for c in &assoc_ty.restrictions {
@@ -64,7 +64,9 @@ impl TyckConstraintAssumptionAdapter {
 
         self.dummy_impls.push(dummy.clone());
 
-        self.file.analyzed_impls.insert(impl_id, dummy.clone());
+        self.analyzed_program
+            .analyzed_impls
+            .insert(impl_id, dummy.clone());
 
         Ok(dummy)
     }
@@ -95,7 +97,7 @@ impl AstAdapter for TyckConstraintAssumptionAdapter {
     }
 
     fn exit_trait(&mut self, t: AstTrait) -> PResult<AstTrait> {
-        let self_trt = AstTraitType(t.name.clone(), Dummifier::from_generics(&t.generics)?);
+        let self_trt = AstTraitType(t.module_ref.clone(), Dummifier::from_generics(&t.generics)?);
         self.assume(&self.self_ty.clone().unwrap(), &self_trt)?;
         self.self_ty = None;
 

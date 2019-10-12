@@ -1,25 +1,25 @@
-use crate::analyze::represent::AnalyzedProgram;
+use crate::ana::represent::AnalyzedProgram;
 use crate::parser::ast::*;
 use crate::parser::ast_visitor::AstAdapter;
 use crate::tyck::tyck_instantiate::GenericsInstantiator;
 use crate::tyck::tyck_solver::TyckSolver;
-use crate::util::result::*;
+use crate::util::PResult;
 use std::collections::HashMap;
 use std::rc::Rc;
 
 pub struct TyckObjectiveAdapter {
     pub solver: TyckSolver,
     variables: HashMap<VariableId, AstType>,
-    analyzed_file: Rc<AnalyzedProgram>,
+    analyzed_program: Rc<AnalyzedProgram>,
     return_type: Option<AstType>,
 }
 
 impl TyckObjectiveAdapter {
-    pub fn new(solver: TyckSolver, analyzed_file: Rc<AnalyzedProgram>) -> TyckObjectiveAdapter {
+    pub fn new(solver: TyckSolver, analyzed_program: Rc<AnalyzedProgram>) -> TyckObjectiveAdapter {
         TyckObjectiveAdapter {
             solver,
             variables: HashMap::new(),
-            analyzed_file,
+            analyzed_program,
             return_type: None,
         }
     }
@@ -144,14 +144,14 @@ impl<'a> AstAdapter for TyckObjectiveAdapter {
 
             // A regular function call
             AstExpressionData::Call {
-                name,
+                fn_name,
                 generics,
                 args,
             } => {
                 let (param_tys, return_ty, objectives) =
                     GenericsInstantiator::instantiate_fn_signature(
-                        &*self.analyzed_file,
-                        name,
+                        &*self.analyzed_program,
+                        fn_name,
                         generics,
                     )?;
                 let arg_tys = into_types(args);
@@ -173,7 +173,7 @@ impl<'a> AstAdapter for TyckObjectiveAdapter {
                 let associated_trait = associated_trait.as_ref().unwrap();
                 let (param_tys, return_ty, objectives) =
                     GenericsInstantiator::instantiate_trait_fn_signature(
-                        &*self.analyzed_file,
+                        &*self.analyzed_program,
                         &associated_trait.0,
                         &associated_trait.1,
                         fn_name,

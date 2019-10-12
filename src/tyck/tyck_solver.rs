@@ -1,12 +1,9 @@
-use crate::analyze::represent::AnalyzedProgram;
-
+use crate::ana::represent::*;
 use crate::parser::ast::*;
-use crate::parser::ast_visitor::*;
+use crate::parser::ast_visitor::AstAdapter;
 use crate::tyck::tyck_instantiate::GenericsInstantiator;
-use crate::tyck::*;
-
-use crate::util::result::*;
-use crate::util::{Span, ZipExact};
+use crate::tyck::TyckObjective;
+use crate::util::{Expect, IntoError, PResult, Span, Visit, ZipExact};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::rc::Rc;
 
@@ -20,26 +17,26 @@ pub struct TyckSolver {
     /// Type-space, so we make sure that every encountered type is normalized...
     types: HashSet<AstType>,
 
-    analyzed_file: Rc<AnalyzedProgram>,
+    analyzed_program: Rc<AnalyzedProgram>,
 }
 
 #[derive(Debug, Clone)]
 pub struct TyckSolution {
-    analyzed_file: Rc<AnalyzedProgram>,
+    analyzed_program: Rc<AnalyzedProgram>,
     inferences: HashMap<InferId, AstType>,
     impl_signatures: HashMap<TyckObjective, AstImplSignature>,
 }
 
 impl TyckSolver {
-    pub fn new(analyzed_file: Rc<AnalyzedProgram>) -> TyckSolver {
+    pub fn new(analyzed_program: Rc<AnalyzedProgram>) -> TyckSolver {
         TyckSolver {
             solution: TyckSolution {
-                analyzed_file: analyzed_file.clone(),
+                analyzed_program: analyzed_program.clone(),
                 inferences: HashMap::new(),
                 impl_signatures: HashMap::new(),
             },
 
-            analyzed_file,
+            analyzed_program,
             objectives: VecDeque::new(),
             delayed_objectives: Vec::new(),
             types: HashSet::new(),
@@ -128,11 +125,11 @@ impl TyckSolver {
 
     pub fn add_objective_well_formed(
         &mut self,
-        obj_name: &str,
+        obj_name: &ModuleRef,
         generics: &[AstType],
     ) -> PResult<()> {
-        let file = self.analyzed_file.clone();
-        let obj_data = &file.analyzed_objects[obj_name];
+        let program = self.analyzed_program.clone();
+        let obj_data = &program.analyzed_objects[obj_name];
         let mut instantiate = GenericsInstantiator::from_generics(&obj_data.generics, &generics)?;
 
         for r in &obj_data.restrictions.clone().visit(&mut instantiate)? {
@@ -224,8 +221,8 @@ impl TyckSolver {
     }
 
     fn elaborate(mut self, impl_id: ImplId, objective: &TyckObjective) -> PResult<TyckSolver> {
-        let file = self.analyzed_file.clone();
-        let impl_data = &file.analyzed_impls[&impl_id];
+        let program = self.analyzed_program.clone();
+        let impl_data = &program.analyzed_impls[&impl_id];
         let generics = impl_data
             .generics
             .iter()
@@ -233,7 +230,7 @@ impl TyckSolver {
             .collect();
         let impl_signature = AstImplSignature { impl_id, generics };
         let instantiate =
-            &mut GenericsInstantiator::from_signature(&*self.analyzed_file, &impl_signature)?;
+            &mut GenericsInstantiator::from_signature(&*self.analyzed_program, &impl_signature)?;
 
         let obj_ty = impl_data.impl_ty.clone().visit(instantiate)?;
         let trait_ty = impl_data.trait_ty.clone().visit(instantiate)?;
@@ -263,7 +260,7 @@ impl TyckSolver {
     fn get_impls(&self, objective: &AstTraitType) -> PResult<Vec<ImplId>> {
         let mut impls = Vec::new();
 
-        for (id, i) in &self.analyzed_file.analyzed_impls {
+        for (id, i) in &self.analyzed_program.analyzed_impls {
             if i.trait_ty.0 == objective.0 {
                 impls.push(*id);
             }
@@ -339,7 +336,8 @@ impl TyckSolver {
                 if a_name != b_name {
                     TyckSolver::error(&format!(
                         "Object names won't unify: {} and {}",
-                        a_name, b_name
+                        a_name.full_name()?,
+                        b_name.full_name()?
                     ))
                 } else {
                     for (a_ty, b_ty) in ZipExact::zip_exact(a_tys, b_tys, "object generics")? {
@@ -370,7 +368,11 @@ impl TyckSolver {
 
             Ok(())
         } else {
-            TyckSolver::error(&format!("Trait types won't unify: {} and {}", lhs.0, rhs.0))
+            TyckSolver::error(&format!(
+                "Trait types won't unify: {} and {}",
+                lhs.0.full_name()?,
+                rhs.0.full_name()?
+            ))
         }
     }
 
@@ -472,7 +474,7 @@ impl TyckSolver {
 
                     if let AstType::Object(object_name, generics) = &object {
                         let expected_member = GenericsInstantiator::instantiate_object_member(
-                            &*self.analyzed_file,
+                            &*self.analyzed_program,
                             object_name,
                             generics,
                             &member_name,
@@ -601,7 +603,7 @@ impl<'a> AstAdapter for Normalize<'a> {
 
                 if let Some(impl_signature) = self.0.impl_signatures.get(typecheck_objective) {
                     let instantiate = GenericsInstantiator::instantiate_associated_ty(
-                        &*self.0.analyzed_file,
+                        &*self.0.analyzed_program,
                         impl_signature,
                         name,
                     )?;
