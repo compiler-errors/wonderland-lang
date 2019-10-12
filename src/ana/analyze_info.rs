@@ -26,7 +26,7 @@ impl AnalyzeInfo {
     pub fn map_object_function(fun: &AstObjectFunction) -> AnFunctionData {
         AnFunctionData {
             name: None,
-            generics: fun.generics.iter().map(|g| g.0).collect(),
+            generics: fun.generics.clone(),
             parameters: fun.parameter_list.iter().map(|p| p.ty.clone()).collect(),
             return_type: fun.return_type.clone(),
             restrictions: fun.restrictions.clone(),
@@ -39,7 +39,7 @@ impl AstAdapter for AnalyzeInfo {
         for fun in m.functions.values() {
             let ana_fun = AnFunctionData {
                 name: Some(fun.module_ref.clone()),
-                generics: fun.generics.iter().map(|g| g.0).collect(),
+                generics: fun.generics.clone(),
                 parameters: fun.parameter_list.iter().map(|p| p.ty.clone()).collect(),
                 return_type: fun.return_type.clone(),
                 restrictions: fun.restrictions.clone(),
@@ -57,7 +57,7 @@ impl AstAdapter for AnalyzeInfo {
                     obj.module_ref.clone(),
                     obj.generics.iter().map(|g| g.clone().into()).collect(),
                 ),
-                generics: obj.generics.iter().map(|g| g.0).collect(),
+                generics: obj.generics.clone(),
                 member_tys: obj
                     .members
                     .iter()
@@ -80,7 +80,7 @@ impl AstAdapter for AnalyzeInfo {
         for trt in m.traits.values() {
             let ana_trt = AnTraitData {
                 name: trt.module_ref.clone(),
-                generics: trt.generics.iter().map(|g| g.0).collect(),
+                generics: trt.generics.clone(),
                 methods: trt
                     .functions
                     .iter()
@@ -107,7 +107,7 @@ impl AstAdapter for AnalyzeInfo {
 
             let ana_imp = AnImplData {
                 impl_id: imp.impl_id,
-                generics: imp.generics.iter().map(|g| g.0).collect(),
+                generics: imp.generics.clone(),
                 methods: imp
                     .fns
                     .iter()

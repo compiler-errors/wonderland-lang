@@ -1,93 +1,146 @@
-use crate::ana::represent::AnalyzedProgram;
+use crate::ana::represent::*;
 use crate::ana::represent_visitor::{AnAdapter, DirtyAnalysisPass};
 use crate::parser::ast::*;
 use crate::parser::ast_visitor::AstAdapter;
-use crate::util::IntoError;
-use crate::util::PResult;
-use std::collections::HashMap;
-use std::iter::Repeat;
+use crate::util::{IntoError, PError, PResult, StackMap};
 
 pub struct AnalyzeGenerics {
-    parity: HashMap<ModuleRef, usize>,
-}
-
-impl AnalyzeGenerics {
-    fn check_generics(&self, m: &ModuleRef, generics: Vec<AstType>) -> PResult<Vec<AstType>> {
-        let expected = self.parity[m];
-
-        if generics.len() == expected {
-            Ok(generics)
-        } else if generics.len() == 0 {
-            Ok((0..expected).map(|_| AstType::infer()).collect())
-        } else {
-            PResult::error(format!(
-                "Incorrect number of generics for symbol `{}`. Expected {}, found {}.",
-                m.full_name()?,
-                expected,
-                generics.len()
-            ))
-        }
-    }
+    pub scope: StackMap<String, GenericId>,
 }
 
 impl DirtyAnalysisPass for AnalyzeGenerics {
-    fn new(a: &AnalyzedProgram) -> PResult<AnalyzeGenerics> {
+    fn new(_: &AnalyzedProgram) -> PResult<AnalyzeGenerics> {
         Ok(AnalyzeGenerics {
-            parity: ((a.analyzed_functions)
-                .iter()
-                .map(|(r, i)| (r.clone(), i.generics.len())))
-            .chain(
-                a.analyzed_objects
-                    .iter()
-                    .map(|(r, i)| (r.clone(), i.generics.len())),
-            )
-            .chain(
-                a.analyzed_traits
-                    .iter()
-                    .map(|(r, i)| (r.clone(), i.generics.len())),
-            )
-            .collect(),
+            scope: StackMap::new(),
         })
     }
 }
 
-impl AnAdapter for AnalyzeGenerics {}
-
-impl AstAdapter for AnalyzeGenerics {
-    fn enter_type(&mut self, t: AstType) -> PResult<AstType> {
-        match t {
-            AstType::Object(object, generics) => {
-                let generics = self.check_generics(&object, generics)?;
-                Ok(AstType::Object(object, generics))
+impl AnalyzeGenerics {
+    fn add_generics(&mut self, generics: &[AstGeneric]) -> PResult<()> {
+        for g in generics {
+            if self.scope.get(&g.1).is_some() {
+                return PResult::error(format!("Duplicate generic with name `_{}`", g.1));
             }
-            t => Ok(t),
+
+            self.scope.add(g.1.clone(), g.0);
         }
+
+        Ok(())
+    }
+}
+
+impl AnAdapter for AnalyzeGenerics {
+    fn enter_analyzed_function(&mut self, f: AnFunctionData) -> PResult<AnFunctionData> {
+        self.scope.push();
+        self.add_generics(&f.generics)?;
+        Ok(f)
     }
 
-    fn enter_trait_type(&mut self, mut t: AstTraitType) -> PResult<AstTraitType> {
-        t.1 = self.check_generics(&t.0, t.1)?;
+    fn enter_analyzed_trait(&mut self, t: AnTraitData) -> PResult<AnTraitData> {
+        self.scope.push();
+        self.add_generics(&t.generics)?;
         Ok(t)
     }
 
-    fn enter_expression(&mut self, mut e: AstExpression) -> PResult<AstExpression> {
-        let AstExpression { data, ty, span } = e;
+    fn enter_analyzed_object(&mut self, o: AnObjectData) -> PResult<AnObjectData> {
+        self.scope.push();
+        self.add_generics(&o.generics)?;
+        Ok(o)
+    }
 
-        let data = match data {
-            AstExpressionData::Call {
-                fn_name,
-                generics,
-                args,
-            } => {
-                let generics = self.check_generics(&fn_name, generics)?;
-                AstExpressionData::Call {
-                    fn_name,
-                    args,
-                    generics,
-                }
+    fn enter_analyzed_impl(&mut self, i: AnImplData) -> PResult<AnImplData> {
+        self.scope.push();
+        self.add_generics(&i.generics)?;
+        Ok(i)
+    }
+
+    fn exit_analyzed_function(&mut self, f: AnFunctionData) -> PResult<AnFunctionData> {
+        self.scope.pop();
+        Ok(f)
+    }
+
+    fn exit_analyzed_trait(&mut self, t: AnTraitData) -> PResult<AnTraitData> {
+        self.scope.pop();
+        Ok(t)
+    }
+
+    fn exit_analyzed_object(&mut self, o: AnObjectData) -> PResult<AnObjectData> {
+        self.scope.pop();
+        Ok(o)
+    }
+
+    fn exit_analyzed_impl(&mut self, i: AnImplData) -> PResult<AnImplData> {
+        self.scope.pop();
+        Ok(i)
+    }
+}
+
+impl AstAdapter for AnalyzeGenerics {
+    fn enter_type(&mut self, t: AstType) -> PResult<AstType> {
+        if let AstType::Generic(name) = t {
+            if let Some(id) = self.scope.get(&name) {
+                Ok(AstType::GenericPlaceholder(id, name))
+            } else {
+                PResult::error(format!("Cannot find generic with name `_{}`", name))
             }
-            d => d,
-        };
+        } else {
+            Ok(t)
+        }
+    }
 
-        Ok(AstExpression { data, ty, span })
+    fn enter_function(&mut self, f: AstFunction) -> PResult<AstFunction> {
+        self.scope.push();
+        self.add_generics(&f.generics)?;
+        Ok(f)
+    }
+
+    fn enter_object_function(&mut self, f: AstObjectFunction) -> PResult<AstObjectFunction> {
+        self.scope.push();
+        self.add_generics(&f.generics)?;
+        Ok(f)
+    }
+
+    fn enter_trait(&mut self, t: AstTrait) -> PResult<AstTrait> {
+        self.scope.push();
+        self.add_generics(&t.generics)?;
+        Ok(t)
+    }
+
+    fn enter_object(&mut self, o: AstObject) -> PResult<AstObject> {
+        self.scope.push();
+        self.add_generics(&o.generics)?;
+        Ok(o)
+    }
+
+    fn enter_impl(&mut self, i: AstImpl) -> PResult<AstImpl> {
+        self.scope.push();
+        self.add_generics(&i.generics)?;
+        Ok(i)
+    }
+
+    fn exit_function(&mut self, f: AstFunction) -> PResult<AstFunction> {
+        self.scope.pop();
+        Ok(f)
+    }
+
+    fn exit_object_function(&mut self, f: AstObjectFunction) -> PResult<AstObjectFunction> {
+        self.scope.pop();
+        Ok(f)
+    }
+
+    fn exit_trait(&mut self, t: AstTrait) -> PResult<AstTrait> {
+        self.scope.pop();
+        Ok(t)
+    }
+
+    fn exit_object(&mut self, o: AstObject) -> PResult<AstObject> {
+        self.scope.pop();
+        Ok(o)
+    }
+
+    fn exit_impl(&mut self, i: AstImpl) -> PResult<AstImpl> {
+        self.scope.pop();
+        Ok(i)
     }
 }

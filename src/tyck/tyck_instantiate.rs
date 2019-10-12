@@ -15,14 +15,14 @@ impl GenericsInstantiator {
     ) -> PResult<GenericsInstantiator> {
         let impl_data = &analyzed_program.analyzed_impls[&i.impl_id];
         let mapping = ZipExact::zip_exact(&impl_data.generics, &i.generics, "generics")?
-            .map(|(&id, t)| (id, t.clone()))
+            .map(|(id, t)| (id.0, t.clone()))
             .collect();
         Ok(GenericsInstantiator(mapping))
     }
 
-    pub fn from_generics(ids: &[GenericId], tys: &[AstType]) -> PResult<GenericsInstantiator> {
+    pub fn from_generics(ids: &[AstGeneric], tys: &[AstType]) -> PResult<GenericsInstantiator> {
         let mapping = ZipExact::zip_exact(ids, tys, "generics")?
-            .map(|(&id, t)| (id, t.clone()))
+            .map(|(id, t)| (id.0, t.clone()))
             .collect();
         Ok(GenericsInstantiator(mapping))
     }
@@ -55,7 +55,7 @@ impl GenericsInstantiator {
     ) -> PResult<(Vec<AstType>, AstType, Vec<AstTypeRestriction>)> {
         let fn_data = &analyzed_program.analyzed_functions[name];
         let mapping = ZipExact::zip_exact(&fn_data.generics, generics, "fn generics")?
-            .map(|(&id, t)| (id, t.clone()))
+            .map(|(id, t)| (id.0, t.clone()))
             .collect();
         let mut instantiate = GenericsInstantiator(mapping);
 
@@ -82,7 +82,7 @@ impl GenericsInstantiator {
                 fn_generics,
                 "fn generics",
             )?)
-            .map(|(&id, t)| (id, t.clone()))
+            .map(|(id, t)| (id.0, t.clone()))
             .collect();
 
         let mut instantiate_self = InstantiateSelfLocal(
@@ -118,7 +118,7 @@ impl GenericsInstantiator {
     ) -> PResult<AstType> {
         let obj_data = &analyzed_program.analyzed_objects[obj_name];
         let mapping = ZipExact::zip_exact(&obj_data.generics, generics, "object generics")?
-            .map(|(&id, t)| (id, t.clone()))
+            .map(|(id, t)| (id.0, t.clone()))
             .collect();
         let mut instantiate = GenericsInstantiator(mapping);
 

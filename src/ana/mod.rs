@@ -6,7 +6,7 @@ use self::represent_visitor::*;
 use crate::ana::analyze_argument_parity::AnalyzeArgumentParity;
 use crate::ana::analyze_associated_types::AnalyzeAssociatedTypes;
 use crate::ana::analyze_control_flow::AnalyzeControlFlow;
-use crate::ana::analyze_generics::AnalyzeGenerics;
+use crate::ana::analyze_generics_parity::AnalyzeGenericsParity;
 use crate::ana::analyze_illegal_infers::AnalyzeIllegalInfers;
 use crate::ana::analyze_impls::AnalyzeImpls;
 use crate::ana::analyze_names::AnalyzeNames;
@@ -17,11 +17,13 @@ use crate::parser::ast::AstProgram;
 use crate::parser::ast_visitor::AstAdapter;
 use crate::util::{Comment, PResult, Visit};
 use std::rc::Rc;
+use crate::ana::analyze_generics::AnalyzeGenerics;
 
 mod analyze_argument_parity;
 mod analyze_associated_types;
 mod analyze_control_flow;
 mod analyze_generics;
+mod analyze_generics_parity;
 mod analyze_illegal_infers;
 mod analyze_impls;
 mod analyze_info;
@@ -75,6 +77,7 @@ pub fn analyze(p: AstProgram) -> PResult<(AnalyzedProgram, AstProgram)> {
             "analyze_associated_types",
             Box::new(AnalyzeAssociatedTypes::analyze),
         ), // Before generics
+        ("analyze_generics_parity", Box::new(AnalyzeGenericsParity::analyze)),
         ("analyze_generics", Box::new(AnalyzeGenerics::analyze)),
         (
             "analyze_control_flow",
