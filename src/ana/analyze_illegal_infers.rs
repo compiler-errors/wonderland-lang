@@ -57,9 +57,7 @@ struct DenyInfer;
 impl AstAdapter for DenyInfer {
     fn enter_type(&mut self, t: AstType) -> PResult<AstType> {
         if let AstType::Infer(_) = t {
-            PResult::error(format!(
-                "The `_` type is not allowed in this environment"
-            ))
+            PResult::error(format!("The `_` type is not allowed in this environment"))
         } else {
             Ok(t)
         }

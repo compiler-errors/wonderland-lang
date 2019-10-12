@@ -40,8 +40,6 @@ pub fn analyze(p: AstProgram) -> PResult<(AnalyzedProgram, AstProgram)> {
     let mut analyze_modules = AnalyzeModules::new(&mut mm);
     let mut p = p.visit(&mut analyze_modules)?;
 
-    println!("Before pub uses: {:#?}", mm);
-
     loop {
         let mut analyze_pub_uses = AnalyzePubUses::new(&mut mm);
         p = p.visit(&mut analyze_pub_uses)?;
@@ -57,8 +55,6 @@ pub fn analyze(p: AstProgram) -> PResult<(AnalyzedProgram, AstProgram)> {
         }
     }
 
-    println!("After pub uses: {:#?}", mm);
-
     let mut analyze_uses = AnalyzeUses::new(&mm);
     let p = p.visit(&mut analyze_uses)?;
 
@@ -66,6 +62,8 @@ pub fn analyze(p: AstProgram) -> PResult<(AnalyzedProgram, AstProgram)> {
 
     let mut p = p.visit(&mut analyze_info)?;
     let mut a = analyze_info.analyzed_program;
+
+    println!("Program: {:#?}", a);
 
     let passes: Vec<(&str, AnalysisPassFn)> = vec![
         (
@@ -82,13 +80,13 @@ pub fn analyze(p: AstProgram) -> PResult<(AnalyzedProgram, AstProgram)> {
             "analyze_control_flow",
             Box::new(AnalyzeControlFlow::analyze),
         ),
+        ("analyze_impls", Box::new(AnalyzeImpls::analyze)), // Before analyze object functions
         (
             "analyze_object_functions",
             Box::new(AnalyzeObjectFunctions::analyze),
         ),
         ("analyze_variables", Box::new(AnalyzeVariables::analyze)),
         ("analyze_self", Box::new(AnalyzeSelf::analyze)),
-        ("analyze_impls", Box::new(AnalyzeImpls::analyze)),
         (
             "analyze_argument_parity",
             Box::new(AnalyzeArgumentParity::analyze),

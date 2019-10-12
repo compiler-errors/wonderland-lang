@@ -26,6 +26,7 @@ impl AstAdapter for AnalyzeImpls {
             info.methods.keys().cloned().collect(),
             i.fns.keys().cloned().collect(),
         )?;
+
         compare(
             "associated type",
             info.associated_tys.keys().cloned().collect(),

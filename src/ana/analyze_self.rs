@@ -15,17 +15,6 @@ impl DirtyAnalysisPass for AnalyzeSelf {
 }
 
 impl AnAdapter for AnalyzeSelf {
-    fn enter_analyzed_function(&mut self, f: AnFunctionData) -> PResult<AnFunctionData> {
-        let fn_name = if f.name.is_some() {
-            f.name.as_ref().unwrap().full_name()?
-        } else {
-            "<object method>".into()
-        };
-
-        f.visit(&mut DenySelf)
-            .with_comment(format!("In function: {}", fn_name))
-    }
-
     fn enter_analyzed_object(&mut self, o: AnObjectData) -> PResult<AnObjectData> {
         let self_type = o.self_type.clone();
 

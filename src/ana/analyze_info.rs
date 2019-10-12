@@ -86,7 +86,7 @@ impl AstAdapter for AnalyzeInfo {
                     .iter()
                     .map(|(name, fun)| (name.clone(), Self::map_object_function(fun)))
                     .collect(),
-                associated_tys: Default::default(),
+                associated_tys: trt.associated_types.clone(),
                 restrictions: trt.restrictions.clone(),
                 impls: vec![],
             };

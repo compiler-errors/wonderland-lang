@@ -32,7 +32,6 @@ impl AnalyzeVariables {
      */
     fn assign_index(&mut self, a: &AstNamedVariable) -> PResult<()> {
         let AstNamedVariable { span, name, ty, id } = a;
-        println!("Adding variable {:?} to scope {:?}", a, self.scope);
 
         self.scope
             .get_top(name)

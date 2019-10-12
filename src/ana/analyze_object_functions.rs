@@ -1,6 +1,8 @@
 use crate::ana::represent::AnalyzedProgram;
 use crate::ana::represent_visitor::PureAnalysisPass;
-use crate::parser::ast::{AstExpression, AstExpressionData, AstTraitType, AstType, ModuleRef};
+use crate::parser::ast::{
+    AstExpression, AstExpressionData, AstObjectFunction, AstTraitType, AstType, ModuleRef,
+};
 use crate::parser::ast_visitor::AstAdapter;
 use crate::util::{IntoError, PError, PResult};
 use std::collections::HashMap;
@@ -104,6 +106,28 @@ impl AnalyzeObjectFunctions {
 }
 
 impl AstAdapter for AnalyzeObjectFunctions {
+    fn enter_object_function(&mut self, f: AstObjectFunction) -> PResult<AstObjectFunction> {
+        let info = &self.function_map[&f.name];
+        let expected = info.args;
+        let given = f.parameter_list.len();
+
+        if given != expected {
+            return PResult::error_at(
+                f.name_span,
+                format!(
+                    "In method `{}` belonging to trait `{}`, \
+                     expected {} parameters, but impl has {} parameter.",
+                    f.name,
+                    info.trt.full_name()?,
+                    expected,
+                    given
+                ),
+            );
+        }
+
+        Ok(f)
+    }
+
     fn enter_expression(&mut self, mut e: AstExpression) -> PResult<AstExpression> {
         let AstExpression { data, ty, span } = e;
 
