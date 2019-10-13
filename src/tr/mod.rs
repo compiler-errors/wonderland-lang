@@ -1,20 +1,22 @@
 use self::decorate::*;
-use crate::inst::{InstFunctionSignature, InstObjectSignature, InstantiatedFile};
+use crate::inst::{InstFunctionSignature, InstObjectSignature, InstantiatedProgram};
 use crate::parser::ast::*;
-use crate::util::result::*;
-use crate::util::Span;
-use crate::util::ZipExact;
+use crate::util::{PError, PResult, ZipExact};
 use either::Either;
 use inkwell::attributes::{Attribute, AttributeLoc};
 use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::Module;
+use inkwell::targets::{
+    CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine,
+};
 use inkwell::types::*;
 use inkwell::values::*;
-use inkwell::AddressSpace;
+use inkwell::{AddressSpace, OptimizationLevel};
 use std::collections::HashMap;
 use std::fmt::Pointer;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::RwLock;
 
@@ -40,21 +42,42 @@ struct Translator {
     types: HashMap<AstType, ()>,
 }
 
-pub fn translate(file: InstantiatedFile) -> PResult<()> {
+pub fn translate(file: InstantiatedProgram, llvm_ir: bool, output_file: &str) -> PResult<()> {
     let mut tr = Translator::new();
 
     tr.translate(file)?;
 
-    //if let Result::Err(why) = tr.module.verify()
-    //{
-    //    panic!("LLVM: {}", why.into());
-    //}
+    if let Result::Err(why) = tr.module.verify() {
+        panic!("LLVM: {}", why.to_string());
+    }
 
     println!("{}", tr.module.print_to_string().to_string());
 
-    /*for (sig, fun) in file.instantiated_object_fns {
-        tr.translate_object_function(sig, fun.unwrap())?;
-    }*/
+    if output_file != "-" {
+        if llvm_ir {
+            tr.module.print_to_file(Path::new(output_file))
+        } else {
+            Target::initialize_all(&InitializationConfig::default());
+            let cpu = TargetMachine::get_host_cpu_name().to_string();
+            let triple = TargetMachine::get_default_triple().to_string();
+            let feat = TargetMachine::get_host_cpu_features().to_string();
+
+            let target = Target::from_name(&cpu).unwrap();
+            let target_machine = target
+                .create_target_machine(
+                    &triple,
+                    &cpu,
+                    &feat,
+                    OptimizationLevel::Aggressive,
+                    RelocMode::Default,
+                    CodeModel::Default,
+                )
+                .unwrap();
+
+            target_machine.write_to_file(&tr.module, FileType::Object, Path::new(output_file))
+        }
+        .map_err(|e| PError::new(format!("LLVM error: {}", e.to_string())))?;
+    }
 
     Ok(())
 }
@@ -144,11 +167,11 @@ impl Translator {
         }
     }
 
-    fn translate(&mut self, file: InstantiatedFile) -> PResult<()> {
+    fn translate(&mut self, file: InstantiatedProgram) -> PResult<()> {
         // Forward declaration.
 
         for (sig, _) in &file.instantiated_objects {
-            let name = decorate_object(&sig.0, &sig.1);
+            let name = decorate_object(&sig.0, &sig.1)?;
             let ty = self.context.opaque_struct_type(&name);
         }
 
@@ -158,19 +181,19 @@ impl Translator {
 
         for (sig, fun) in &file.instantiated_fns {
             let fun = fun.as_ref().unwrap();
-            let name = decorate_fn(&sig.0, &sig.1);
+            let name = decorate_fn(&sig.0, &sig.1)?;
             self.forward_declare_function(&name, &fun.parameter_list, &fun.return_type)?;
         }
 
         for (sig, fun) in &file.instantiated_object_fns {
             let fun = fun.as_ref().unwrap();
-            let name = decorate_object_fn(&sig.0, &sig.1, &sig.2, &sig.3);
+            let name = decorate_object_fn(&sig.0, &sig.1, &sig.2, &sig.3)?;
             self.forward_declare_function(&name, &fun.parameter_list, &fun.return_type)?;
         }
 
         for (sig, fun) in &file.instantiated_fns {
             let fun = fun.as_ref().unwrap();
-            let name = decorate_fn(&sig.0, &sig.1);
+            let name = decorate_fn(&sig.0, &sig.1)?;
 
             self.translate_function(
                 &name,
@@ -183,7 +206,7 @@ impl Translator {
 
         for (sig, fun) in &file.instantiated_object_fns {
             let fun = fun.as_ref().unwrap();
-            let name = decorate_object_fn(&sig.0, &sig.1, &sig.2, &sig.3);
+            let name = decorate_object_fn(&sig.0, &sig.1, &sig.2, &sig.3)?;
 
             self.translate_function(
                 &name,
@@ -219,7 +242,7 @@ impl Translator {
     }
 
     fn translate_object(&mut self, sig: InstObjectSignature, obj: AstObject) -> PResult<()> {
-        let name = decorate_object(&sig.0, &sig.1);
+        let name = decorate_object(&sig.0, &sig.1)?;
         let ty = self.module.get_type(&name).unwrap().into_struct_type();
 
         let tys = obj
@@ -529,13 +552,12 @@ impl Translator {
                 ptr.into()
             }
 
-            /// A regular function call
             AstExpressionData::Call {
-                name,
+                fn_name,
                 generics,
                 args,
             } => {
-                let name = decorate_fn(name, generics);
+                let name = decorate_fn(fn_name, generics)?;
                 let fun = self.module.get_function(&name).unwrap();
 
                 let mapped = args
@@ -549,9 +571,9 @@ impl Translator {
                 self.free_temps(builder, &temps)?;
                 unwrap_callsite(fn_ret)
             }
-            /// Call an object's member function
+
             AstExpressionData::ObjectCall { .. } => unreachable!(),
-            /// Call an object's static function
+
             AstExpressionData::StaticCall {
                 call_type,
                 fn_name,
@@ -566,7 +588,7 @@ impl Translator {
                     associated_trait.as_ref().unwrap(),
                     fn_name,
                     fn_generics,
-                );
+                )?;
                 let fun = self.module.get_function(&name).unwrap();
 
                 let mapped = args
@@ -581,7 +603,6 @@ impl Translator {
                 unwrap_callsite(fn_ret)
             }
 
-            /// A tuple access `a:1`
             AstExpressionData::TupleAccess { accessible, idx } => {
                 let (tup, temps) = self.translate_expression(&builder, &accessible)?;
                 let tup = tup.into_struct_value();
@@ -591,7 +612,7 @@ impl Translator {
                     .build_extract_value(tup, *idx as u32, &temp_name())
                     .unwrap()
             }
-            /// Call an object's member
+
             AstExpressionData::AllocateObject { object } => {
                 let ptr_type = self.get_type(object)?.into_pointer_type();
                 let size = self.type_size(ptr_type.get_element_type().into_struct_type().into())?;
@@ -603,11 +624,7 @@ impl Translator {
             AstExpressionData::Not(expr) => unimplemented!(),
             AstExpressionData::Negate(expr) => unimplemented!(),
 
-            AstExpressionData::BinOp {
-                kind: BinOpKind::Set,
-                lhs,
-                rhs,
-            } => {
+            AstExpressionData::Assign { lhs, rhs } => {
                 let (lval, lval_temps) = self.translate_expression_lval(builder, &lhs)?;
                 let (rval, rval_temps) = self.translate_expression(builder, &rhs)?;
 
@@ -616,7 +633,7 @@ impl Translator {
                 return Ok((rval, rval_temps));
             }
 
-            AstExpressionData::BinOp { kind, lhs, rhs } => unimplemented!(),
+            AstExpressionData::BinOp { kind, lhs, rhs } => unreachable!(),
 
             AstExpressionData::Block { block } => {
                 return self.translate_block(builder, block);
@@ -887,7 +904,7 @@ impl Translator {
             AstType::String => ptr_type(self.module.get_type("string").unwrap(), MANAGED).into(),
 
             AstType::Object(name, generics) => {
-                let name = decorate_object(name, generics);
+                let name = decorate_object(name, generics)?;
                 let ty = self.module.get_type(&name).unwrap();
                 ptr_type(ty, MANAGED)
             }

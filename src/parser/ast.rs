@@ -924,15 +924,6 @@ pub struct AstAssociatedType {
     pub restrictions: Vec<AstTraitType>,
 }
 
-impl AstAssociatedType {
-    pub fn self_ty() -> AstAssociatedType {
-        AstAssociatedType {
-            name: "Self".into(),
-            restrictions: Vec::new(),
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AstTypeRestriction {
     pub ty: AstType,

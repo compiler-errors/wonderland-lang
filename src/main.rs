@@ -10,10 +10,10 @@ use crate::ana::analyze;
 use crate::inst::instantiate;
 use crate::lexer::{Lexer, Token};
 use crate::parser::parse_program;
+use crate::tr::translate;
 use crate::tyck::typecheck;
 use crate::util::{report_err, FileId, FileReader, FileRegistry, PResult};
 use getopts::{Matches, Options};
-use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 use std::process::exit;
@@ -22,6 +22,7 @@ mod ana;
 mod inst;
 mod lexer;
 mod parser;
+mod tr;
 mod tyck;
 mod util;
 
@@ -33,13 +34,13 @@ enum Mode {
     Analyze,
     Typecheck,
     Instantiate,
+    Translate,
 }
 
-const DEFAULT_MODE: Mode = Mode::Instantiate;
+const DEFAULT_MODE: Mode = Mode::Translate;
 
 fn main() {
     let args: Vec<_> = std::env::args().collect();
-    let program = args[0].clone();
 
     let mut opts = Options::new();
     opts.optflag("h", "help", "print this help menu");
@@ -50,6 +51,10 @@ fn main() {
     opts.optflag("a", "analyze", "Analyze file(s)");
     opts.optflag("t", "tyck", "Typecheck file(s)");
     opts.optflag("i", "inst", "Instantiate generics and typecheck file(s)");
+    opts.optflag("c", "tr", "Compile, a.k.a. translate, file(s)");
+
+    opts.optflag("L", "llvm-ir", "Compile file(s) to LLVM IR");
+    opts.optopt("O", "output", "output file", "FILE");
 
     let matches = opts.parse(&args[1..]).unwrap_or_else(|_| {
         println!("Something went wrong when parsing...");
@@ -62,6 +67,14 @@ fn main() {
     });
 
     let files = get_files(mode, &matches.free).unwrap_or_else(|e| report_err(e));
+    let llvm_ir = matches.opt_present("L");
+    let output_file = matches.opt_str("O").unwrap_or_else(|| {
+        if llvm_ir {
+            "cheshire.out.ll".into()
+        } else {
+            "cheshire.out.o".into()
+        }
+    });
 
     match mode {
         Mode::Help => help(false),
@@ -70,6 +83,7 @@ fn main() {
         Mode::Analyze => try_analyze(files),
         Mode::Typecheck => try_typecheck(files),
         Mode::Instantiate => try_instantiate(files),
+        Mode::Translate => try_translate(files, llvm_ir, &output_file),
     }
     .unwrap_or_else(|e| report_err(e));
 
@@ -111,6 +125,7 @@ fn select_mode(matches: &Matches) -> Result<Mode, ()> {
         ("a", Mode::Analyze),
         ("t", Mode::Typecheck),
         ("i", Mode::Instantiate),
+        ("c", Mode::Translate),
     ];
 
     for (flag, mode) in &options {
@@ -172,10 +187,9 @@ cheshire (-c | --compile) [--llvm-ir] FILE... [-O OUTPUT]
   the current directory.
 
   If `--llvm-ir` is provided, then the program will halt
-  before the linking phase and produce plain LLVM IR files.
-  The output argument `-O` is interpreted as an output
-  directory, where corresponding `.ll` LLVM IR file is
-  produced for each input file.
+  before the linking phase and produce a plain LLVM IR
+  blob. The default output filename will also be changed
+  to `cheshire.out.ll`.
 
 ------------------------------------------------------------
     "
@@ -224,6 +238,17 @@ fn try_instantiate(files: Vec<FileId>) -> PResult<()> {
 
     typecheck(&a, &p)?;
     instantiate(a, p)?;
+
+    Ok(())
+}
+
+fn try_translate(files: Vec<FileId>, llvm_ir: bool, output_file: &str) -> PResult<()> {
+    let program = parse_program(files)?;
+    let (a, p) = analyze(program)?;
+
+    typecheck(&a, &p)?;
+    let i = instantiate(a, p)?;
+    translate(i, llvm_ir, output_file)?;
 
     Ok(())
 }

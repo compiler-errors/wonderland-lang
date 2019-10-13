@@ -83,7 +83,6 @@ impl<T> Expect<T> for Option<T> {
         if let Some(t) = self {
             Ok(t)
         } else {
-            panic!();
             PResult::error_at(
                 span,
                 format!("Couldn't find {} with name `{}`", type_of, name),

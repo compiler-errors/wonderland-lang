@@ -1,6 +1,6 @@
 use crate::ana::represent::*;
 use crate::inst::post_solve::PostSolveAdapter;
-use crate::inst::represent::*;
+pub use crate::inst::represent::*;
 use crate::parser::ast::*;
 use crate::parser::ast_visitor::AstAdapter;
 use crate::tyck::*;

@@ -161,7 +161,7 @@ impl AstAdapter for AnalyzeObjectFunctions {
                 fn_generics,
                 args,
                 associated_trait: None,
-                impl_signature,
+                ..
             } => {
                 if self.function_map.contains_key(&fn_name) {
                     let info = &self.function_map[&fn_name];
