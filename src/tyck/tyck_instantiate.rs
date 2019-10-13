@@ -85,10 +85,7 @@ impl GenericsInstantiator {
             .map(|(id, t)| (id.0, t.clone()))
             .collect();
 
-        let mut instantiate_self = InstantiateSelfLocal(
-            self_ty.clone(),
-            AstTraitType(trait_name.clone(), trait_generics.to_vec()),
-        );
+        let mut instantiate_self = InstantiateSelfLocal(&self_ty);
         let mut instantiate = GenericsInstantiator(mapping);
 
         Ok((
@@ -134,7 +131,7 @@ impl GenericsInstantiator {
         restrictions: &[AstTypeRestriction],
     ) -> PResult<Vec<AstTypeRestriction>> {
         let mut instantiate = GenericsInstantiator::from_trait(analyzed_program, &trait_ty)?;
-        let mut instantiate_self = InstantiateSelfLocal(impl_ty.clone(), trait_ty.clone());
+        let mut instantiate_self = InstantiateSelfLocal(&impl_ty);
 
         restrictions
             .to_vec()
@@ -154,16 +151,12 @@ impl AstAdapter for GenericsInstantiator {
     }
 }
 
-pub struct InstantiateSelfLocal(AstType, AstTraitType);
+pub struct InstantiateSelfLocal<'a>(&'a AstType);
 
-impl AstAdapter for InstantiateSelfLocal {
+impl<'a> AstAdapter for InstantiateSelfLocal<'a> {
     fn enter_type(&mut self, t: AstType) -> PResult<AstType> {
         match t {
-            AstType::SelfType => Ok(AstType::AssociatedType {
-                obj_ty: Box::new(self.0.clone()),
-                trait_ty: Some(self.1.clone()),
-                name: "Self".into(),
-            }),
+            AstType::SelfType => Ok(self.0.clone()),
             t => Ok(t),
         }
     }

@@ -389,6 +389,10 @@ impl<T: AstAdapter> Visit<T> for AstExpression {
                 lhs: lhs.visit(adapter)?,
                 rhs: rhs.visit(adapter)?,
             },
+            AstExpressionData::Assign { lhs, rhs } => AstExpressionData::Assign {
+                lhs: lhs.visit(adapter)?,
+                rhs: rhs.visit(adapter)?,
+            },
         };
 
         adapter.exit_expression(AstExpression { data, ty, span })

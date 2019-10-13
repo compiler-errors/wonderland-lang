@@ -463,6 +463,11 @@ pub enum AstExpressionData {
     Not(SubExpression),
     Negate(SubExpression),
 
+    Assign {
+        lhs: SubExpression,
+        rhs: SubExpression,
+    },
+
     BinOp {
         kind: BinOpKind,
         lhs: SubExpression,
@@ -495,7 +500,6 @@ pub enum BinOpKind {
     NotEqual,
     And,
     Or,
-    Set,
 }
 
 impl AstExpression {
@@ -688,6 +692,17 @@ impl AstExpression {
         AstExpression {
             span,
             data: AstExpressionData::AllocateObject { object },
+            ty: AstType::infer(),
+        }
+    }
+
+    pub fn assign(span: Span, lhs: AstExpression, rhs: AstExpression) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::Assign {
+                lhs: Box::new(lhs),
+                rhs: Box::new(rhs),
+            },
             ty: AstType::infer(),
         }
     }

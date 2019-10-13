@@ -802,17 +802,20 @@ impl Parser {
             span = span.unite(span);
             self.bump()?; // Okay, consume the op
 
-            let rhs = if op == Token::Equals {
+            if op == Token::Equals {
                 self.ensure_lval(&lhs)?;
-                self.parse_expr(new_prec)
+
+                let rhs = self.parse_expr(new_prec)?;
+                span = span.unite(rhs.span);
+
+                lhs = AstExpression::assign(span, lhs, rhs);
             } else {
-                self.parse_expr(new_prec + 1)
-            }?;
+                let rhs = self.parse_expr(new_prec + 1)?;
+                span = span.unite(rhs.span);
 
-            span = span.unite(rhs.span);
-
-            let op_kind = get_kind(op);
-            lhs = AstExpression::binop(span, lhs, rhs, op_kind);
+                let op_kind = get_kind(op);
+                lhs = AstExpression::binop(span, lhs, rhs, op_kind);
+            }
         }
 
         Ok(lhs)
@@ -1427,7 +1430,6 @@ fn get_kind(t: Token) -> BinOpKind {
         Token::EqualsEquals => BinOpKind::EqualsEquals,
         Token::And => BinOpKind::And,
         Token::Pipe => BinOpKind::Or,
-        Token::Equals => BinOpKind::Set,
         _ => unreachable!(),
     }
 }

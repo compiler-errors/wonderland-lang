@@ -84,11 +84,10 @@ impl<'a> AstAdapter for AnalyzeVariables {
                 self.assign_index(&var)?;
                 let id = AstExpression::identifier(name_span, var.name).visit(self)?;
 
-                Ok(AstStatement::expression_statement(AstExpression::binop(
+                Ok(AstStatement::expression_statement(AstExpression::assign(
                     name_span.unite(value.span), /* Sum of LHS and RHS spans... */
                     id,
                     value,
-                    BinOpKind::Set,
                 )))
             }
             s => Ok(s),

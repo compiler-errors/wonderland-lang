@@ -220,20 +220,14 @@ impl<'a> AstAdapter for TyckObjectiveAdapter {
                 self.solver.unify(&ty, &AstType::Int)?;
             }
 
-            AstExpressionData::BinOp { kind, lhs, rhs } if *kind == BinOpKind::Set => {
+            AstExpressionData::Assign { lhs, rhs } => {
                 let lhs_ty = &lhs.ty;
                 let rhs_ty = &rhs.ty;
                 self.solver.unify(lhs_ty, rhs_ty)?;
                 self.solver.unify(lhs_ty, &ty)?;
             }
 
-            AstExpressionData::BinOp { lhs, rhs, .. } => {
-                let lhs_ty = &lhs.ty;
-                let rhs_ty = &rhs.ty;
-                self.solver.unify(lhs_ty, &AstType::Int)?;
-                self.solver.unify(lhs_ty, rhs_ty)?;
-                self.solver.unify(lhs_ty, &ty)?;
-            }
+            AstExpressionData::BinOp { lhs, rhs, .. } => unreachable!(),
         }
 
         Ok(AstExpression { data, ty, span })
