@@ -1,0 +1,110 @@
+use std::operators::*.
+
+export fn internal_add_int(a: Int, b: Int) -> Int.
+export fn internal_sub_int(a: Int, b: Int) -> Int.
+export fn internal_mul_int(a: Int, b: Int) -> Int.
+export fn internal_div_int(a: Int, b: Int) -> Int.
+export fn internal_mod_int(a: Int, b: Int) -> Int.
+export fn internal_gt_int(a: Int, b: Int) -> Int.
+export fn internal_eq_int(a: Int, b: Int) -> Int.
+
+impl Add<Int> for Int {
+    type AddResult = Int.
+
+    fn add(self, other: Int) -> Int {
+        internal_add_int(self, other)
+    }
+}
+
+impl Subtract<Int> for Int {
+    type SubtractResult = Int.
+
+    fn sub(self, other: Int) -> Int {
+        internal_sub_int(self, other)
+    }
+}
+
+impl Multiply<Int> for Int {
+    type MultiplyResult = Int.
+
+    fn mul(self, other: Int) -> Int {
+        internal_mul_int(self, other)
+    }
+}
+
+impl Divide<Int> for Int {
+    type DivideResult = Int.
+
+    fn div(self, other: Int) -> Int {
+        internal_div_int(self, other)
+    }
+}
+
+impl Modulo<Int> for Int {
+    type ModuloResult = Int.
+
+    fn rem(self, other: Int) -> Self::ModuloResult {
+        internal_mod_int(self, other)
+    }
+}
+
+impl PartialCompare<Int> for Int {
+    fn compare(self, other: Int) -> Int {
+        self - other
+    }
+}
+
+impl<_S, _T> Compare<_T> for _S where _S: PartialCompare<_T> {
+    fn gt(self, other: _T) -> Bool {
+        let res = self:compare(other).
+        internal_gt_int(res, 0)
+    }
+
+    fn lt(self, other: _T) -> Bool {
+        let res = self:compare(other).
+        internal_gt_int(0, res)
+    }
+
+    fn ge(self, other: _T) -> Bool {
+        return !(self < other).
+    }
+
+    fn le(self, other: _T) -> Bool {
+        return !(self > other).
+    }
+}
+
+impl<_S, _T> Equals<_T> for _S where _S: PartialCompare<_T> {
+    fn eq(self, other: _T) -> Bool {
+        let res = self:compare(other).
+        internal_eq_int(res, 0)
+    }
+
+    fn ne(self, other: _T) -> Bool {
+        !(self == other)
+    }
+}
+
+impl And<Bool> for Bool {
+    type AndResult = Bool.
+
+    fn and(self, other: Bool) -> Bool {
+        if self {
+            other
+        } else {
+            self
+        }
+    }
+}
+
+impl Or<Bool> for Bool {
+    type OrResult = Bool.
+
+    fn or(self, other: Bool) -> Bool {
+        if self {
+            self
+        } else {
+            other
+        }
+    }
+}

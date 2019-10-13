@@ -97,14 +97,6 @@ impl AstAdapter for AnalyzeInfo {
         }
 
         for imp in m.impls.values() {
-            let trt_name = imp.trait_ty.0.clone();
-            self.analyzed_program
-                .analyzed_traits
-                .get_mut(&trt_name)
-                .is_expected(imp.name_span, "trait", &trt_name.full_name()?)?
-                .impls
-                .push(imp.impl_id);
-
             let ana_imp = AnImplData {
                 impl_id: imp.impl_id,
                 generics: imp.generics.clone(),
@@ -126,5 +118,22 @@ impl AstAdapter for AnalyzeInfo {
         }
 
         Ok(m)
+    }
+
+    // Need to do this on the way up.
+    fn exit_program(&mut self, p: AstProgram) -> PResult<AstProgram> {
+        for m in &p.modules {
+            for imp in m.impls.values() {
+                let trt_name = imp.trait_ty.0.clone();
+                self.analyzed_program
+                    .analyzed_traits
+                    .get_mut(&trt_name)
+                    .is_expected(imp.name_span, "trait", &trt_name.full_name()?)?
+                    .impls
+                    .push(imp.impl_id);
+            }
+        }
+
+        Ok(p)
     }
 }
