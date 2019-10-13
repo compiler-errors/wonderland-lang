@@ -12,9 +12,9 @@ use crate::lexer::{Lexer, Token};
 use crate::parser::parse_program;
 use crate::tr::translate;
 use crate::tyck::typecheck;
-use crate::util::{report_err, FileId, FileReader, FileRegistry, PResult};
+use crate::util::{report_err, FileId, FileRegistry, PResult};
 use getopts::{Matches, Options};
-use std::io::Read;
+
 use std::path::Path;
 use std::process::exit;
 

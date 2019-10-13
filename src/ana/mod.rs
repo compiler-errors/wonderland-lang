@@ -16,9 +16,9 @@ use crate::ana::analyze_object_functions::AnalyzeObjectFunctions;
 use crate::ana::analyze_self::AnalyzeSelf;
 use crate::ana::analyze_variables::AnalyzeVariables;
 use crate::parser::ast::AstProgram;
-use crate::parser::ast_visitor::AstAdapter;
+
 use crate::util::{Comment, PResult, Visit};
-use std::rc::Rc;
+
 
 mod analyze_argument_parity;
 mod analyze_associated_types;

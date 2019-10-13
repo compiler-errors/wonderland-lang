@@ -4,7 +4,7 @@ use crate::parser::ast::{
     AstExpression, AstExpressionData, AstProgram, AstTraitType, AstType, BinOpKind, ModuleRef,
 };
 use crate::parser::ast_visitor::AstAdapter;
-use crate::util::{FileId, FileRegistry, IntoError, PError, PResult, Visit};
+use crate::util::{FileId, FileRegistry, IntoError, PResult, Visit};
 
 pub struct AnalyzeBinops {
     analyzed_program: AnalyzedProgram,
@@ -14,7 +14,7 @@ pub struct AnalyzeBinops {
 impl AnalyzeBinops {
     pub fn analyze(
         analyzed_program: AnalyzedProgram,
-        mut p: AstProgram,
+        p: AstProgram,
     ) -> PResult<(AnalyzedProgram, AstProgram)> {
         let mut operators_file = None;
 

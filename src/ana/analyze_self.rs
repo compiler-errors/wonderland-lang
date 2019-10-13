@@ -21,7 +21,7 @@ impl AnAdapter for AnalyzeSelf {
         o.visit(&mut ReplaceSelf(self_type))
     }
 
-    fn enter_analyzed_impl(&mut self, mut i: AnImplData) -> PResult<AnImplData> {
+    fn enter_analyzed_impl(&mut self, i: AnImplData) -> PResult<AnImplData> {
         // No `Self` type in the impl_ty!
         let impl_ty = i.impl_ty.clone().visit(&mut DenySelf)?;
 
@@ -46,7 +46,7 @@ impl AstAdapter for AnalyzeSelf {
         o.visit(&mut ReplaceSelf(self_type))
     }
 
-    fn enter_impl(&mut self, mut i: AstImpl) -> PResult<AstImpl> {
+    fn enter_impl(&mut self, i: AstImpl) -> PResult<AstImpl> {
         // No `Self` type in the impl_ty.
         let impl_ty = i.impl_ty.clone().visit(&mut DenySelf)?;
 

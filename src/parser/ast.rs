@@ -1,5 +1,5 @@
-use crate::util::{FileId, FileRegistry, IntoError, PError, PResult, Span};
-use inkwell::module::Module;
+use crate::util::{FileId, FileRegistry, IntoError, PResult, Span};
+
 use std::collections::HashMap;
 use std::sync::RwLock;
 

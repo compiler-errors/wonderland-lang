@@ -1,5 +1,5 @@
 use self::decorate::*;
-use crate::inst::{InstFunctionSignature, InstObjectSignature, InstantiatedProgram};
+use crate::inst::{InstObjectSignature, InstantiatedProgram};
 use crate::parser::ast::*;
 use crate::util::{PError, PResult, ZipExact};
 use either::Either;
@@ -15,9 +15,9 @@ use inkwell::types::*;
 use inkwell::values::*;
 use inkwell::{AddressSpace, OptimizationLevel};
 use std::collections::HashMap;
-use std::fmt::Pointer;
-use std::path::{Path, PathBuf};
-use std::rc::Rc;
+
+use std::path::{Path};
+
 use std::sync::RwLock;
 
 mod decorate;
@@ -172,7 +172,7 @@ impl Translator {
 
         for (sig, _) in &file.instantiated_objects {
             let name = decorate_object(&sig.0, &sig.1)?;
-            let ty = self.context.opaque_struct_type(&name);
+            self.context.opaque_struct_type(&name);
         }
 
         for (sig, obj) in file.instantiated_objects {
@@ -259,7 +259,7 @@ impl Translator {
         &mut self,
         fun_name: &str,
         parameter_list: &[AstNamedVariable],
-        return_type: &AstType,
+        _return_type: &AstType,
         variables: &HashMap<VariableId, AstNamedVariable>,
         definition: &Option<AstBlock>,
     ) -> PResult<()> {
@@ -327,7 +327,7 @@ impl Translator {
             let (inner_block, inner_builder) = self.get_new_block(builder)?;
             let (break_block, break_builder) = self.get_new_block(builder)?;
             let (continue_block, continue_builder) = self.get_new_block(builder)?;
-            let (after_block, after_builder) = self.get_new_block(builder)?;
+            let (after_block, _after_builder) = self.get_new_block(builder)?;
 
             builder.build_unconditional_branch(&inner_block);
             let (old_break, old_continue) = self
@@ -411,7 +411,7 @@ impl Translator {
                 builder.position_at_end(&fake_block);
             }
             AstStatement::Return { value } => {
-                let (val, temps) = self.translate_expression(builder, value)?;
+                let (val, _temps) = self.translate_expression(builder, value)?;
 
                 builder.build_return(Some(&val));
 
@@ -581,7 +581,7 @@ impl Translator {
                 args,
 
                 associated_trait,
-                impl_signature,
+                impl_signature: _,
             } => {
                 let name = decorate_object_fn(
                     call_type,
@@ -621,8 +621,8 @@ impl Translator {
                 builder.build_bitcast(ptr, ptr_type, &temp_name())
             }
 
-            AstExpressionData::Not(expr) => unimplemented!(),
-            AstExpressionData::Negate(expr) => unimplemented!(),
+            AstExpressionData::Not(_expr) => unimplemented!(),
+            AstExpressionData::Negate(_expr) => unimplemented!(),
 
             AstExpressionData::Assign { lhs, rhs } => {
                 let (lval, lval_temps) = self.translate_expression_lval(builder, &lhs)?;
@@ -633,7 +633,7 @@ impl Translator {
                 return Ok((rval, rval_temps));
             }
 
-            AstExpressionData::BinOp { kind, lhs, rhs } => unreachable!(),
+            AstExpressionData::BinOp { kind: _, lhs: _, rhs: _ } => unreachable!(),
 
             AstExpressionData::Block { block } => {
                 return self.translate_block(builder, block);

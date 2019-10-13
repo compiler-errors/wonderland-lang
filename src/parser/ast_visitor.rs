@@ -1,7 +1,7 @@
 use crate::parser::ast::*;
 use crate::util::{PResult, Visit};
-use std::collections::HashMap;
-use std::hash::Hash;
+
+
 
 pub trait AstAdapter {
     fn enter_program(&mut self, p: AstProgram) -> PResult<AstProgram> {

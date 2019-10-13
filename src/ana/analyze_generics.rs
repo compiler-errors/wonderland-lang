@@ -2,7 +2,7 @@ use crate::ana::represent::*;
 use crate::ana::represent_visitor::{AnAdapter, DirtyAnalysisPass};
 use crate::parser::ast::*;
 use crate::parser::ast_visitor::AstAdapter;
-use crate::util::{IntoError, PError, PResult, StackMap};
+use crate::util::{IntoError, PResult, StackMap};
 
 pub struct AnalyzeGenerics {
     pub scope: StackMap<String, GenericId>,

@@ -9,7 +9,7 @@ pub type AnalysisPassFn =
 pub trait AstAnalysisPass: AstAdapter + Sized {
     fn new() -> Self;
 
-    fn analyze(a: AnalyzedProgram, mut p: AstProgram) -> PResult<(AnalyzedProgram, AstProgram)> {
+    fn analyze(a: AnalyzedProgram, p: AstProgram) -> PResult<(AnalyzedProgram, AstProgram)> {
         let p = p.visit(&mut Self::new())?;
 
         Ok((a, p))

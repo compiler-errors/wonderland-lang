@@ -132,7 +132,7 @@ impl<'a> AstAdapter for TyckObjectiveAdapter {
                 self.solver.unify(&ty, &AstType::tuple(tuple_tys))?;
             }
             AstExpressionData::Array { elements } => {
-                let tuple_tys = into_types(elements);
+                let _tuple_tys = into_types(elements);
                 let elem_ty = AstType::infer();
 
                 for elem in elements {
@@ -227,7 +227,7 @@ impl<'a> AstAdapter for TyckObjectiveAdapter {
                 self.solver.unify(lhs_ty, &ty)?;
             }
 
-            AstExpressionData::BinOp { lhs, rhs, .. } => unreachable!(),
+            AstExpressionData::BinOp { lhs: _, rhs: _, .. } => unreachable!(),
         }
 
         Ok(AstExpression { data, ty, span })

@@ -5,7 +5,7 @@ use crate::util::{FileRegistry, IntoError, PResult};
 use std::borrow::{Borrow, BorrowMut};
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::ops::{Deref, DerefMut};
+
 use std::rc::Rc;
 
 type SharedModule = Rc<RefCell<MappedModule>>;
@@ -71,7 +71,7 @@ fn get_module(module: &SharedModule, mod_path: &[String]) -> PResult<SharedModul
 
     for child_name in mod_path {
         let next_module = {
-            let mut module = (*module).borrow();
+            let module = (*module).borrow();
 
             if !module.children.contains_key(child_name) {
                 return PResult::error(format!("No submodule with the name `{}`", child_name));
@@ -148,7 +148,7 @@ impl<'a> AnalyzeModules<'a> {
 impl<'a> AstAdapter for AnalyzeModules<'a> {
     fn enter_module(&mut self, m: AstModule) -> PResult<AstModule> {
         let id = m.id;
-        let mut symbols: Vec<_> = (m.functions.keys())
+        let symbols: Vec<_> = (m.functions.keys())
             .chain(m.traits.keys())
             .chain(m.objects.keys())
             .collect();

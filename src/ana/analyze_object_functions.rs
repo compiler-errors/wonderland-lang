@@ -4,7 +4,7 @@ use crate::parser::ast::{
     AstExpression, AstExpressionData, AstObjectFunction, AstTraitType, AstType, ModuleRef,
 };
 use crate::parser::ast_visitor::AstAdapter;
-use crate::util::{IntoError, PError, PResult};
+use crate::util::{IntoError, PResult};
 use std::collections::HashMap;
 
 pub struct AnalyzeObjectFunctions {
@@ -128,7 +128,7 @@ impl AstAdapter for AnalyzeObjectFunctions {
         Ok(f)
     }
 
-    fn enter_expression(&mut self, mut e: AstExpression) -> PResult<AstExpression> {
+    fn enter_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
         let AstExpression { data, ty, span } = e;
 
         let data = match data {

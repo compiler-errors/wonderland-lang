@@ -1,4 +1,4 @@
-use crate::ana::represent_visitor::{AstAnalysisPass, PureAnalysisPass};
+use crate::ana::represent_visitor::{AstAnalysisPass};
 use crate::parser::ast::{AstFunction, AstImpl, AstObject, AstObjectFunction, AstTrait, AstType};
 use crate::parser::ast_visitor::AstAdapter;
 use crate::util::{IntoError, PResult, Visit};

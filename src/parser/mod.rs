@@ -7,7 +7,7 @@ use crate::util::*;
 
 use crate::util::{FileId, FileRegistry, Span};
 use std::collections::HashMap;
-use std::mem;
+
 use std::str::FromStr;
 
 pub struct Parser {
@@ -27,7 +27,7 @@ pub fn parse_program(files: Vec<FileId>) -> PResult<AstProgram> {
 }
 
 pub fn parse_module(file: FileId) -> PResult<AstModule> {
-    let mut parser = Parser {
+    let parser = Parser {
         file,
         lexer: Lexer::new(file)?,
         next_span: Span::none(),
@@ -1059,9 +1059,9 @@ impl Parser {
         self.expect_consume(Token::Allocate)?;
 
         if self.check_consume(Token::LSqBracket)? {
-            let (ty, ty_span) = self.parse_type()?;
+            let (_ty, _ty_span) = self.parse_type()?;
             // self.expect_consume(Token::SemiColon)?;
-            let expr = self.parse_expression()?;
+            let _expr = self.parse_expression()?;
             span = span.unite(self.next_span);
             self.expect_consume(Token::RSqBracket)?;
 

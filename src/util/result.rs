@@ -1,4 +1,4 @@
-use crate::util::{FileId, FileReader, FileRegistry, Span};
+use crate::util::{FileRegistry, Span};
 use std::process::exit;
 
 pub type PResult<T> = Result<T, PError>;

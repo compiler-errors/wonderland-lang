@@ -1,4 +1,4 @@
-use crate::ana::analyze;
+
 use crate::ana::represent::*;
 use crate::parser::ast::*;
 use crate::tyck::tyck_constraints::{Dummifier, TyckConstraintAssumptionAdapter};
@@ -67,11 +67,11 @@ pub fn typecheck_module(
         ))?;
     }
 
-    for (name, obj) in objects {
+    for (_name, obj) in objects {
         typecheck_simple(analyzed_program.clone(), &base_solver, obj)?;
     }
 
-    for (name, trt) in traits {
+    for (_name, trt) in traits {
         typecheck_simple(analyzed_program.clone(), &base_solver, trt)?;
     }
 

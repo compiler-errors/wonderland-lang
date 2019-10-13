@@ -1,8 +1,8 @@
-use crate::ana::represent::AnalyzedProgram;
+
 use crate::ana::represent_visitor::AstAnalysisPass;
-use crate::parser::ast::{AstBlock, AstProgram, AstStatement};
+use crate::parser::ast::{AstBlock, AstStatement};
 use crate::parser::ast_visitor::AstAdapter;
-use crate::util::{IntoError, PResult, Visit};
+use crate::util::{IntoError, PResult};
 
 pub struct AnalyzeControlFlow(usize);
 

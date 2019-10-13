@@ -1,5 +1,5 @@
 use crate::util::len::Len;
-use crate::util::result::{IntoError, PError, PResult};
+use crate::util::result::{IntoError, PResult};
 use crate::util::Span;
 use std::iter::Zip;
 

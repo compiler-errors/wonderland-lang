@@ -1,12 +1,12 @@
-use crate::util::result::{IntoError, PError, PResult};
-use crate::util::Span;
+use crate::util::result::{IntoError, PResult};
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock, Weak};
 
 use std::ffi::OsStr;
 use std::fs;
-use std::io;
+
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FileId(pub usize);
