@@ -7,6 +7,7 @@ extern crate getopts;
 extern crate inkwell;
 
 use crate::ana::analyze;
+use crate::inst::instantiate;
 use crate::lexer::{Lexer, Token};
 use crate::parser::parse_program;
 use crate::tyck::typecheck;
@@ -18,6 +19,7 @@ use std::path::Path;
 use std::process::exit;
 
 mod ana;
+mod inst;
 mod lexer;
 mod parser;
 mod tyck;
@@ -30,9 +32,10 @@ enum Mode {
     Parse,
     Analyze,
     Typecheck,
+    Instantiate,
 }
 
-const DEFAULT_MODE: Mode = Mode::Typecheck;
+const DEFAULT_MODE: Mode = Mode::Instantiate;
 
 fn main() {
     let args: Vec<_> = std::env::args().collect();
@@ -46,6 +49,7 @@ fn main() {
     opts.optflag("p", "parse", "Parse file(s)");
     opts.optflag("a", "analyze", "Analyze file(s)");
     opts.optflag("t", "tyck", "Typecheck file(s)");
+    opts.optflag("i", "inst", "Instantiate generics and typecheck file(s)");
 
     let matches = opts.parse(&args[1..]).unwrap_or_else(|_| {
         println!("Something went wrong when parsing...");
@@ -65,6 +69,7 @@ fn main() {
         Mode::Parse => try_parse(files),
         Mode::Analyze => try_analyze(files),
         Mode::Typecheck => try_typecheck(files),
+        Mode::Instantiate => try_instantiate(files),
     }
     .unwrap_or_else(|e| report_err(e));
 
@@ -105,6 +110,7 @@ fn select_mode(matches: &Matches) -> Result<Mode, ()> {
         ("p", Mode::Parse),
         ("a", Mode::Analyze),
         ("t", Mode::Typecheck),
+        ("i", Mode::Instantiate),
     ];
 
     for (flag, mode) in &options {
@@ -208,6 +214,16 @@ fn try_typecheck(files: Vec<FileId>) -> PResult<()> {
 
     // Wow!
     typecheck(&a, &p)?;
+
+    Ok(())
+}
+
+fn try_instantiate(files: Vec<FileId>) -> PResult<()> {
+    let program = parse_program(files)?;
+    let (a, p) = analyze(program)?;
+
+    typecheck(&a, &p)?;
+    instantiate(a, p)?;
 
     Ok(())
 }

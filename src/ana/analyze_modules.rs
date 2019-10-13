@@ -326,7 +326,7 @@ impl<'a> AstAdapter for AnalyzeUses<'a> {
                 let _res = import(
                     m.id,
                     &mut current_mod_ref.children,
-                    &vec![],
+                    &[],
                     item,
                     child.clone(),
                 );

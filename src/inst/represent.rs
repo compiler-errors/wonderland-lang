@@ -1,4 +1,4 @@
-use crate::parser::ast::{AstTraitType, AstType, ImplId};
+use crate::parser::ast::{AstTraitType, AstType, ImplId, ModuleRef};
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct InstFunctionSignature(pub ModuleRef, pub Vec<AstType>);

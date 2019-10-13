@@ -1,18 +1,18 @@
-use crate::analyze::represent::AnalyzedProgram;
+use crate::ana::represent::*;
 use crate::inst::post_solve::PostSolveAdapter;
+use crate::inst::represent::*;
 use crate::parser::ast::*;
-use crate::parser::ast_visitor::{AstAdapter, Visit};
+use crate::parser::ast_visitor::AstAdapter;
 use crate::tyck::*;
-use crate::util::result::{Expect, PResult};
+use crate::util::{Expect, IntoError, PResult, Visit};
 use std::collections::HashMap;
 use std::rc::Rc;
 
 mod post_solve;
 mod represent;
-pub use self::represent::*;
 
 struct InstantiationAdapter {
-    analyzed_file: Rc<AnalyzedProgram>,
+    analyzed_program: Rc<AnalyzedProgram>,
     base_solver: TyckSolver,
 
     fns: HashMap<ModuleRef, AstFunction>,
@@ -29,7 +29,7 @@ struct InstantiationAdapter {
 }
 
 #[derive(Debug)]
-pub struct InstantiatedFile {
+pub struct InstantiatedProgram {
     pub instantiated_fns: HashMap<InstFunctionSignature, Option<AstFunction>>,
     pub instantiated_object_fns: HashMap<InstObjectFunctionSignature, Option<AstObjectFunction>>,
     pub instantiated_impls: HashMap<InstImplSignature, Option<AstImpl>>,
@@ -37,37 +37,40 @@ pub struct InstantiatedFile {
 }
 
 pub fn instantiate(
-    parsed_file: AstModule,
-    analyzed_file: AnalyzedProgram,
-) -> PResult<InstantiatedFile> {
-    let fns: HashMap<_, _> = parsed_file
-        .functions
-        .into_iter()
-        .map(|f| (f.name.clone(), f))
-        .collect();
-    let objects: HashMap<_, _> = parsed_file
-        .objects
-        .into_iter()
-        .map(|o| (o.name.clone(), o))
-        .collect();
-    let impls: HashMap<_, _> = parsed_file
-        .impls
-        .into_iter()
-        .map(|i| (i.impl_id, i))
-        .collect();
+    analyzed_program: AnalyzedProgram,
+    parsed_program: AstProgram,
+) -> PResult<InstantiatedProgram> {
+    let mut main_finder = MainFinder(None);
+    let parsed_program = parsed_program.visit(&mut main_finder)?;
 
+    let mut fns = HashMap::new();
+    let mut objects = HashMap::new();
+    let mut impls = HashMap::new();
     let mut obj_fns = HashMap::new();
-    for (&id, i) in &impls {
-        for fun in &i.fns {
-            obj_fns.insert((id, fun.name.clone()), fun.clone());
+
+    for m in parsed_program.modules {
+        for (_, f) in m.functions {
+            fns.insert(f.module_ref.clone(), f);
+        }
+
+        for (_, f) in m.objects {
+            objects.insert(f.module_ref.clone(), f);
+        }
+
+        for (id, i) in m.impls {
+            for (name, fun) in &i.fns {
+                obj_fns.insert((id, name.clone()), fun.clone());
+            }
+
+            impls.insert(id, i);
         }
     }
 
-    let analyzed_file = Rc::new(analyzed_file);
+    let analyzed_program = Rc::new(analyzed_program);
 
     let mut i = InstantiationAdapter {
-        base_solver: TyckSolver::new(analyzed_file.clone()),
-        analyzed_file,
+        base_solver: TyckSolver::new(analyzed_program.clone()),
+        analyzed_program,
 
         fns,
         objects,
@@ -81,9 +84,13 @@ pub fn instantiate(
         solved_impls: HashMap::new(),
     };
 
-    unimplemented!("i.instantiate_function(\"main\", &[])?;");
+    if let Some(name) = main_finder.0 {
+        i.instantiate_function(&name, &[])?;
+    } else {
+        return PResult::error("Cannot find main function.".into());
+    }
 
-    Ok(InstantiatedFile {
+    Ok(InstantiatedProgram {
         instantiated_fns: i.instantiated_fns,
         instantiated_object_fns: i.instantiated_object_fns,
         instantiated_impls: i.instantiated_impls,
@@ -93,7 +100,7 @@ pub fn instantiate(
 
 impl InstantiationAdapter {
     fn instantiate_function(&mut self, name: &ModuleRef, generics: &[AstType]) -> PResult<()> {
-        let sig = InstFunctionSignature(name.into(), generics.to_vec());
+        let sig = InstFunctionSignature(name.clone(), generics.to_vec());
 
         if self.instantiated_fns.contains_key(&sig) {
             return Ok(());
@@ -102,7 +109,7 @@ impl InstantiationAdapter {
         // Insert so we don't recurse infinitely.
         self.instantiated_fns.insert(sig.clone(), None);
 
-        let ids = &self.analyzed_file.clone().analyzed_functions[name].generics;
+        let ids = &self.analyzed_program.clone().analyzed_functions[name].generics;
         let f = self.process_simple(self.fns[name].clone(), ids, generics)?;
 
         self.instantiated_fns.insert(sig, Some(f));
@@ -111,7 +118,7 @@ impl InstantiationAdapter {
     }
 
     fn instantiate_object(&mut self, name: &ModuleRef, generics: &[AstType]) -> PResult<()> {
-        let sig = InstObjectSignature(name.into(), generics.to_vec());
+        let sig = InstObjectSignature(name.clone(), generics.to_vec());
 
         if self.instantiated_objects.contains_key(&sig) {
             return Ok(());
@@ -120,7 +127,7 @@ impl InstantiationAdapter {
         // Insert so we don't recurse infinitely.
         self.instantiated_objects.insert(sig.clone(), None);
 
-        let ids = &self.analyzed_file.clone().analyzed_objects[name].generics;
+        let ids = &self.analyzed_program.clone().analyzed_objects[name].generics;
         let o = self.process_simple(self.objects[name].clone(), ids, generics)?;
 
         self.instantiated_objects.insert(sig, Some(o));
@@ -153,7 +160,7 @@ impl InstantiationAdapter {
             .insert(objective, sig.clone())
             .is_not_expected(self.impls[&id].name_span, "impl", "<conflicting types>")?;
 
-        let ids = &self.analyzed_file.clone().analyzed_impls[&id].generics;
+        let ids = &self.analyzed_program.clone().analyzed_impls[&id].generics;
         let mut instantiate = GenericsInstantiator::from_generics(ids, generics)?;
 
         let mut imp = self.impls[&id].clone();
@@ -163,8 +170,8 @@ impl InstantiationAdapter {
         imp.associated_types = imp.associated_types.visit(&mut instantiate)?;
 
         let (mut imp, solution) =
-            typecheck_impl(self.analyzed_file.clone(), &self.base_solver, imp)?;
-        let mut post_solve = PostSolveAdapter(solution, self.analyzed_file.clone());
+            typecheck_impl(self.analyzed_program.clone(), &self.base_solver, imp)?;
+        let mut post_solve = PostSolveAdapter(solution, self.analyzed_program.clone());
 
         imp.impl_ty = imp.impl_ty.visit(&mut post_solve)?.visit(self)?;
         imp.trait_ty = imp.trait_ty.visit(&mut post_solve)?.visit(self)?;
@@ -201,7 +208,7 @@ impl InstantiationAdapter {
         // Insert so we don't recurse infinitely.
         self.instantiated_object_fns.insert(sig.clone(), None);
 
-        let impl_data = &self.analyzed_file.clone().analyzed_impls[&id];
+        let impl_data = &self.analyzed_program.clone().analyzed_impls[&id];
         let fn_data = &impl_data.methods[fn_name];
 
         let obj_ids = &impl_data.generics;
@@ -217,14 +224,14 @@ impl InstantiationAdapter {
             .visit(&mut fn_instantiate)?;
 
         let (f, solution) = typecheck_impl_fn(
-            self.analyzed_file.clone(),
+            self.analyzed_program.clone(),
             &self.base_solver,
             f,
             call_type,
             trt,
             fn_generics,
         )?;
-        let mut post_solve = PostSolveAdapter(solution, self.analyzed_file.clone());
+        let mut post_solve = PostSolveAdapter(solution, self.analyzed_program.clone());
         let f = f.visit(&mut post_solve)?.visit(self)?;
 
         self.instantiated_object_fns.insert(sig, Some(f));
@@ -232,7 +239,7 @@ impl InstantiationAdapter {
         Ok(())
     }
 
-    fn process_simple<T>(&mut self, t: T, ids: &[GenericId], tys: &[AstType]) -> PResult<T>
+    fn process_simple<T>(&mut self, t: T, ids: &[AstGeneric], tys: &[AstType]) -> PResult<T>
     where
         T: Visit<GenericsInstantiator>
             + Visit<TyckObjectiveAdapter>
@@ -243,8 +250,8 @@ impl InstantiationAdapter {
         let mut instantiate = GenericsInstantiator::from_generics(ids, tys)?;
         let t = t.visit(&mut instantiate)?;
 
-        let (t, solution) = typecheck_simple(self.analyzed_file.clone(), &self.base_solver, t)?;
-        let mut post_solve = PostSolveAdapter(solution, self.analyzed_file.clone());
+        let (t, solution) = typecheck_simple(self.analyzed_program.clone(), &self.base_solver, t)?;
+        let mut post_solve = PostSolveAdapter(solution, self.analyzed_program.clone());
         let t = t.visit(&mut post_solve)?.visit(self)?;
 
         Ok(t)
@@ -265,8 +272,10 @@ impl AstAdapter for InstantiationAdapter {
 
     fn enter_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
         match &e.data {
-            AstExpressionData::Call { name, generics, .. } => {
-                self.instantiate_function(name, generics)?;
+            AstExpressionData::Call {
+                fn_name, generics, ..
+            } => {
+                self.instantiate_function(fn_name, generics)?;
             }
             AstExpressionData::StaticCall {
                 call_type,
@@ -285,5 +294,33 @@ impl AstAdapter for InstantiationAdapter {
         }
 
         Ok(e)
+    }
+}
+
+struct MainFinder(Option<ModuleRef>);
+
+impl AstAdapter for MainFinder {
+    fn enter_function(&mut self, f: AstFunction) -> PResult<AstFunction> {
+        if &f.name == "main" {
+            if self.0.is_some() {
+                return PResult::error(format!(
+                    "Duplicated `main` function: first found at `{}`, also found at `{}`",
+                    self.0.as_ref().unwrap().full_name()?,
+                    f.module_ref.full_name()?
+                ));
+            }
+
+            if !f.generics.is_empty() {
+                return PResult::error(format!(
+                    "Main function `{}` must have zero generics, found {}.",
+                    f.module_ref.full_name()?,
+                    f.generics.len()
+                ));
+            }
+
+            self.0 = Some(f.module_ref.clone());
+        }
+
+        Ok(f)
     }
 }
