@@ -1,15 +1,14 @@
 use self::decorate::*;
 use crate::inst::{InstObjectSignature, InstantiatedProgram};
 use crate::parser::ast::*;
-use crate::util::{IntoError, PError, PResult, ZipExact};
+use crate::util::{PError, PResult, ZipExact, IntoError};
 use either::Either;
 use inkwell::attributes::{Attribute, AttributeLoc};
 use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::Module;
-use inkwell::passes::{PassManager, PassManagerBuilder, PassManagerSubType};
-
+use inkwell::passes::{PassManager, PassManagerBuilder};
 use inkwell::types::*;
 use inkwell::values::*;
 use inkwell::{AddressSpace, OptimizationLevel};

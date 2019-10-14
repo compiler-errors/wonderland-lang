@@ -4,7 +4,7 @@ use crate::tyck::tyck_constraints::{Dummifier, TyckConstraintAssumptionAdapter};
 pub use crate::tyck::tyck_instantiate::GenericsInstantiator;
 pub use crate::tyck::tyck_objectives::TyckObjectiveAdapter;
 pub use crate::tyck::tyck_solver::{TyckSolution, TyckSolver};
-use crate::util::{Comment, Expect, FileRegistry, IntoError, PResult, Span, Visit, ZipExact};
+use crate::util::{Comment, FileRegistry, IntoError, PResult, Visit, ZipExact};
 use std::collections::HashSet;
 use std::rc::Rc;
 

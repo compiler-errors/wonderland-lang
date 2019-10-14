@@ -1,12 +1,10 @@
 use crate::parser::ast::*;
-use crate::parser::ast_visitor::AstAdapter;
 use crate::util::{FileId, PError};
-use crate::util::{FileRegistry, IntoError, PResult};
-use std::borrow::{Borrow, BorrowMut};
+use crate::util::{FileRegistry, PResult, IntoError};
 use std::cell::RefCell;
 use std::collections::HashMap;
-
 use std::rc::Rc;
+use crate::parser::ast_visitor::AstAdapter;
 
 type SharedModule = Rc<RefCell<MappedModule>>;
 

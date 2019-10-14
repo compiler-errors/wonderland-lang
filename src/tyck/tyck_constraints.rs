@@ -2,7 +2,7 @@ use crate::ana::represent::*;
 use crate::parser::ast::*;
 use crate::parser::ast_visitor::AstAdapter;
 use crate::tyck::tyck_instantiate::GenericsInstantiator;
-use crate::util::{Expect, PError, PResult, Span, Visit};
+use crate::util::{PError, PResult, Visit};
 use std::collections::HashMap;
 
 pub struct TyckConstraintAssumptionAdapter {

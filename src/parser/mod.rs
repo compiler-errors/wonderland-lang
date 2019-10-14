@@ -925,12 +925,12 @@ impl Parser {
 
         loop {
             if self.check_typename() {
-                span = span.unite(self.next_span);
+                //TODO: span = span.unite(self.next_span);
                 path.push(self.expect_consume_typename()?);
 
                 let generics = if self.check(Token::Lt) {
-                    let (generics, generics_span) = self.parse_expr_generics()?;
-                    span = span.unite(generics_span);
+                    let (generics, _generics_span) = self.parse_expr_generics()?;
+                    //TODO: span = span.unite(generics_span);
                     generics
                 } else {
                     Vec::new()
@@ -1062,7 +1062,8 @@ impl Parser {
             let (_ty, _ty_span) = self.parse_type()?;
             // self.expect_consume(Token::SemiColon)?;
             let _expr = self.parse_expression()?;
-            span = span.unite(self.next_span);
+
+            //span = span.unite(self.next_span);
             self.expect_consume(Token::RSqBracket)?;
 
             // Ok(AstExpression::allocate_array(span, ty, expr))

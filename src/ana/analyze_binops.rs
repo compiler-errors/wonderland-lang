@@ -1,5 +1,4 @@
 use crate::ana::represent::AnalyzedProgram;
-use crate::ana::represent_visitor::AstAnalysisPass;
 use crate::parser::ast::{
     AstExpression, AstExpressionData, AstProgram, AstTraitType, AstType, BinOpKind, ModuleRef,
 };
