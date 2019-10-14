@@ -1,8 +1,6 @@
 use crate::parser::ast::*;
 use crate::util::{PResult, Visit};
 
-
-
 pub trait AstAdapter {
     fn enter_program(&mut self, p: AstProgram) -> PResult<AstProgram> {
         Ok(p)

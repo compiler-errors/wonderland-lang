@@ -30,6 +30,7 @@ struct InstantiationAdapter {
 
 #[derive(Debug)]
 pub struct InstantiatedProgram {
+    pub main_fn: ModuleRef,
     pub instantiated_fns: HashMap<InstFunctionSignature, Option<AstFunction>>,
     pub instantiated_object_fns: HashMap<InstObjectFunctionSignature, Option<AstObjectFunction>>,
     pub instantiated_impls: HashMap<InstImplSignature, Option<AstImpl>>,
@@ -84,13 +85,15 @@ pub fn instantiate(
         solved_impls: HashMap::new(),
     };
 
-    if let Some(name) = main_finder.0 {
-        i.instantiate_function(&name, &[])?;
-    } else {
+    if main_finder.0.is_none() {
         return PResult::error("Cannot find main function.".into());
     }
 
+    let main_fn = main_finder.0.unwrap();
+    i.instantiate_function(&main_fn, &[])?;
+
     Ok(InstantiatedProgram {
+        main_fn,
         instantiated_fns: i.instantiated_fns,
         instantiated_object_fns: i.instantiated_object_fns,
         instantiated_impls: i.instantiated_impls,
@@ -315,6 +318,21 @@ impl AstAdapter for MainFinder {
                     "Main function `{}` must have zero generics, found {}.",
                     f.module_ref.full_name()?,
                     f.generics.len()
+                ));
+            }
+
+            if !f.parameter_list.is_empty() {
+                return PResult::error(format!(
+                    "Main function `{}` must have parameters, found {}.",
+                    f.module_ref.full_name()?,
+                    f.parameter_list.len()
+                ));
+            }
+
+            if f.return_type != AstType::Int {
+                return PResult::error(format!(
+                    "Main function `{}` must return `Int`.",
+                    f.module_ref.full_name()?,
                 ));
             }
 

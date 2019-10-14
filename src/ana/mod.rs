@@ -19,7 +19,6 @@ use crate::parser::ast::AstProgram;
 
 use crate::util::{Comment, PResult, Visit};
 
-
 mod analyze_argument_parity;
 mod analyze_associated_types;
 mod analyze_binops;

@@ -1,4 +1,3 @@
-
 use crate::ana::represent_visitor::AstAnalysisPass;
 use crate::parser::ast::{AstBlock, AstStatement};
 use crate::parser::ast_visitor::AstAdapter;

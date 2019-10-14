@@ -6,7 +6,6 @@ use crate::util::IntoError;
 use crate::util::PResult;
 use std::collections::HashMap;
 
-
 pub struct AnalyzeGenericsParity {
     parity: HashMap<ModuleRef, usize>,
 }

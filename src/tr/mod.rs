@@ -1,13 +1,14 @@
 use self::decorate::*;
 use crate::inst::{InstObjectSignature, InstantiatedProgram};
 use crate::parser::ast::*;
-use crate::util::{PError, PResult, ZipExact};
+use crate::util::{IntoError, PError, PResult, ZipExact};
 use either::Either;
 use inkwell::attributes::{Attribute, AttributeLoc};
 use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::Module;
+use inkwell::passes::{PassManager, PassManagerBuilder, PassManagerSubType, PassRegistry};
 use inkwell::targets::{
     CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine,
 };
@@ -15,15 +16,28 @@ use inkwell::types::*;
 use inkwell::values::*;
 use inkwell::{AddressSpace, OptimizationLevel};
 use std::collections::HashMap;
-
-use std::path::{Path};
-
+use std::ffi::{OsStr, OsString};
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use std::sync::RwLock;
+use tempfile::{NamedTempFile, TempDir};
 
 mod decorate;
 
 const MANAGED: AddressSpace = AddressSpace::Generic; /* This is fucked. */
 const GLOBAL: AddressSpace = AddressSpace::Generic; /* This too. */
+
+lazy_static! {
+    static ref STDLIB_PATH: &'static OsStr = OsStr::new("std/lib.ll");
+
+    static ref LIBC_PATH: &'static OsStr = if cfg!(target_os = "linux") {
+        OsStr::new("/usr/lib/libc.a")
+    } else if cfg!(target_os = "macos") {
+        OsStr::new("/lib/libc.dylib")
+    } else {
+        panic!("Unsupported OS")
+    };
+}
 
 type AccessSignature = Vec<usize>;
 
@@ -39,47 +53,83 @@ struct Translator {
     break_continue: Option<(BasicBlock, BasicBlock)>,
 
     variables: HashMap<VariableId, (PointerValue, Vec<PointerValue>)>,
-    types: HashMap<AstType, ()>,
 }
 
 pub fn translate(file: InstantiatedProgram, llvm_ir: bool, output_file: &str) -> PResult<()> {
     let mut tr = Translator::new();
-
     tr.translate(file)?;
 
-    if let Result::Err(why) = tr.module.verify() {
+    let module = tr.module;
+
+    if let Result::Err(why) = module.verify() {
         panic!("LLVM: {}", why.to_string());
     }
 
-    println!("{}", tr.module.print_to_string().to_string());
+    println!("{}", module.print_to_string().to_string());
 
     if output_file != "-" {
-        if llvm_ir {
-            tr.module.print_to_file(Path::new(output_file))
-        } else {
-            Target::initialize_all(&InitializationConfig::default());
-            let cpu = TargetMachine::get_host_cpu_name().to_string();
-            let triple = TargetMachine::get_default_triple().to_string();
-            let feat = TargetMachine::get_host_cpu_features().to_string();
-
-            let target = Target::from_name(&cpu).unwrap();
-            let target_machine = target
-                .create_target_machine(
-                    &triple,
-                    &cpu,
-                    &feat,
-                    OptimizationLevel::Aggressive,
-                    RelocMode::Default,
-                    CodeModel::Default,
-                )
-                .unwrap();
-
-            target_machine.write_to_file(&tr.module, FileType::Object, Path::new(output_file))
-        }
-        .map_err(|e| PError::new(format!("LLVM error: {}", e.to_string())))?;
+        emit_module(output_file, module, llvm_ir)?;
     }
 
     Ok(())
+}
+
+fn emit_module(output_file: &str, module: Module, llvm_ir: bool) -> PResult<()> {
+    if llvm_ir {
+        if !module.write_bitcode_to_path(&PathBuf::from(output_file)) {
+            return PResult::error(format!(
+                "There was a problem writing the assembly file to disk."
+            ));
+        }
+    } else {
+        let dir = TempDir::new().map_err(|e| PError::new(format!("Temp dir error: {}", e)))?;
+
+        let ll = dir.path().join("file.ll").into_os_string();
+
+        module.write_bitcode_to_path(Path::new(&ll));
+
+        let o = dir.path().join("file.o").into_os_string();
+        let std_o = dir.path().join("std.o").into_os_string();
+
+        compile(&ll, &o)?;
+        compile(*STDLIB_PATH, &std_o)?;
+
+        let ld_status = Command::new(format!("clang"))
+            .args(&[&o, &std_o, OsStr::new("-o"), OsStr::new(output_file)])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .status()
+            .map_err(|e| PError::new(format!("Command Error (ld): {}", e)))?;
+
+        if !ld_status.success() {
+            return PResult::error(format!(
+                "Program `ld` exited with code: {}",
+                ld_status.code().unwrap_or(-1),
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn compile(in_path: &OsStr, out_path: &OsStr) -> PResult<()> {
+    let llvm_path = std::env::var("LLVM_SYS_80_PREFIX").unwrap_or_else(|_| "/usr/bin".into());
+
+    let llc_status = Command::new(format!("{}/llc", llvm_path))
+        .args(&[in_path, OsStr::new("-o"), out_path, OsStr::new("-filetype=obj")])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .status()
+        .map_err(|e| PError::new(format!("Command Error (llc): {}", e)))?;
+
+    if llc_status.success() {
+        Ok(())
+    } else {
+        PResult::error(format!(
+            "Program `llc` exited with code: {}",
+            llc_status.code().unwrap_or(-1),
+        ))
+    }
 }
 
 impl Translator {
@@ -163,7 +213,6 @@ impl Translator {
             break_continue: None,
 
             variables: HashMap::new(),
-            types: HashMap::new(),
         }
     }
 
@@ -217,6 +266,22 @@ impl Translator {
             )?;
         }
 
+        self.translate_main(&file.main_fn)?;
+
+        Ok(())
+    }
+
+    fn translate_main(&mut self, main_fn: &ModuleRef) -> PResult<()> {
+        let main_fn_name = decorate_fn(main_fn, &[])?;
+        let cheshire_main_fn = self.module.get_function(&main_fn_name).unwrap();
+
+        let real_main_fn = self.forward_declare_function("main", &[], &AstType::Int)?;
+        let block = real_main_fn.append_basic_block("pre");
+        let first_builder = Builder::create();
+        first_builder.position_at_end(&block);
+        let ret = first_builder.build_call(cheshire_main_fn, &[], &temp_name());
+        first_builder.build_return(Some(&unwrap_callsite(ret)));
+
         Ok(())
     }
 
@@ -225,7 +290,7 @@ impl Translator {
         name: &str,
         parameter_list: &[AstNamedVariable],
         return_type: &AstType,
-    ) -> PResult<()> {
+    ) -> PResult<FunctionValue> {
         let param_tys = parameter_list
             .iter()
             .map(|p| self.get_type(&p.ty))
@@ -238,7 +303,7 @@ impl Translator {
         llvm_fun.set_gc("shadow-stack");
         set_nounwind(&self.context, llvm_fun);
 
-        Ok(())
+        Ok(llvm_fun)
     }
 
     fn translate_object(&mut self, sig: InstObjectSignature, obj: AstObject) -> PResult<()> {
@@ -633,7 +698,11 @@ impl Translator {
                 return Ok((rval, rval_temps));
             }
 
-            AstExpressionData::BinOp { kind: _, lhs: _, rhs: _ } => unreachable!(),
+            AstExpressionData::BinOp {
+                kind: _,
+                lhs: _,
+                rhs: _,
+            } => unreachable!(),
 
             AstExpressionData::Block { block } => {
                 return self.translate_block(builder, block);

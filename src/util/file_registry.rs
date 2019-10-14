@@ -1,12 +1,11 @@
 use crate::util::result::{IntoError, PResult};
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock, Weak};
 
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::fs;
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FileId(pub usize);
@@ -27,6 +26,14 @@ lazy_static! {
         files: HashMap::new(),
         mod_paths: HashMap::new(),
     });
+    static ref EXTENSIONS: HashSet<OsString> = {
+        let mut x = HashSet::new();
+        x.insert(OsString::from("C"));
+        x.insert(OsString::from("cs"));
+        x.insert(OsString::from("ch"));
+        x.insert(OsString::from("cheshire"));
+        x
+    };
 }
 
 impl FileRegistry {
@@ -81,6 +88,10 @@ impl FileRegistry {
 
                 children.extend(Self::seek_directory(&path, &mod_path)?);
             } else if ty.is_file() {
+                if path.extension().is_none() || !EXTENSIONS.contains(path.extension().unwrap()) {
+                    continue;
+                }
+
                 // Pop the name "mod(.cheshire)"...
                 if mod_path.last().unwrap() == "mod" {
                     if mod_path.len() == 1 {
