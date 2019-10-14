@@ -70,6 +70,11 @@ impl<'a> AstAdapter for TyckObjectiveAdapter {
             .iter()
             .map(|(&k, v)| (k, v.ty.clone()))
             .collect();
+
+        if let Some(block) = &o.definition {
+            self.solver.unify(&o.return_type, &block.expression.ty)?;
+        }
+
         Ok(o)
     }
 
@@ -106,6 +111,7 @@ impl<'a> AstAdapter for TyckObjectiveAdapter {
                 else_block,
             } => {
                 self.solver.unify(&condition.ty, &AstType::Bool)?;
+                self.solver.unify(&ty, &block.expression.ty)?;
                 self.solver
                     .unify(&block.expression.ty, &else_block.expression.ty)?;
             }

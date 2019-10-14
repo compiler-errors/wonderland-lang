@@ -139,15 +139,7 @@ fn typecheck_dummy_impl(
 
     // Foreach associated type, prove instantiated assoc-type bounds from trait hold. And type itself is well-formed.
     for (name, ty) in &imp.associated_tys {
-        typecheck_associated_type(
-            program.clone(),
-            &base_solver,
-            &impl_ty,
-            &trait_ty,
-            Span::none(),
-            name,
-            ty,
-        )?;
+        typecheck_associated_type(program.clone(), &base_solver, &impl_ty, &trait_ty, name, ty)?;
     }
 
     Ok(())
@@ -174,7 +166,6 @@ pub fn typecheck_associated_type(
     base_solver: &TyckSolver,
     impl_ty: &AstType,
     trait_ty: &AstTraitType,
-    span: Span,
     name: &str,
     assoc_ty: &AstType,
 ) -> PResult<()> {
@@ -183,10 +174,7 @@ pub fn typecheck_associated_type(
     let mut objective_adapter = TyckObjectiveAdapter::new(base_solver.clone(), program.clone());
     let assoc_ty = assoc_ty.clone().visit(&mut objective_adapter)?;
 
-    let restrictions: Vec<_> = trait_data
-        .associated_tys
-        .get(name)
-        .is_expected(span, "associated type", &name)?
+    let restrictions: Vec<_> = trait_data.associated_tys[name]
         .restrictions
         .iter()
         .map(|trt| AstTypeRestriction::new(assoc_ty.clone(), trt.clone()))
@@ -240,7 +228,6 @@ pub fn typecheck_impl(
             &base_solver,
             &imp.impl_ty,
             &imp.trait_ty,
-            Span::none(),
             name,
             ty,
         )?;

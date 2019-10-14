@@ -30,7 +30,7 @@ pub fn parse_module(file: FileId) -> PResult<AstModule> {
     let parser = Parser {
         file,
         lexer: Lexer::new(file)?,
-        next_span: Span::none(),
+        next_span: Span::new(FileId(0), 0, 0),
         next_token: Token::BOF,
     };
 
@@ -647,10 +647,10 @@ impl Parser {
         let name_span = self.next_span;
         let var_name = self.expect_consume_identifier()?;
 
-        let (ty, _) = if self.check_consume(Token::Colon)? {
-            self.parse_type()?
+        let ty = if self.check_consume(Token::Colon)? {
+            self.parse_type()?.0
         } else {
-            (AstType::infer(), Span::none())
+            AstType::infer()
         };
 
         self.expect_consume(Token::Equals)?;

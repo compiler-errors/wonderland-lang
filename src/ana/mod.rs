@@ -66,8 +66,6 @@ pub fn analyze(p: AstProgram) -> PResult<(AnalyzedProgram, AstProgram)> {
     let mut p = p.visit(&mut analyze_info)?;
     let mut a = analyze_info.analyzed_program;
 
-    println!("Program: {:#?}", a);
-
     let passes: Vec<(&str, AnalysisPassFn)> = vec![
         (
             "analyze_illegal_infers",

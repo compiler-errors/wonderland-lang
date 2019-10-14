@@ -249,10 +249,10 @@ impl AstType {
         if let AstType::Array { ty } = ty {
             Ok(*ty.clone())
         } else {
-            PResult::error_at(
-                Span::none(),
-                format!("Trying to access element type of non-array: {:?}", ty),
-            )
+            PResult::error(format!(
+                "Trying to access element type of non-array: {:?}",
+                ty
+            ))
         }
     }
 

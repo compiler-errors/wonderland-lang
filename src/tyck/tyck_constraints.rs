@@ -2,7 +2,7 @@ use crate::ana::represent::*;
 use crate::parser::ast::*;
 use crate::parser::ast_visitor::AstAdapter;
 use crate::tyck::tyck_instantiate::GenericsInstantiator;
-use crate::util::{Expect, PResult, Span, Visit};
+use crate::util::{Expect, PError, PResult, Span, Visit};
 use std::collections::HashMap;
 
 pub struct TyckConstraintAssumptionAdapter {
@@ -26,11 +26,7 @@ impl TyckConstraintAssumptionAdapter {
     pub fn assume(&mut self, ty: &AstType, trt: &AstTraitType) -> PResult<AnImplData> {
         println!("; Assuming {:?} :- {:?}", ty, trt);
 
-        let trt_data = self
-            .analyzed_program
-            .analyzed_traits
-            .get(&trt.0)
-            .is_expected(Span::none(), "trait", &trt.0.full_name()?)?;
+        let trt_data = &self.analyzed_program.analyzed_traits[&trt.0];
         let impl_id = AstImpl::new_id();
 
         let mut associated_tys = HashMap::new();
@@ -78,7 +74,7 @@ impl AstAdapter for TyckConstraintAssumptionAdapter {
             AstType::SelfType => self
                 .self_ty
                 .clone()
-                .is_expected(Span::none(), "type", "self"),
+                .ok_or_else(|| PError::new(format!("No self type in this context"))),
             t => Ok(t),
         }
     }

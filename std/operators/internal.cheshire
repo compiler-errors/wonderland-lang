@@ -5,8 +5,8 @@ export fn internal_sub_int(a: Int, b: Int) -> Int.
 export fn internal_mul_int(a: Int, b: Int) -> Int.
 export fn internal_div_int(a: Int, b: Int) -> Int.
 export fn internal_mod_int(a: Int, b: Int) -> Int.
-export fn internal_gt_int(a: Int, b: Int) -> Int.
-export fn internal_eq_int(a: Int, b: Int) -> Int.
+export fn internal_gt_int(a: Int, b: Int) -> Bool.
+export fn internal_eq_int(a: Int, b: Int) -> Bool.
 
 impl Add<Int> for Int {
     type AddResult = Int.
@@ -66,11 +66,11 @@ impl<_S, _T> Compare<_T> for _S where _S: PartialCompare<_T> {
     }
 
     fn ge(self, other: _T) -> Bool {
-        return !(self < other).
+        !(self < other)
     }
 
     fn le(self, other: _T) -> Bool {
-        return !(self > other).
+        !(self > other)
     }
 }
 

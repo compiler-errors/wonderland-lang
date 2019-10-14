@@ -6,6 +6,7 @@ use crate::parser::ast_visitor::AstAdapter;
 use crate::tyck::*;
 use crate::util::{Expect, IntoError, PResult, Visit};
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::rc::Rc;
 
 mod post_solve;
@@ -247,7 +248,8 @@ impl InstantiationAdapter {
         T: Visit<GenericsInstantiator>
             + Visit<TyckObjectiveAdapter>
             + Visit<PostSolveAdapter>
-            + Visit<InstantiationAdapter>,
+            + Visit<InstantiationAdapter>
+            + Debug,
     {
         // Let's first instantiate it.
         let mut instantiate = GenericsInstantiator::from_generics(ids, tys)?;
@@ -255,6 +257,7 @@ impl InstantiationAdapter {
 
         let (t, solution) = typecheck_simple(self.analyzed_program.clone(), &self.base_solver, t)?;
         let mut post_solve = PostSolveAdapter(solution, self.analyzed_program.clone());
+
         let t = t.visit(&mut post_solve)?.visit(self)?;
 
         Ok(t)

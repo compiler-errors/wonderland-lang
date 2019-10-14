@@ -17,11 +17,8 @@ impl AstAdapter for PostSolveAdapter {
             | AstType::DummyGeneric(..)
             | AstType::GenericPlaceholder(..)
             | AstType::SelfType => unreachable!(),
-            AstType::Infer(..) => {
-                return PResult::error_at(
-                    Span::none(),
-                    "Insufficient information to infer types".into(),
-                );
+            AstType::Infer(_) => {
+                return PResult::error("Insufficient information to infer types".into());
             }
             _ => {}
         }

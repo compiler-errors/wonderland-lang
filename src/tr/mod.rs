@@ -29,7 +29,6 @@ const GLOBAL: AddressSpace = AddressSpace::Generic; /* This too. */
 
 lazy_static! {
     static ref STDLIB_PATH: &'static OsStr = OsStr::new("std/lib.ll");
-
     static ref LIBC_PATH: &'static OsStr = if cfg!(target_os = "linux") {
         OsStr::new("/usr/lib/libc.a")
     } else if cfg!(target_os = "macos") {
@@ -62,8 +61,16 @@ pub fn translate(file: InstantiatedProgram, llvm_ir: bool, output_file: &str) ->
     let module = tr.module;
 
     if let Result::Err(why) = module.verify() {
-        panic!("LLVM: {}", why.to_string());
+        println!("{}", module.print_to_string().to_string());
+
+        PError::new(format!("LLVM: {}", why.to_string()));
     }
+
+    let pmb = PassManagerBuilder::create();
+    pmb.set_optimization_level(OptimizationLevel::Aggressive);
+    let pm = PassManager::create(());
+    pmb.populate_module_pass_manager(&pm);
+    pm.run_on(&module);
 
     println!("{}", module.print_to_string().to_string());
 
@@ -76,26 +83,24 @@ pub fn translate(file: InstantiatedProgram, llvm_ir: bool, output_file: &str) ->
 
 fn emit_module(output_file: &str, module: Module, llvm_ir: bool) -> PResult<()> {
     if llvm_ir {
-        if !module.write_bitcode_to_path(&PathBuf::from(output_file)) {
+        if let Err(msg) = module.print_to_file(&PathBuf::from(output_file)) {
             return PResult::error(format!(
-                "There was a problem writing the assembly file to disk."
+                "There was a problem writing the assembly file to disk: {}", msg.to_string()
             ));
         }
     } else {
         let dir = TempDir::new().map_err(|e| PError::new(format!("Temp dir error: {}", e)))?;
-
         let ll = dir.path().join("file.ll").into_os_string();
-
         module.write_bitcode_to_path(Path::new(&ll));
 
-        let o = dir.path().join("file.o").into_os_string();
-        let std_o = dir.path().join("std.o").into_os_string();
-
-        compile(&ll, &o)?;
-        compile(*STDLIB_PATH, &std_o)?;
-
         let ld_status = Command::new(format!("clang"))
-            .args(&[&o, &std_o, OsStr::new("-o"), OsStr::new(output_file)])
+            .args(&[
+                *STDLIB_PATH,
+                &ll,
+                OsStr::new("-o"),
+                OsStr::new(output_file),
+                OsStr::new("-O3"),
+            ])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .status()
@@ -110,26 +115,6 @@ fn emit_module(output_file: &str, module: Module, llvm_ir: bool) -> PResult<()> 
     }
 
     Ok(())
-}
-
-fn compile(in_path: &OsStr, out_path: &OsStr) -> PResult<()> {
-    let llvm_path = std::env::var("LLVM_SYS_80_PREFIX").unwrap_or_else(|_| "/usr/bin".into());
-
-    let llc_status = Command::new(format!("{}/llc", llvm_path))
-        .args(&[in_path, OsStr::new("-o"), out_path, OsStr::new("-filetype=obj")])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .status()
-        .map_err(|e| PError::new(format!("Command Error (llc): {}", e)))?;
-
-    if llc_status.success() {
-        Ok(())
-    } else {
-        PResult::error(format!(
-            "Program `llc` exited with code: {}",
-            llc_status.code().unwrap_or(-1),
-        ))
-    }
 }
 
 impl Translator {

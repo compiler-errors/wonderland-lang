@@ -13,16 +13,8 @@ impl Span {
         Span { file, start, end }
     }
 
-    pub fn none() -> Span {
-        Span {
-            file: FileId(0),
-            start: 0,
-            end: 0,
-        }
-    }
-
     pub fn unite(self, next: Span) -> Span {
-        assert!(self.file == next.file);
+        assert_eq!(self.file, next.file);
 
         Span {
             file: self.file,

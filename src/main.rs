@@ -72,7 +72,7 @@ fn main() {
         if llvm_ir {
             "cheshire.out.ll".into()
         } else {
-            "cheshire.out.o".into()
+            "cheshire.out".into()
         }
     });
 

@@ -140,14 +140,10 @@ pub fn report_err(err: PError) -> ! {
         println!();
 
         if start_row == end_row {
-            println!(
-                "Error \"{}\" encountered on line {}:",
-                error_string,
-                start_row + 1,
-            );
+            println!("Error: {} ... on line {}:", error_string, start_row + 1,);
         } else {
             println!(
-                "Error \"{}\" encountered on lines {}-{}:",
+                "Error {} ... on lines {}-{}:",
                 error_string,
                 start_row + 1,
                 end_row + 1,
@@ -188,7 +184,7 @@ pub fn report_err(err: PError) -> ! {
             println!("-^");
         }
     } else {
-        println!("Error \"{}\" occurred.", error_string);
+        println!("Error: {}", error_string);
     }
 
     if !comments.is_empty() {

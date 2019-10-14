@@ -56,10 +56,7 @@ static MAX_ITERATIONS: usize = 1_000_000_usize;
 
 impl TyckSolver {
     fn error<T>(why: &str) -> PResult<T> {
-        PResult::error_at(
-            Span::none(),
-            format!("Problem during type checker! {}.", why),
-        )
+        PResult::error(format!("Problem during type checker! {}.", why))
     }
 
     fn is_solved(&self) -> bool {
@@ -293,18 +290,16 @@ impl TyckSolver {
                 Ok(())
             }
             (AstType::Infer(lid), rhs) => {
-                self.solution
-                    .inferences
-                    .insert(*lid, rhs.clone())
-                    .is_not_expected(Span::none(), "inference", &format!("_{}", lid.0))?;
+                if self.solution.inferences.insert(*lid, rhs.clone()).is_some() {
+                    panic!("ICE: Duplicated inference");
+                }
 
                 Ok(())
             }
             (lhs, AstType::Infer(rid)) => {
-                self.solution
-                    .inferences
-                    .insert(*rid, lhs.clone())
-                    .is_not_expected(Span::none(), "inference", &format!("_{}", rid.0))?;
+                if self.solution.inferences.insert(*rid, lhs.clone()).is_some() {
+                    panic!("ICE: Duplicated inference");
+                }
 
                 Ok(())
             }
