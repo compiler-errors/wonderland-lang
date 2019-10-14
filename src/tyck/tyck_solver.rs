@@ -3,7 +3,7 @@ use crate::parser::ast::*;
 use crate::parser::ast_visitor::AstAdapter;
 use crate::tyck::tyck_instantiate::GenericsInstantiator;
 use crate::tyck::TyckObjective;
-use crate::util::{Expect, IntoError, PResult, Span, Visit, ZipExact};
+use crate::util::{IntoError, PResult, Span, Visit, ZipExact};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::rc::Rc;
 

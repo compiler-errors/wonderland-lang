@@ -2,7 +2,7 @@ use crate::ana::represent::AnalyzedProgram;
 use crate::parser::ast::{AstExpression, AstExpressionData, AstType};
 use crate::parser::ast_visitor::AstAdapter;
 use crate::tyck::TyckSolution;
-use crate::util::{IntoError, PResult, Span};
+use crate::util::{IntoError, PResult};
 use std::rc::Rc;
 
 pub struct PostSolveAdapter(pub TyckSolution, pub Rc<AnalyzedProgram>);

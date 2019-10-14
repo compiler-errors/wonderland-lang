@@ -8,19 +8,17 @@ use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::Module;
-use inkwell::passes::{PassManager, PassManagerBuilder, PassManagerSubType, PassRegistry};
-use inkwell::targets::{
-    CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine,
-};
+use inkwell::passes::{PassManager, PassManagerBuilder, PassManagerSubType};
+
 use inkwell::types::*;
 use inkwell::values::*;
 use inkwell::{AddressSpace, OptimizationLevel};
 use std::collections::HashMap;
-use std::ffi::{OsStr, OsString};
+use std::ffi::{OsStr};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::RwLock;
-use tempfile::{NamedTempFile, TempDir};
+use tempfile::{TempDir};
 
 mod decorate;
 
