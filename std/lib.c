@@ -30,8 +30,8 @@ i64 fpP8internalP9operators7add_int(i64 a, i64 b) {
     return a + b;
 }
 
-i64 fpP8internalP9operators7neg_int(i64 a) {
-    return -a;
+i64 fpP8internalP9operators7sub_int(i64 a, i64 b) {
+    return a - b;
 }
 
 i64 fpP8internalP9operators7mul_int(i64 a, i64 b) {
@@ -46,7 +46,7 @@ i64 fpP8internalP9operators7mod_int(i64 a, i64 b) {
     return a % b;
 }
 
-i8* alloc_string(i8* string, i64 size) {
+struct string* alloc_string(i8* string, i64 size) {
     i8* string_copy = calloc(size + 1, sizeof(i8));
     memcpy(string_copy, string, size * sizeof(i8));
 
@@ -54,7 +54,14 @@ i8* alloc_string(i8* string, i64 size) {
     string_ptr->ptr = string_copy;
     string_ptr->size = size;
 
-    return (i8*) string_ptr;
+    return string_ptr;
+}
+
+struct string* fpP8internalP16transmute_string15int_into_string(i64 i) {
+    i8 buf[21] = {0};
+    i64 size = sprintf((char*) buf, "%ld", i);
+
+    return alloc_string(buf, size);
 }
 
 struct string* fpP8internalP9operators10add_string(struct string* a,
