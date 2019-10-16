@@ -30,8 +30,8 @@ i64 fpP8internalP9operators7add_int(i64 a, i64 b) {
     return a + b;
 }
 
-i64 fpP8internalP9operators7sub_int(i64 a, i64 b) {
-    return a - b;
+i64 fpP8internalP9operators7neg_int(i64 a) {
+    return -a;
 }
 
 i64 fpP8internalP9operators7mul_int(i64 a, i64 b) {
