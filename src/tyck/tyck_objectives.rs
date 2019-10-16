@@ -184,7 +184,7 @@ impl<'a> AstAdapter for TyckObjectiveAdapter {
                         &associated_trait.1,
                         fn_name,
                         fn_generics,
-                        &AstType::infer(),
+                        &call_type,
                     )?;
                 let arg_tys = into_types(args);
                 self.solver.unify_all(&param_tys, &arg_tys)?;
