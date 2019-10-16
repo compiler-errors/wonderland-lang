@@ -1,21 +1,17 @@
 // export fn foo(a: Int, b: Int).
 
-fn fibonacci(i: Int) -> Int {
-    if (i == 0) | (i == 1) {
-        i
-    } else {
-        fibonacci(i - 1) + fibonacci(i - 2)
-    }
+trait Bar<_T> {
+    type Baz.
+
+    fn bing() -> <Self as Bar<_T>>::Baz.
+}
+
+impl Bar<Int> for Int {
+    type Baz = Int.
+
+    fn bing() -> Int { 2 }
 }
 
 fn main() -> Int {
-    let i = 0.
-
-    while i < 40 {
-        i = i + 1.
-    }
-
-    print("Woohoo!\n" + "foobar").
-
-    0
+    <Int>:bing()
 }

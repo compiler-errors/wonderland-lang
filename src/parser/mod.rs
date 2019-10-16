@@ -120,9 +120,25 @@ impl Parser {
         }
     }
 
-    fn expect_colon_push_lt(&mut self) -> PResult<()> {
-        self.expect(Token::ColonLt)?;
-        self.next_token = Token::Lt;
+    fn check_consume_colon(&mut self) -> PResult<bool> {
+        if self.check(Token::ColonLt) {
+            self.next_token = Token::Lt;
+            Ok(true)
+        } else if self.check(Token::Colon) {
+            self.bump()?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
+    /// `check_consume` but for a Colon or ColonLt. This stupid pseudo-token
+    /// has caused me a LOT of grief, but it's necessary, yo.
+    fn expect_consume_colon(&mut self) -> PResult<()> {
+        if !self.check_consume_colon()? {
+            return self.error_here(format!("Expected token `:`, found `{}`.", self.next_token));
+        }
+
         Ok(())
     }
 
@@ -365,7 +381,7 @@ impl Parser {
 
         loop {
             let (ty, _) = self.parse_type()?;
-            self.expect_consume(Token::Colon)?;
+            self.expect_consume_colon()?;
 
             loop {
                 let (trt, _) = self.parse_trait_type()?;
@@ -398,7 +414,7 @@ impl Parser {
             // name colon type
             let mut span = self.next_span;
             let param_name = self.expect_consume_identifier()?;
-            self.expect_consume(Token::Colon)?;
+            self.expect_consume_colon()?;
             let (param_type, ty_span) = self.parse_type()?;
             span = span.unite(ty_span);
             // parameter types can't have infer(s) in them
@@ -425,7 +441,10 @@ impl Parser {
 
     /// Try to parse an AstType.
     fn parse_type(&mut self) -> PResult<(AstType, Span)> {
+        let has_lt = self.check_consume(Token::Lt)?;
+
         let (mut ty, mut span) = match &self.next_token {
+            Token::Lt => self.parse_type()?,
             Token::Int => {
                 self.bump()?;
                 (AstType::Int, self.next_span)
@@ -460,11 +479,24 @@ impl Parser {
             ))?,
         };
 
+        if has_lt && self.check_consume(Token::As)? {
+            let (trt, _) = self.parse_trait_type()?;
+
+            ty = AstType::elaborated_type(ty, trt);
+        }
+
+        // We can either end it now, or keep on going.
+        let has_lt = has_lt && !self.check_consume(Token::Gt)?;
+
         while self.check_consume(Token::ColonColon)? {
             span = span.unite(self.next_span);
             let name = self.expect_consume_typename()?;
 
             ty = AstType::associated_type(ty, name);
+        }
+
+        if has_lt {
+            self.expect_consume(Token::Gt)?;
         }
 
         Ok((ty, span))
@@ -647,7 +679,7 @@ impl Parser {
         let name_span = self.next_span;
         let var_name = self.expect_consume_identifier()?;
 
-        let ty = if self.check_consume(Token::Colon)? {
+        let ty = if self.check_consume_colon()? {
             self.parse_type()?.0
         } else {
             AstType::infer()
@@ -762,7 +794,7 @@ impl Parser {
 
                         let name = self.expect_consume_identifier()?;
                         if self.check(Token::ColonLt) {
-                            self.expect_colon_push_lt()?;
+                            self.expect_consume_colon()?;
                             let (generics, generics_span) = self.parse_expr_generics()?;
                             let (args, args_span) = self.parse_expr_args()?;
                             span = span.unite(generics_span).unite(args_span);
@@ -969,7 +1001,7 @@ impl Parser {
             ))
         } else if self.check(Token::ColonLt) {
             span = span.unite(self.next_span);
-            self.expect_colon_push_lt()?;
+            self.expect_consume_colon()?;
             let (generics, generics_span) = self.parse_expr_generics()?;
             let (args, args_span) = self.parse_expr_args()?;
             span = span.unite(generics_span).unite(args_span);
@@ -989,7 +1021,7 @@ impl Parser {
 
     fn parse_static_call(&mut self, ty: AstType) -> PResult<AstExpression> {
         let mut span = self.next_span;
-        self.expect_consume(Token::Colon)?;
+        self.expect_consume_colon()?;
         let identifier = self.expect_consume_identifier()?;
 
         span = span.unite(self.next_span);
@@ -1005,7 +1037,7 @@ impl Parser {
                 args,
             ))
         } else if self.check(Token::ColonLt) {
-            self.expect_colon_push_lt()?;
+            self.expect_consume_colon()?;
             let (fn_generics, generics_span) = self.parse_expr_generics()?;
             let (args, args_span) = self.parse_expr_args()?;
             span = span.unite(generics_span).unite(args_span);
@@ -1214,7 +1246,7 @@ impl Parser {
         while !self.check_consume(Token::RBrace)? {
             let mut span = self.next_span;
             let mem_name = self.expect_consume_identifier()?;
-            self.expect_consume(Token::Colon)?;
+            self.expect_consume_colon()?;
             let (ty, ty_span) = self.parse_type()?;
             span = span.unite(ty_span);
             members.push(AstObjectMember::new(span, mem_name, ty));
@@ -1262,7 +1294,7 @@ impl Parser {
             // name colon type
             let mut param_span = self.next_span;
             let param_name = self.expect_consume_identifier()?;
-            self.expect_consume(Token::Colon)?;
+            self.expect_consume_colon()?;
             let (param_type, ty_span) = self.parse_type()?;
             param_span = param_span.unite(ty_span);
             // parameter types can't have infer(s) in them
@@ -1302,7 +1334,7 @@ impl Parser {
 
         let mut restrictions = Vec::new();
 
-        if self.check_consume(Token::Colon)? {
+        if self.check_consume_colon()? {
             loop {
                 let (trt, _) = self.parse_trait_type()?;
                 restrictions.push(AstTypeRestriction::new(AstType::SelfType, trt));
@@ -1350,7 +1382,7 @@ impl Parser {
         let name = self.expect_consume_typename()?;
         let mut restrictions = Vec::new();
 
-        if self.check_consume(Token::Colon)? {
+        if self.check_consume_colon()? {
             loop {
                 let (restriction, _) = self.parse_trait_type()?;
                 restrictions.push(restriction);

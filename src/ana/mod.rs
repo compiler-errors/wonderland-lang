@@ -17,12 +17,14 @@ use crate::ana::analyze_self::AnalyzeSelf;
 use crate::ana::analyze_variables::AnalyzeVariables;
 use crate::parser::ast::AstProgram;
 
+use crate::ana::analyze_elaborations::AnalyzeElaborations;
 use crate::util::{Comment, PResult, Visit};
 
 mod analyze_argument_parity;
 mod analyze_associated_types;
 mod analyze_binops;
 mod analyze_control_flow;
+mod analyze_elaborations;
 mod analyze_generics;
 mod analyze_generics_parity;
 mod analyze_illegal_infers;
@@ -67,6 +69,10 @@ pub fn analyze(p: AstProgram) -> PResult<(AnalyzedProgram, AstProgram)> {
     let mut a = analyze_info.analyzed_program;
 
     let passes: Vec<(&str, AnalysisPassFn)> = vec![
+        (
+            "analyze_elaborations",
+            Box::new(AnalyzeElaborations::analyze),
+        ),
         ("analyze_names", Box::new(AnalyzeNames::analyze)),
         (
             "analyze_associated_types",
@@ -81,13 +87,13 @@ pub fn analyze(p: AstProgram) -> PResult<(AnalyzedProgram, AstProgram)> {
             "analyze_control_flow",
             Box::new(AnalyzeControlFlow::analyze),
         ),
-        ("analyze_impls", Box::new(AnalyzeImpls::analyze)), // Before analyze object functions
+        ("analyze_impls", Box::new(AnalyzeImpls::analyze)), // Before object functions
         (
             "analyze_object_functions",
             Box::new(AnalyzeObjectFunctions::analyze),
         ),
         ("analyze_variables", Box::new(AnalyzeVariables::analyze)),
-        ("analyze_self", Box::new(AnalyzeSelf::analyze)),
+        ("analyze_self", Box::new(AnalyzeSelf::analyze)), // Before elaborations
         (
             "analyze_argument_parity",
             Box::new(AnalyzeArgumentParity::analyze),

@@ -208,10 +208,15 @@ pub enum AstType {
         types: Vec<AstType>,
     },
     Object(ModuleRef, Vec<AstType>),
+
     AssociatedType {
         obj_ty: Box<AstType>,
         trait_ty: Option<AstTraitType>,
         name: String,
+    },
+    ElaboratedType {
+        obj_ty: Box<AstType>,
+        trait_ty: AstTraitType,
     },
 
     GenericPlaceholder(GenericId, String),
@@ -277,6 +282,13 @@ impl AstType {
             obj_ty: Box::new(ty),
             trait_ty: None,
             name,
+        }
+    }
+
+    pub fn elaborated_type(ty: AstType, trt: AstTraitType) -> AstType {
+        AstType::ElaboratedType {
+            obj_ty: Box::new(ty),
+            trait_ty: trt,
         }
     }
 }

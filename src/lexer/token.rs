@@ -45,7 +45,7 @@ pub enum Token {
     Impl,
     Where,
     For,
-
+    As,
     If,
     Else,
     While,
@@ -124,6 +124,7 @@ impl Display for Token {
             &Token::Impl => write!(f, "impl"),
             &Token::Where => write!(f, "where"),
             &Token::For => write!(f, "for"),
+            &Token::As => write!(f, "as"),
             &Token::Let => write!(f, "let"),
             &Token::If => write!(f, "if"),
             &Token::Else => write!(f, "else"),

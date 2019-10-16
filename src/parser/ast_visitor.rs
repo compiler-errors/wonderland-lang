@@ -430,6 +430,10 @@ impl<T: AstAdapter> Visit<T> for AstType {
                 trait_ty: trait_ty.visit(adapter)?,
                 name,
             },
+            AstType::ElaboratedType { obj_ty, trait_ty } => AstType::ElaboratedType {
+                obj_ty: obj_ty.visit(adapter)?,
+                trait_ty: trait_ty.visit(adapter)?,
+            },
         };
 
         adapter.exit_type(ty)

@@ -161,7 +161,7 @@ impl AstAdapter for AnalyzeObjectFunctions {
                 fn_generics,
                 args,
                 associated_trait: None,
-                ..
+                impl_signature,
             } => {
                 if self.function_map.contains_key(&fn_name) {
                     let info = &self.function_map[&fn_name];
@@ -173,7 +173,7 @@ impl AstAdapter for AnalyzeObjectFunctions {
                         args: self.check_args(args, info.args, &fn_name)?,
                         fn_name,
                         associated_trait: Some(associated_trait),
-                        impl_signature: None,
+                        impl_signature,
                     }
                 } else {
                     return PResult::error(format!("No such associated typename `{}`.", fn_name));

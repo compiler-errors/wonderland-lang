@@ -354,6 +354,7 @@ impl Lexer {
             "else" => Token::Else,
             "while" => Token::While,
             "for" => Token::For,
+            "as" => Token::As,
             "break" => Token::Break,
             "continue" => Token::Continue,
             "return" => Token::Return,

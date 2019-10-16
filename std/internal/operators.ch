@@ -42,7 +42,7 @@ impl Divide<Int> for Int {
 impl Modulo<Int> for Int {
     type ModuloResult = Int.
 
-    fn rem(self, other: Int) -> Self::ModuloResult {
+    fn rem(self, other: Int) -> Int {
         mod_int(self, other)
     }
 }
