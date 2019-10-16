@@ -67,10 +67,6 @@ pub fn analyze(p: AstProgram) -> PResult<(AnalyzedProgram, AstProgram)> {
     let mut a = analyze_info.analyzed_program;
 
     let passes: Vec<(&str, AnalysisPassFn)> = vec![
-        (
-            "analyze_illegal_infers",
-            Box::new(AnalyzeIllegalInfers::analyze),
-        ),
         ("analyze_names", Box::new(AnalyzeNames::analyze)),
         (
             "analyze_associated_types",
@@ -97,6 +93,10 @@ pub fn analyze(p: AstProgram) -> PResult<(AnalyzedProgram, AstProgram)> {
             Box::new(AnalyzeArgumentParity::analyze),
         ),
         ("analyze_binops", Box::new(AnalyzeBinops::analyze)),
+        (
+            "analyze_illegal_infers",
+            Box::new(AnalyzeIllegalInfers::analyze),
+        ),
     ];
 
     for (name, pass) in passes {

@@ -96,7 +96,7 @@ impl AnalyzeObjectFunctions {
             Ok(args)
         } else {
             PResult::error(format!(
-                "Incorrect arguments of generics for function `{}`. Expected {}, found {}.",
+                "Incorrect number of arguments for function `{}`. Expected {}, found {}.",
                 m,
                 expected,
                 args.len()

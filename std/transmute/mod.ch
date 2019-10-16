@@ -8,7 +8,7 @@ trait From<_U> {
 
 impl<_T, _U> Into<_T> for _U where _T: From<_U> {
     fn into(self) -> _T {
-        _U:from(self)
+        _T:from(self)
     }
 }
 
