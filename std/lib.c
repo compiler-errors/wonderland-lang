@@ -18,31 +18,31 @@ struct string {
     i8* ptr;
 };
 
-i1 fpP9operatorsP8internal6eq_int(i64 a, i64 b) {
+i1 fpP8internalP9operators6eq_int(i64 a, i64 b) {
     return a == b;
 }
 
-i1 fpP9operatorsP8internal6gt_int(i64 a, i64 b) {
+i1 fpP8internalP9operators6gt_int(i64 a, i64 b) {
     return a > b;
 }
 
-i64 fpP9operatorsP8internal7add_int(i64 a, i64 b) {
+i64 fpP8internalP9operators7add_int(i64 a, i64 b) {
     return a + b;
 }
 
-i64 fpP9operatorsP8internal7sub_int(i64 a, i64 b) {
+i64 fpP8internalP9operators7sub_int(i64 a, i64 b) {
     return a - b;
 }
 
-i64 fpP9operatorsP8internal7mul_int(i64 a, i64 b) {
+i64 fpP8internalP9operators7mul_int(i64 a, i64 b) {
     return a * b;
 }
 
-i64 fpP9operatorsP8internal7div_int(i64 a, i64 b) {
+i64 fpP8internalP9operators7div_int(i64 a, i64 b) {
     return a / b;
 }
 
-i64 fpP9operatorsP8internal7mod_int(i64 a, i64 b) {
+i64 fpP8internalP9operators7mod_int(i64 a, i64 b) {
     return a % b;
 }
 
