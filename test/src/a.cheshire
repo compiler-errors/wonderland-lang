@@ -1,4 +1,4 @@
-export fn foo(a: Int, b: Int).
+// export fn foo(a: Int, b: Int).
 
 fn fibonacci(i: Int) -> Int {
     if (i == 0) | (i == 1) {
@@ -12,11 +12,10 @@ fn main() -> Int {
     let i = 0.
 
     while i < 40 {
-        foo(i, fibonacci(i)).
         i = i + 1.
     }
 
-    print("Woohoo!\n").
+    print("Woohoo!\n" + "foobar").
 
     0
 }

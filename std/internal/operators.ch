@@ -1,5 +1,3 @@
-use std::operators::*.
-
 export fn add_int(a: Int, b: Int) -> Int.
 export fn sub_int(a: Int, b: Int) -> Int.
 export fn mul_int(a: Int, b: Int) -> Int.
