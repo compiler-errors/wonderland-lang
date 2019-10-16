@@ -688,8 +688,8 @@ impl Translator {
                 builder.build_bitcast(ptr, ptr_type, &temp_name())
             }
 
-            AstExpressionData::Not(_expr) => unimplemented!(),
-            AstExpressionData::Negate(_expr) => unimplemented!(),
+            AstExpressionData::Not(_expr) => unreachable!(),
+            AstExpressionData::Negate(_expr) => unreachable!(),
 
             AstExpressionData::Assign { lhs, rhs } => {
                 let (lval, lval_temps) = self.translate_expression_lval(builder, &lhs)?;

@@ -13,5 +13,5 @@ impl Bar<Int> for Int {
 }
 
 fn main() -> Int {
-    <Int>:bing()
+    -(1)
 }

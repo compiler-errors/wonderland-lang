@@ -1,10 +1,10 @@
 export fn add_int(a: Int, b: Int) -> Int.
-export fn sub_int(a: Int, b: Int) -> Int.
 export fn mul_int(a: Int, b: Int) -> Int.
 export fn div_int(a: Int, b: Int) -> Int.
 export fn mod_int(a: Int, b: Int) -> Int.
 export fn gt_int(a: Int, b: Int) -> Bool.
 export fn eq_int(a: Int, b: Int) -> Bool.
+export fn neg_int(a: Int) -> Int.
 export fn add_string(a: String, b: String) -> String.
 
 impl Add<Int> for Int {
@@ -19,7 +19,7 @@ impl Subtract<Int> for Int {
     type SubtractResult = Int.
 
     fn sub(self, other: Int) -> Int {
-        sub_int(self, other)
+        self + (-other)
     }
 }
 
@@ -84,6 +84,14 @@ impl<_S, _T> Equals<_T> for _S where _S: PartialCompare<_T> {
     }
 }
 
+impl Negate for Int {
+    type NegateResult = Int.
+
+    fn negate(self) -> Int {
+        neg_int(self)
+    }
+}
+
 impl And<Bool> for Bool {
     type AndResult = Bool.
 
@@ -104,6 +112,18 @@ impl Or<Bool> for Bool {
             self
         } else {
             other
+        }
+    }
+}
+
+impl Not for Bool {
+    type NotResult = Bool.
+
+    fn not(self) -> Bool {
+        if self {
+            false
+        } else {
+            true
         }
     }
 }

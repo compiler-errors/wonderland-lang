@@ -48,3 +48,13 @@ trait Or<_T> {
     type OrResult.
     fn or(self, other: _T) -> <Self as Or<_T>>::OrResult.
 }
+
+trait Not {
+    type NotResult.
+    fn not(self) -> <Self as Not>::NotResult.
+}
+
+trait Negate {
+    type NegateResult.
+    fn negate(self) -> <Self as Negate>::NegateResult.
+}

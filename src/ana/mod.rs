@@ -5,7 +5,6 @@ use self::represent::*;
 use self::represent_visitor::*;
 use crate::ana::analyze_argument_parity::AnalyzeArgumentParity;
 use crate::ana::analyze_associated_types::AnalyzeAssociatedTypes;
-use crate::ana::analyze_binops::AnalyzeBinops;
 use crate::ana::analyze_control_flow::AnalyzeControlFlow;
 use crate::ana::analyze_generics::AnalyzeGenerics;
 use crate::ana::analyze_generics_parity::AnalyzeGenericsParity;
@@ -13,6 +12,7 @@ use crate::ana::analyze_illegal_infers::AnalyzeIllegalInfers;
 use crate::ana::analyze_impls::AnalyzeImpls;
 use crate::ana::analyze_names::AnalyzeNames;
 use crate::ana::analyze_object_functions::AnalyzeObjectFunctions;
+use crate::ana::analyze_operators::AnalyzeOperators;
 use crate::ana::analyze_self::AnalyzeSelf;
 use crate::ana::analyze_variables::AnalyzeVariables;
 use crate::parser::ast::AstProgram;
@@ -22,7 +22,6 @@ use crate::util::{Comment, PResult, Visit};
 
 mod analyze_argument_parity;
 mod analyze_associated_types;
-mod analyze_binops;
 mod analyze_control_flow;
 mod analyze_elaborations;
 mod analyze_generics;
@@ -33,6 +32,7 @@ mod analyze_info;
 mod analyze_modules;
 mod analyze_names;
 mod analyze_object_functions;
+mod analyze_operators;
 mod analyze_self;
 mod analyze_variables;
 pub mod represent;
@@ -98,7 +98,7 @@ pub fn analyze(p: AstProgram) -> PResult<(AnalyzedProgram, AstProgram)> {
             "analyze_argument_parity",
             Box::new(AnalyzeArgumentParity::analyze),
         ),
-        ("analyze_binops", Box::new(AnalyzeBinops::analyze)),
+        ("analyze_operators", Box::new(AnalyzeOperators::analyze)),
         (
             "analyze_illegal_infers",
             Box::new(AnalyzeIllegalInfers::analyze),

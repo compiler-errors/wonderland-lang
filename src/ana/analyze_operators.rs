@@ -5,12 +5,12 @@ use crate::parser::ast::{
 use crate::parser::ast_visitor::AstAdapter;
 use crate::util::{FileId, FileRegistry, IntoError, PResult, Visit};
 
-pub struct AnalyzeBinops {
+pub struct AnalyzeOperators {
     analyzed_program: AnalyzedProgram,
     operators_file: FileId,
 }
 
-impl AnalyzeBinops {
+impl AnalyzeOperators {
     pub fn analyze(
         analyzed_program: AnalyzedProgram,
         p: AstProgram,
@@ -30,7 +30,7 @@ impl AnalyzeBinops {
             ));
         }
 
-        let mut pass = AnalyzeBinops {
+        let mut pass = AnalyzeOperators {
             analyzed_program,
             operators_file: operators_file.unwrap(),
         };
@@ -70,8 +70,8 @@ impl AnalyzeBinops {
     }
 }
 
-impl AnalyzeBinops {
-    fn get_call(
+impl AnalyzeOperators {
+    fn get_binop_call(
         &self,
         kind: BinOpKind,
         lhs: Box<AstExpression>,
@@ -109,12 +109,28 @@ impl AnalyzeBinops {
     }
 }
 
-impl AstAdapter for AnalyzeBinops {
+impl AstAdapter for AnalyzeOperators {
     fn enter_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
         let AstExpression { data, ty, span } = e;
 
         let data = match data {
-            AstExpressionData::BinOp { kind, lhs, rhs } => self.get_call(kind, lhs, rhs)?,
+            AstExpressionData::Negate(expr) => AstExpressionData::StaticCall {
+                call_type: AstType::infer(),
+                fn_name: "negate".into(),
+                fn_generics: vec![],
+                args: vec![*expr],
+                associated_trait: Some(AstTraitType(self.construct_ref("Negate")?, vec![])),
+                impl_signature: None,
+            },
+            AstExpressionData::Not(expr) => AstExpressionData::StaticCall {
+                call_type: AstType::infer(),
+                fn_name: "not".into(),
+                fn_generics: vec![],
+                args: vec![*expr],
+                associated_trait: Some(AstTraitType(self.construct_ref("Not")?, vec![])),
+                impl_signature: None,
+            },
+            AstExpressionData::BinOp { kind, lhs, rhs } => self.get_binop_call(kind, lhs, rhs)?,
             e => e,
         };
 
