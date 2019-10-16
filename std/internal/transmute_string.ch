@@ -13,3 +13,31 @@ impl Into<String> for Char {
         char_into_string(self)
     }
 }
+
+impl From<Bool> for String {
+    fn from(b: Bool) -> String {
+        if b {
+            "true"
+        } else {
+            "false"
+        }
+    }
+}
+
+impl From<()> for String {
+    fn from(u: ()) -> String {
+        "()"
+    }
+}
+
+impl<_T> From<(_T,)> for String {
+    fn from(t: (_T,)) -> String {
+        "(" + t:0:into() + ",)"
+    }
+}
+
+impl<_T, _S> From<(_T, _S)> for String {
+    fn from(t: (_T, _S)) -> String {
+        "(" + t:0:into() + ", " + t:1:into() + ")"
+    }
+}
