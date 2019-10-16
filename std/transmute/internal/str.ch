@@ -1,0 +1,1 @@
+// Transmute all basic types to string

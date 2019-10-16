@@ -1,18 +1,19 @@
 use std::operators::*.
 
-export fn internal_add_int(a: Int, b: Int) -> Int.
-export fn internal_sub_int(a: Int, b: Int) -> Int.
-export fn internal_mul_int(a: Int, b: Int) -> Int.
-export fn internal_div_int(a: Int, b: Int) -> Int.
-export fn internal_mod_int(a: Int, b: Int) -> Int.
-export fn internal_gt_int(a: Int, b: Int) -> Bool.
-export fn internal_eq_int(a: Int, b: Int) -> Bool.
+export fn add_int(a: Int, b: Int) -> Int.
+export fn sub_int(a: Int, b: Int) -> Int.
+export fn mul_int(a: Int, b: Int) -> Int.
+export fn div_int(a: Int, b: Int) -> Int.
+export fn mod_int(a: Int, b: Int) -> Int.
+export fn gt_int(a: Int, b: Int) -> Bool.
+export fn eq_int(a: Int, b: Int) -> Bool.
+export fn add_string(a: String, b: String) -> String.
 
 impl Add<Int> for Int {
     type AddResult = Int.
 
     fn add(self, other: Int) -> Int {
-        internal_add_int(self, other)
+        add_int(self, other)
     }
 }
 
@@ -20,7 +21,7 @@ impl Subtract<Int> for Int {
     type SubtractResult = Int.
 
     fn sub(self, other: Int) -> Int {
-        internal_sub_int(self, other)
+        sub_int(self, other)
     }
 }
 
@@ -28,7 +29,7 @@ impl Multiply<Int> for Int {
     type MultiplyResult = Int.
 
     fn mul(self, other: Int) -> Int {
-        internal_mul_int(self, other)
+        mul_int(self, other)
     }
 }
 
@@ -36,7 +37,7 @@ impl Divide<Int> for Int {
     type DivideResult = Int.
 
     fn div(self, other: Int) -> Int {
-        internal_div_int(self, other)
+        div_int(self, other)
     }
 }
 
@@ -44,7 +45,7 @@ impl Modulo<Int> for Int {
     type ModuloResult = Int.
 
     fn rem(self, other: Int) -> Self::ModuloResult {
-        internal_mod_int(self, other)
+        mod_int(self, other)
     }
 }
 
@@ -57,12 +58,12 @@ impl PartialCompare<Int> for Int {
 impl<_S, _T> Compare<_T> for _S where _S: PartialCompare<_T> {
     fn gt(self, other: _T) -> Bool {
         let res = self:compare(other).
-        internal_gt_int(res, 0)
+        gt_int(res, 0)
     }
 
     fn lt(self, other: _T) -> Bool {
         let res = self:compare(other).
-        internal_gt_int(0, res)
+        gt_int(0, res)
     }
 
     fn ge(self, other: _T) -> Bool {
@@ -77,7 +78,7 @@ impl<_S, _T> Compare<_T> for _S where _S: PartialCompare<_T> {
 impl<_S, _T> Equals<_T> for _S where _S: PartialCompare<_T> {
     fn eq(self, other: _T) -> Bool {
         let res = self:compare(other).
-        internal_eq_int(res, 0)
+        eq_int(res, 0)
     }
 
     fn ne(self, other: _T) -> Bool {
@@ -106,5 +107,13 @@ impl Or<Bool> for Bool {
         } else {
             other
         }
+    }
+}
+
+impl Add<String> for String {
+    type AddResult = String.
+    
+    fn add(self, other: String) -> String {
+        add_string(self, other)
     }
 }

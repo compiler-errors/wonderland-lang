@@ -6,6 +6,7 @@ use std::sync::{Arc, RwLock, Weak};
 
 use std::ffi::{OsStr, OsString};
 use std::fs;
+use tempfile::NamedTempFile;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FileId(pub usize);
@@ -16,6 +17,7 @@ pub struct FileRegistry {
     mod_paths: HashMap<FileId, Vec<String>>,
 
     files: HashMap<FileId, Weak<str>>,
+    temporary_files: Vec<NamedTempFile>,
 }
 
 lazy_static! {
@@ -25,6 +27,7 @@ lazy_static! {
         paths: HashMap::new(),
         files: HashMap::new(),
         mod_paths: HashMap::new(),
+        temporary_files: Vec::new(),
     });
     static ref EXTENSIONS: HashSet<OsString> = {
         let mut x = HashSet::new();
@@ -182,5 +185,14 @@ impl FileRegistry {
     pub fn name(file_id: FileId) -> PResult<String> {
         let reg = FILE_REGISTRY.write().unwrap();
         Ok(reg.mod_paths[&file_id].last().unwrap().clone())
+    }
+
+    pub fn register_temporary(file: NamedTempFile) -> PResult<FileId> {
+        let id = FileRegistry::seek_module(file.path().into(), vec!["stdin".into()]);
+
+        let mut reg = FILE_REGISTRY.write().unwrap();
+        reg.temporary_files.push(file);
+
+        Ok(id)
     }
 }

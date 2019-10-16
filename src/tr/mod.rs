@@ -1,7 +1,7 @@
 use self::decorate::*;
 use crate::inst::{InstObjectSignature, InstantiatedProgram};
 use crate::parser::ast::*;
-use crate::util::{PError, PResult, ZipExact, IntoError};
+use crate::util::{IntoError, PError, PResult, ZipExact};
 use either::Either;
 use inkwell::attributes::{Attribute, AttributeLoc};
 use inkwell::basic_block::BasicBlock;
@@ -13,11 +13,11 @@ use inkwell::types::*;
 use inkwell::values::*;
 use inkwell::{AddressSpace, OptimizationLevel};
 use std::collections::HashMap;
-use std::ffi::{OsStr};
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::RwLock;
-use tempfile::{TempDir};
+use tempfile::TempDir;
 
 mod decorate;
 
@@ -25,7 +25,7 @@ const MANAGED: AddressSpace = AddressSpace::Generic; /* This is fucked. */
 const GLOBAL: AddressSpace = AddressSpace::Generic; /* This too. */
 
 lazy_static! {
-    static ref STDLIB_PATH: &'static OsStr = OsStr::new("std/lib.ll");
+    static ref STDLIB_PATH: &'static OsStr = OsStr::new("std/lib.c");
     static ref LIBC_PATH: &'static OsStr = if cfg!(target_os = "linux") {
         OsStr::new("/usr/lib/libc.a")
     } else if cfg!(target_os = "macos") {
@@ -51,11 +51,18 @@ struct Translator {
     variables: HashMap<VariableId, (PointerValue, Vec<PointerValue>)>,
 }
 
-pub fn translate(file: InstantiatedProgram, llvm_ir: bool, output_file: &str) -> PResult<()> {
+pub fn translate(
+    file: InstantiatedProgram,
+    llvm_ir: bool,
+    output_file: &str,
+    included_files: Vec<OsString>,
+) -> PResult<()> {
     let mut tr = Translator::new();
     tr.translate(file)?;
 
     let module = tr.module;
+
+    println!("{}", module.print_to_string().to_string());
 
     if let Result::Err(why) = module.verify() {
         println!("{}", module.print_to_string().to_string());
@@ -69,20 +76,26 @@ pub fn translate(file: InstantiatedProgram, llvm_ir: bool, output_file: &str) ->
     pmb.populate_module_pass_manager(&pm);
     pm.run_on(&module);
 
-    println!("{}", module.print_to_string().to_string());
+    //println!("{}", module.print_to_string().to_string());
 
     if output_file != "-" {
-        emit_module(output_file, module, llvm_ir)?;
+        emit_module(module, llvm_ir, output_file, included_files)?;
     }
 
     Ok(())
 }
 
-fn emit_module(output_file: &str, module: Module, llvm_ir: bool) -> PResult<()> {
+fn emit_module(
+    module: Module,
+    llvm_ir: bool,
+    output_file: &str,
+    included_files: Vec<OsString>,
+) -> PResult<()> {
     if llvm_ir {
         if let Err(msg) = module.print_to_file(&PathBuf::from(output_file)) {
             return PResult::error(format!(
-                "There was a problem writing the assembly file to disk: {}", msg.to_string()
+                "There was a problem writing the assembly file to disk: {}",
+                msg.to_string()
             ));
         }
     } else {
@@ -90,7 +103,9 @@ fn emit_module(output_file: &str, module: Module, llvm_ir: bool) -> PResult<()> 
         let ll = dir.path().join("file.ll").into_os_string();
         module.write_bitcode_to_path(Path::new(&ll));
 
-        let ld_status = Command::new(format!("clang"))
+        let mut command = Command::new(format!("clang"));
+
+        command
             .args(&[
                 *STDLIB_PATH,
                 &ll,
@@ -98,15 +113,20 @@ fn emit_module(output_file: &str, module: Module, llvm_ir: bool) -> PResult<()> 
                 OsStr::new(output_file),
                 OsStr::new("-O3"),
             ])
+            .args(&included_files)
             .stdin(Stdio::null())
-            .stdout(Stdio::null())
+            .stdout(Stdio::null());
+
+        println!("Executing command: {:?}", command);
+
+        let clang_status = command
             .status()
             .map_err(|e| PError::new(format!("Command Error (ld): {}", e)))?;
 
-        if !ld_status.success() {
+        if !clang_status.success() {
             return PResult::error(format!(
                 "Program `ld` exited with code: {}",
-                ld_status.code().unwrap_or(-1),
+                clang_status.code().unwrap_or(-1),
             ));
         }
     }
@@ -561,7 +581,7 @@ impl Translator {
                 obj.into()
             }
 
-            AstExpressionData::Array { elements } => {
+            AstExpressionData::ArrayLiteral { elements } => {
                 let mapped = elements
                     .into_iter()
                     .map(|e| self.translate_expression(builder, e))

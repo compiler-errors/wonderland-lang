@@ -322,7 +322,7 @@ impl<T: AstAdapter> Visit<T> for AstExpression {
             AstExpressionData::Tuple { values } => AstExpressionData::Tuple {
                 values: values.visit(adapter)?,
             },
-            AstExpressionData::Array { elements } => AstExpressionData::Array {
+            AstExpressionData::ArrayLiteral { elements } => AstExpressionData::ArrayLiteral {
                 elements: elements.visit(adapter)?,
             },
             AstExpressionData::Call {

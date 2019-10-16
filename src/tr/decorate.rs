@@ -1,13 +1,20 @@
 use crate::parser::ast::*;
 use crate::util::{FileRegistry, PResult};
 
-fn decorate_mod_name(m: &ModuleRef) -> PResult<String> {
-    if let ModuleRef::Normalized(file, name) = m {
-        Ok(format!(
-            "{}.{}",
-            FileRegistry::mod_path(*file)?.join("."),
-            name
-        ))
+pub fn decorate_module(module: &ModuleRef) -> PResult<(String, String)> {
+    if let ModuleRef::Normalized(file, symbol_name) = module {
+        let path = FileRegistry::mod_path(*file)?;
+        let mut decorated_module = String::new();
+
+        for m in path {
+            if &m == "std" {
+                decorated_module.push_str("p");
+            } else {
+                decorated_module.push_str(&format!("P{}{}", m.len(), m));
+            }
+        }
+
+        Ok((decorated_module, symbol_name.clone()))
     } else {
         unreachable!()
     }
@@ -37,13 +44,19 @@ pub fn decorate_ty(t: &AstType) -> PResult<String> {
         }
 
         AstType::Object(name, generics) if generics.len() == 0 => {
-            let name = decorate_mod_name(name)?;
-            format!("o{}{}", name.len(), name)
+            let (decorated_module, name) = decorate_module(name)?;
+            format!("o{}{}{}", decorated_module, name.len(), name)
         }
 
         AstType::Object(name, generics) => {
-            let name = decorate_mod_name(name)?;
-            let mut string = format!("O{}{}{}", name.len(), name, generics.len());
+            let (decorated_module, name) = decorate_module(name)?;
+            let mut string = format!(
+                "O{}{}{}{}",
+                decorated_module,
+                name.len(),
+                name,
+                generics.len()
+            );
 
             for t in generics {
                 string.push_str(&decorate_ty(t)?);
@@ -57,12 +70,18 @@ pub fn decorate_ty(t: &AstType) -> PResult<String> {
 }
 
 pub fn decorate_fn(name: &ModuleRef, generics: &[AstType]) -> PResult<String> {
-    let name = decorate_mod_name(name)?;
+    let (decorated_module, name) = decorate_module(name)?;
 
     Ok(if generics.len() == 0 {
-        format!("f{}{}", name.len(), name)
+        format!("f{}{}{}", decorated_module, name.len(), name)
     } else {
-        let mut string = format!("F{}{}{}", name.len(), name, generics.len());
+        let mut string = format!(
+            "F{}{}{}{}",
+            decorated_module,
+            name.len(),
+            name,
+            generics.len()
+        );
 
         for t in generics {
             string.push_str(&decorate_ty(t)?);
@@ -73,12 +92,18 @@ pub fn decorate_fn(name: &ModuleRef, generics: &[AstType]) -> PResult<String> {
 }
 
 pub fn decorate_object(name: &ModuleRef, generics: &[AstType]) -> PResult<String> {
-    let name = decorate_mod_name(name)?;
+    let (decorated_module, name) = decorate_module(name)?;
 
     Ok(if generics.len() == 0 {
-        format!("s{}{}", name.len(), name)
+        format!("s{}{}{}", decorated_module, name.len(), name)
     } else {
-        let mut string = format!("S{}{}{}", name.len(), name, generics.len());
+        let mut string = format!(
+            "S{}{}{}{}",
+            decorated_module,
+            name.len(),
+            name,
+            generics.len()
+        );
 
         for t in generics {
             string.push_str(&decorate_ty(t)?);
@@ -94,12 +119,13 @@ pub fn decorate_object_fn(
     fn_name: &str,
     fn_generics: &[AstType],
 ) -> PResult<String> {
-    let trt_name = decorate_mod_name(&trt.0)?;
+    let (decorated_module, trt_name) = decorate_module(&trt.0)?;
 
     Ok(if trt.1.len() == 0 && fn_generics.len() == 0 {
         format!(
-            "i{}{}{}{}{}",
+            "i{}{}{}{}{}{}",
             decorate_ty(ty)?,
+            decorated_module,
             trt_name.len(),
             trt_name,
             fn_name.len(),
@@ -107,8 +133,9 @@ pub fn decorate_object_fn(
         )
     } else if fn_generics.len() == 0 {
         let mut string = format!(
-            "m{}{}{}{}",
+            "m{}{}{}{}{}",
             decorate_ty(ty)?,
+            decorated_module,
             trt_name.len(),
             trt_name,
             trt.1.len()
@@ -123,8 +150,9 @@ pub fn decorate_object_fn(
         string
     } else {
         let mut string = format!(
-            "M{}{}{}{}",
+            "M{}{}{}{}{}",
             decorate_ty(ty)?,
+            decorated_module,
             trt_name.len(),
             trt_name,
             trt.1.len()

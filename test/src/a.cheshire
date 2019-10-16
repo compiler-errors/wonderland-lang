@@ -1,0 +1,22 @@
+export fn foo(a: Int, b: Int).
+
+fn fibonacci(i: Int) -> Int {
+    if (i == 0) | (i == 1) {
+        i
+    } else {
+        fibonacci(i - 1) + fibonacci(i - 2)
+    }
+}
+
+fn main() -> Int {
+    let i = 0.
+
+    while i < 40 {
+        foo(i, fibonacci(i)).
+        i = i + 1.
+    }
+
+    print("Woohoo!\n").
+
+    0
+}

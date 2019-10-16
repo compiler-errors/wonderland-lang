@@ -137,7 +137,7 @@ impl<'a> AstAdapter for TyckObjectiveAdapter {
                 let tuple_tys = into_types(values);
                 self.solver.unify(&ty, &AstType::tuple(tuple_tys))?;
             }
-            AstExpressionData::Array { elements } => {
+            AstExpressionData::ArrayLiteral { elements } => {
                 let _tuple_tys = into_types(elements);
                 let elem_ty = AstType::infer();
 

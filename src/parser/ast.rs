@@ -408,7 +408,7 @@ pub enum AstExpressionData {
     Tuple {
         values: Vec<AstExpression>,
     },
-    Array {
+    ArrayLiteral {
         elements: Vec<AstExpression>,
     },
 
@@ -574,7 +574,7 @@ impl AstExpression {
     pub fn empty_array_literal(span: Span) -> AstExpression {
         AstExpression {
             span,
-            data: AstExpressionData::Array {
+            data: AstExpressionData::ArrayLiteral {
                 elements: Vec::new(),
             },
             ty: AstType::infer(),
@@ -584,7 +584,7 @@ impl AstExpression {
     pub fn array_literal(span: Span, elements: Vec<AstExpression>) -> AstExpression {
         AstExpression {
             span,
-            data: AstExpressionData::Array { elements },
+            data: AstExpressionData::ArrayLiteral { elements },
             ty: AstType::infer(),
         }
     }

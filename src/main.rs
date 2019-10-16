@@ -12,11 +12,14 @@ use crate::lexer::{Lexer, Token};
 use crate::parser::parse_program;
 use crate::tr::translate;
 use crate::tyck::typecheck;
-use crate::util::{report_err, FileId, FileRegistry, PResult};
+use crate::util::{report_err, FileId, FileRegistry, PError, PResult};
 use getopts::{Matches, Options};
 
+use std::ffi::OsString;
+use std::io::{Read, Write};
 use std::path::Path;
 use std::process::exit;
+use tempfile::NamedTempFile;
 
 mod ana;
 mod inst;
@@ -56,6 +59,8 @@ fn main() {
     opts.optflag("L", "llvm-ir", "Compile file(s) to LLVM IR");
     opts.optopt("O", "output", "output file", "FILE");
 
+    opts.optmulti("I", "include", "Included C files", "CFILE");
+
     let matches = opts.parse(&args[1..]).unwrap_or_else(|_| {
         println!("Something went wrong when parsing...");
         help(true);
@@ -75,6 +80,11 @@ fn main() {
             "cheshire.out".into()
         }
     });
+    let included_files = matches
+        .opt_strs("I")
+        .into_iter()
+        .map(|s| OsString::from(s))
+        .collect();
 
     match mode {
         Mode::Help => help(false),
@@ -83,7 +93,7 @@ fn main() {
         Mode::Analyze => try_analyze(files),
         Mode::Typecheck => try_typecheck(files),
         Mode::Instantiate => try_instantiate(files),
-        Mode::Translate => try_translate(files, llvm_ir, &output_file),
+        Mode::Translate => try_translate(files, llvm_ir, &output_file, included_files),
     }
     .unwrap_or_else(|e| report_err(e));
 
@@ -109,7 +119,7 @@ fn get_files(mode: Mode, matches: &[String]) -> PResult<Vec<FileId>> {
         }
 
         if !stdin.is_empty() {
-            files.push(read_stdin());
+            files.push(read_stdin()?);
         }
 
         Ok(files)
@@ -141,8 +151,18 @@ fn select_mode(matches: &Matches) -> Result<Mode, ()> {
     Ok(chosen_mode.unwrap_or(DEFAULT_MODE))
 }
 
-fn read_stdin() -> FileId {
-    unimplemented!()
+fn read_stdin() -> PResult<FileId> {
+    let mut file = NamedTempFile::new()
+        .map_err(|e| PError::new(format!("Error creating temporary file: {}", e)))?;
+    let mut buf = vec![];
+
+    std::io::stdin()
+        .read_to_end(&mut buf)
+        .map_err(|e| PError::new(format!("Error reading from stdin: {}", e)))?;
+    file.write_all(&buf)
+        .map_err(|e| PError::new(format!("Error writing to temporary file: {}", e)))?;
+
+    FileRegistry::register_temporary(file)
 }
 
 fn help(fail: bool) -> ! {
@@ -242,13 +262,18 @@ fn try_instantiate(files: Vec<FileId>) -> PResult<()> {
     Ok(())
 }
 
-fn try_translate(files: Vec<FileId>, llvm_ir: bool, output_file: &str) -> PResult<()> {
+fn try_translate(
+    files: Vec<FileId>,
+    llvm_ir: bool,
+    output_file: &str,
+    included_files: Vec<OsString>,
+) -> PResult<()> {
     let program = parse_program(files)?;
     let (a, p) = analyze(program)?;
 
     typecheck(&a, &p)?;
     let i = instantiate(a, p)?;
-    translate(i, llvm_ir, output_file)?;
+    translate(i, llvm_ir, output_file, included_files)?;
 
     Ok(())
 }
