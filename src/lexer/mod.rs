@@ -223,12 +223,12 @@ impl Lexer {
             match self.current_char() {
                 '\\' => {
                     match self.next_char() {
-                        'r' => string += "\\0D",
-                        'n' => string += "\\0A",
-                        't' => string += "\\09",
-                        '"' => string += "\\22",
+                        'r' => string += "\r",
+                        'n' => string += "\n",
+                        't' => string += "\t",
+                        '"' => string += "\"",
                         '\'' => string += "'",
-                        '\\' => string += "\\\\",
+                        '\\' => string += "\\",
                         c => {
                             return self
                                 .error(format!("Unknown escaped character in string '\\{}'", c));
