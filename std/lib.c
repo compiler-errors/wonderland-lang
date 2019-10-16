@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdbool.h>
+#include <string.h>
 
 #define i64 int64_t
 #define i8 int8_t
@@ -46,13 +47,28 @@ i64 fpP9operatorsP8internal7mod_int(i64 a, i64 b) {
 }
 
 i8* alloc_string(i8* string, i64 size) {
-    I need to copy the string here, since I will deref it later.
+    i8* string_copy = calloc(size + 1, sizeof(i8));
+    memcpy(string_copy, string, size * sizeof(i8));
 
     struct string* string_ptr = malloc(sizeof(struct string));
-    string_ptr->ptr = string;
+    string_ptr->ptr = string_copy;
     string_ptr->size = size;
 
     return (i8*) string_ptr;
+}
+
+struct string* fpP8internalP9operators10add_string(struct string* a,
+                                                   struct string* b) {
+    i64 total_size = a->size + b->size;
+    i8* concat = calloc(total_size + 1, sizeof(i8));
+    strcat((char*) concat, (char*) a->ptr);
+    strcat((char*) concat, (char*) b->ptr);
+
+    struct string* new_string = malloc(sizeof(struct string));
+    new_string->ptr = concat;
+    new_string->size = total_size;
+
+    return new_string;
 }
 
 i8* alloc_array(i64 size, i64 elements) {
