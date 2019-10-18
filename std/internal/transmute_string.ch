@@ -14,9 +14,9 @@ impl Into<String> for Char {
     }
 }
 
-impl From<Bool> for String {
-    fn from(b: Bool) -> String {
-        if b {
+impl Into<String> for Bool {
+    fn into(self) -> String {
+        if self {
             "true"
         } else {
             "false"
@@ -24,20 +24,21 @@ impl From<Bool> for String {
     }
 }
 
-impl From<()> for String {
-    fn from(u: ()) -> String {
+impl Into<String> for () {
+    fn into(self) -> String {
         "()"
     }
 }
 
-impl<_T> From<(_T,)> for String {
-    fn from(t: (_T,)) -> String {
-        "(" + t:0:into() + ",)"
+impl<_T> Into<String> for (_T,) where _T: Into<String> {
+    fn into(self) -> String {
+        "(" + self:0:into() + ",)"
     }
 }
 
-impl<_T, _S> From<(_T, _S)> for String {
-    fn from(t: (_T, _S)) -> String {
-        "(" + t:0:into() + ", " + t:1:into() + ")"
+impl<_T, _S> Into<String> for (_T, _S) where _T: Into<String>,
+                                             _S: Into<String> {
+    fn into(self) -> String {
+        "(" + self:0:into() + ", " + self:1:into() + ")"
     }
 }
