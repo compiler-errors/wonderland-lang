@@ -1,5 +1,5 @@
 use self::decorate::*;
-use crate::inst::{InstObjectSignature, InstantiatedProgram};
+use crate::inst::{InstFunctionSignature, InstObjectSignature, InstantiatedProgram};
 use crate::parser::ast::*;
 use crate::util::{IntoError, PError, PResult, ZipExact};
 use either::Either;
@@ -37,6 +37,12 @@ lazy_static! {
 
 type AccessSignature = Vec<usize>;
 
+enum Definition {
+    Block(AstBlock),
+    None,
+    ArrayAccess,
+}
+
 struct Translator {
     context: Context,
     module: Module,
@@ -45,6 +51,7 @@ struct Translator {
     alloc_string: FunctionValue,
     alloc_object: FunctionValue,
     alloc_array: FunctionValue,
+    array_idx_at: FunctionValue,
 
     break_continue: Option<(BasicBlock, BasicBlock)>,
 
@@ -62,8 +69,6 @@ pub fn translate(
 
     let module = tr.module;
 
-    println!("{}", module.print_to_string().to_string());
-
     if let Result::Err(why) = module.verify() {
         println!("{}", module.print_to_string().to_string());
 
@@ -76,10 +81,10 @@ pub fn translate(
     pmb.populate_module_pass_manager(&pm);
     pm.run_on(&module);
 
-    //println!("{}", module.print_to_string().to_string());
-
     if output_file != "-" {
         emit_module(module, llvm_ir, output_file, included_files)?;
+    } else {
+        println!("{}", module.print_to_string().to_string());
     }
 
     Ok(())
@@ -203,6 +208,19 @@ impl Translator {
         );
         set_nounwind(&context, alloc_array);
 
+        let array_idx_at = module.add_function(
+            "array_idx_at",
+            context.i8_type().ptr_type(MANAGED).fn_type(
+                &[
+                    context.i8_type().ptr_type(MANAGED).into(),
+                    context.i64_type().into(),
+                    context.i64_type().into(),
+                ],
+                false,
+            ),
+            None,
+        );
+
         Translator {
             module,
             context,
@@ -211,6 +229,7 @@ impl Translator {
             alloc_string,
             alloc_object,
             alloc_array,
+            array_idx_at,
 
             break_continue: None,
 
@@ -242,29 +261,43 @@ impl Translator {
             self.forward_declare_function(&name, &fun.parameter_list, &fun.return_type)?;
         }
 
-        for (sig, fun) in &file.instantiated_fns {
-            let fun = fun.as_ref().unwrap();
+        for (sig, fun) in file.instantiated_fns {
+            let fun = fun.unwrap();
             let name = decorate_fn(&sig.0, &sig.1)?;
+
+            let definition = if is_array_deref(&sig)? {
+                Definition::ArrayAccess
+            } else if fun.definition.is_some() {
+                Definition::Block(fun.definition.unwrap())
+            } else {
+                Definition::None
+            };
 
             self.translate_function(
                 &name,
                 &fun.parameter_list,
                 &fun.return_type,
                 &fun.variables,
-                &fun.definition,
+                definition,
             )?;
         }
 
-        for (sig, fun) in &file.instantiated_object_fns {
-            let fun = fun.as_ref().unwrap();
+        for (sig, fun) in file.instantiated_object_fns {
+            let fun = fun.unwrap();
             let name = decorate_object_fn(&sig.0, &sig.1, &sig.2, &sig.3)?;
+
+            let definition = if fun.definition.is_some() {
+                Definition::Block(fun.definition.unwrap())
+            } else {
+                Definition::None
+            };
 
             self.translate_function(
                 &name,
                 &fun.parameter_list,
                 &fun.return_type,
                 &fun.variables,
-                &fun.definition,
+                definition,
             )?;
         }
 
@@ -328,11 +361,11 @@ impl Translator {
         parameter_list: &[AstNamedVariable],
         _return_type: &AstType,
         variables: &HashMap<VariableId, AstNamedVariable>,
-        definition: &Option<AstBlock>,
+        definition: Definition,
     ) -> PResult<()> {
         let llvm_fun = self.module.get_function(&fun_name).unwrap();
 
-        if let Some(definition) = definition {
+        if let Definition::Block(definition) = definition {
             let param_values: HashMap<_, _> =
                 ZipExact::zip_exact(parameter_list, &llvm_fun.get_params(), "params")?
                     .map(|(p, v)| (p.id, v.clone()))
@@ -380,6 +413,41 @@ impl Translator {
 
             let (ret, _) = self.translate_block(&start_builder, &definition)?;
             start_builder.build_return(Some(&ret));
+        } else if let Definition::ArrayAccess = definition {
+            // Emit array access logic for `FpP8internalP5deref11deref_array1...`
+            let return_type = llvm_fun.get_type().get_return_type().unwrap();
+
+            // Alloca and store the array parameter.
+            let block = llvm_fun.append_basic_block("pre");
+            let first_builder = Builder::create();
+            first_builder.position_at_end(&block);
+
+            // Take parameter zero, which is an array, and cast it to i8*
+            let array = llvm_fun.get_params()[0];
+            let ptr = first_builder.build_pointer_cast(
+                array.into_pointer_value(),
+                self.context.i8_type().ptr_type(MANAGED),
+                &temp_name(),
+            );
+
+            // Call array_idx_at with array, elem size, and idx.
+            let size = type_size(return_type)?.const_cast(IntType::i64_type(), false);
+            let idx = llvm_fun.get_params()[1];
+            let elem_ptr = unwrap_callsite(first_builder.build_call(
+                self.array_idx_at,
+                &[ptr.into(), size.into(), idx],
+                &temp_name(),
+            ));
+
+            // Cast that pointer to T*
+            let elem_ptr_typed = first_builder.build_pointer_cast(
+                elem_ptr.into_pointer_value(),
+                ptr_type(return_type, GLOBAL).into_pointer_type(),
+                &temp_name(),
+            );
+            let elem = first_builder.build_load(elem_ptr_typed, &temp_name());
+
+            first_builder.build_return(Some(&elem));
         }
 
         Ok(())
@@ -547,13 +615,13 @@ impl Translator {
             }
 
             // Lval-always expressions. Can be calculated by getting the lval then deref'ing.
-            AstExpressionData::Identifier { .. }
-            | AstExpressionData::ObjectAccess { .. }
-            | AstExpressionData::ArrayAccess { .. } => {
+            AstExpressionData::Identifier { .. } | AstExpressionData::ObjectAccess { .. } => {
                 let (ptr, temps) = self.translate_expression_lval(builder, expression)?;
                 self.free_temps(builder, &temps)?;
                 builder.build_load(ptr, &temp_name())
             }
+
+            AstExpressionData::ArrayAccess { .. } => unreachable!(),
 
             AstExpressionData::Tuple { values } => {
                 let mapped = values
@@ -593,7 +661,7 @@ impl Translator {
                 // Allocating the array.
                 let element_ty = self.get_type(&AstType::get_element(&expression.ty)?)?;
                 let array_ty = self.get_type(&expression.ty)?;
-                let ty_size = self.type_size(element_ty)?;
+                let ty_size = type_size(element_ty)?;
                 let num_elements = self
                     .context
                     .i64_type()
@@ -646,9 +714,8 @@ impl Translator {
                 fn_name,
                 fn_generics,
                 args,
-
                 associated_trait,
-                impl_signature: _,
+                ..
             } => {
                 let name = decorate_object_fn(
                     call_type,
@@ -682,7 +749,7 @@ impl Translator {
 
             AstExpressionData::AllocateObject { object } => {
                 let ptr_type = self.get_type(object)?.into_pointer_type();
-                let size = self.type_size(ptr_type.get_element_type().into_struct_type().into())?;
+                let size = type_size(ptr_type.get_element_type().into_struct_type().into())?;
                 let val = builder.build_call(self.alloc_object, &[size.into()], &temp_name());
                 let ptr = unwrap_callsite(val);
                 builder.build_bitcast(ptr, ptr_type, &temp_name())
@@ -700,11 +767,7 @@ impl Translator {
                 return Ok((rval, rval_temps));
             }
 
-            AstExpressionData::BinOp {
-                kind: _,
-                lhs: _,
-                rhs: _,
-            } => unreachable!(),
+            AstExpressionData::BinOp { .. } => unreachable!(),
 
             AstExpressionData::Block { block } => {
                 return self.translate_block(builder, block);
@@ -775,16 +838,7 @@ impl Translator {
                 let variable_id = &variable_id.unwrap();
                 (self.variables[variable_id].0, Vec::new())
             }
-            AstExpressionData::ArrayAccess { accessible, idx } => {
-                let (arr, arr_temps) = self.translate_expression(builder, &accessible)?;
-                let (idx, idx_temps) = self.translate_expression(builder, &idx)?;
-
-                self.free_temps(builder, &idx_temps)?;
-                let elem =
-                    self.get_array_idx(builder, arr.into_pointer_value(), idx.into_int_value())?;
-
-                (elem, arr_temps)
-            }
+            AstExpressionData::ArrayAccess { .. } => unreachable!(),
             AstExpressionData::ObjectAccess {
                 object, mem_idx, ..
             } => {
@@ -1005,19 +1059,6 @@ impl Translator {
 
         Ok(ty)
     }
-
-    fn type_size(&self, t: BasicTypeEnum) -> PResult<IntValue> {
-        let ty = match t {
-            BasicTypeEnum::StructType(t) => t.size_of().unwrap(),
-            BasicTypeEnum::ArrayType(t) => t.size_of().unwrap(),
-            BasicTypeEnum::IntType(t) => t.size_of(),
-            BasicTypeEnum::FloatType(t) => t.size_of(),
-            BasicTypeEnum::PointerType(t) => t.size_of(),
-            BasicTypeEnum::VectorType(t) => t.size_of().unwrap(),
-        };
-
-        Ok(ty)
-    }
 }
 
 fn set_nounwind(context: &Context, fun: FunctionValue) {
@@ -1087,6 +1128,19 @@ fn type_zero(t: BasicTypeEnum) -> PResult<BasicValueEnum> {
     Ok(ty)
 }
 
+fn type_size(t: BasicTypeEnum) -> PResult<IntValue> {
+    let ty = match t {
+        BasicTypeEnum::StructType(t) => t.size_of().unwrap(),
+        BasicTypeEnum::ArrayType(t) => t.size_of().unwrap(),
+        BasicTypeEnum::IntType(t) => t.size_of(),
+        BasicTypeEnum::FloatType(t) => t.size_of(),
+        BasicTypeEnum::PointerType(t) => t.size_of(),
+        BasicTypeEnum::VectorType(t) => t.size_of().unwrap(),
+    };
+
+    Ok(ty)
+}
+
 lazy_static! {
     static ref TEMP_NAME_COUNTER: RwLock<usize> = RwLock::new(1);
 }
@@ -1104,4 +1158,8 @@ fn unwrap_callsite(callsite: CallSiteValue) -> BasicValueEnum {
         Either::Left(x) => x,
         Either::Right(_) => unreachable!(),
     }
+}
+
+fn is_array_deref(sig: &InstFunctionSignature) -> PResult<bool> {
+    return Ok(&sig.0.full_name()? == "std::internal::operators::deref_array");
 }

@@ -193,10 +193,7 @@ impl<'a> AstAdapter for TyckObjectiveAdapter {
                 self.solver.add_objectives(&objectives)?; // Add fn restrictions
             }
             // An array access `a[1u]`
-            AstExpressionData::ArrayAccess { accessible, .. } => {
-                let array_ty = &accessible.ty;
-                self.solver.unify(array_ty, &AstType::array(ty.clone()))?;
-            }
+            AstExpressionData::ArrayAccess { .. } => unreachable!(),
             // A tuple access `a:1`
             AstExpressionData::TupleAccess { accessible, idx } => {
                 let tuple_ty = &accessible.ty;
@@ -233,7 +230,7 @@ impl<'a> AstAdapter for TyckObjectiveAdapter {
                 self.solver.unify(lhs_ty, &ty)?;
             }
 
-            AstExpressionData::BinOp { lhs: _, rhs: _, .. } => unreachable!(),
+            AstExpressionData::BinOp { .. } => unreachable!(),
         }
 
         Ok(AstExpression { data, ty, span })

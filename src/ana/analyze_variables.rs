@@ -31,12 +31,7 @@ impl AnalyzeVariables {
      * and into the `variables` map.
      */
     fn assign_index(&mut self, a: &AstNamedVariable) -> PResult<()> {
-        let AstNamedVariable {
-            span,
-            name,
-            ty: _,
-            id,
-        } = a;
+        let AstNamedVariable { span, name, id, .. } = a;
 
         self.scope
             .get_top(name)

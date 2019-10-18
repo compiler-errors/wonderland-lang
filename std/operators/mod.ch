@@ -58,3 +58,9 @@ trait Negate {
     type NegateResult.
     fn negate(self) -> <Self as Negate>::NegateResult.
 }
+
+trait Deref<_Idx> {
+    type DerefResult.
+
+    fn deref(self, idx: _Idx) -> <Self as Deref<_Idx>>::DerefResult.
+}
