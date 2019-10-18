@@ -64,3 +64,7 @@ trait Deref<_Idx> {
 
     fn deref(self, idx: _Idx) -> <Self as Deref<_Idx>>::DerefResult.
 }
+
+trait Len {
+    fn len(self) -> Int.
+}

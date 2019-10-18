@@ -8,8 +8,9 @@ export fn neg_int(a: Int) -> Int.
 export fn add_string(a: String, b: String) -> String.
 export fn get_char(s: String, i: Int) -> Char.
 
-// Cursed export bc this one doesn't actually live in stdlib.
+// Cursed exports bc they don't actually live in stdlib.
 export fn deref_array<_T>(array: [_T], idx: Int) -> _T.
+export fn array_len<_T>(array: [_T]) -> Int.
 
 impl Add<Int> for Int {
     type AddResult = Int.
@@ -153,5 +154,11 @@ impl<_T> Deref<Int> for String {
 
     fn deref(self, idx: Int) -> Char {
         get_char(self, idx)
+    }
+}
+
+impl<_T> Len for [_T] {
+    fn len(self) -> Int {
+        array_len(self)
     }
 }

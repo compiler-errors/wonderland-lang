@@ -41,6 +41,7 @@ enum Definition {
     Block(AstBlock),
     None,
     ArrayAccess,
+    ArrayLen,
 }
 
 struct Translator {
@@ -267,6 +268,8 @@ impl Translator {
 
             let definition = if is_array_deref(&sig)? {
                 Definition::ArrayAccess
+            } else if is_array_len(&sig)? {
+                Definition::ArrayLen
             } else if fun.definition.is_some() {
                 Definition::Block(fun.definition.unwrap())
             } else {
@@ -413,17 +416,21 @@ impl Translator {
 
             let (ret, _) = self.translate_block(&start_builder, &definition)?;
             start_builder.build_return(Some(&ret));
+
         } else if let Definition::ArrayAccess = definition {
             // Emit array access logic for `FpP8internalP5deref11deref_array1...`
             let return_type = llvm_fun.get_type().get_return_type().unwrap();
 
-            // Alloca and store the array parameter.
             let block = llvm_fun.append_basic_block("pre");
             let first_builder = Builder::create();
             first_builder.position_at_end(&block);
 
-            // Take parameter zero, which is an array, and cast it to i8*
+            // Alloca and store the array parameter.
             let array = llvm_fun.get_params()[0];
+            let alloca = first_builder.build_alloca(array.get_type(), &temp_name());
+            first_builder.build_store(alloca, array);
+
+            // Take parameter zero, which is an array, and cast it to i8*
             let ptr = first_builder.build_pointer_cast(
                 array.into_pointer_value(),
                 self.context.i8_type().ptr_type(MANAGED),
@@ -448,6 +455,21 @@ impl Translator {
             let elem = first_builder.build_load(elem_ptr_typed, &temp_name());
 
             first_builder.build_return(Some(&elem));
+
+        } else if let Definition::ArrayLen = definition {
+            let block = llvm_fun.append_basic_block("pre");
+            let first_builder = Builder::create();
+            first_builder.position_at_end(&block);
+
+            // Alloca and store the array parameter.
+            let array = llvm_fun.get_params()[0];
+            let alloca = first_builder.build_alloca(array.get_type(), &temp_name());
+            first_builder.build_store(alloca, array);
+
+            let size_ptr = unsafe { first_builder.build_struct_gep(array.into_pointer_value(), 0, &temp_name()) };
+            let size = first_builder.build_load(size_ptr, &temp_name());
+
+            first_builder.build_return(Some(&size));
         }
 
         Ok(())
@@ -1162,4 +1184,8 @@ fn unwrap_callsite(callsite: CallSiteValue) -> BasicValueEnum {
 
 fn is_array_deref(sig: &InstFunctionSignature) -> PResult<bool> {
     return Ok(&sig.0.full_name()? == "std::internal::operators::deref_array");
+}
+
+fn is_array_len(sig: &InstFunctionSignature) -> PResult<bool> {
+    return Ok(&sig.0.full_name()? == "std::internal::operators::array_len");
 }

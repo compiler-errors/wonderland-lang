@@ -1,21 +1,26 @@
-fn main() -> Int {
-    let x = [1, 2, 3, 4, 5, 4, 3, 2, 1, -1].
-    let i = 0.
-    let s = "[".
+impl<_T> Into<String> for [_T] where _T: Into<String> {
+    fn into(self) -> String {
+        let i = 0.
+        let s = "[".
 
-    while i < 10 {
-        if i > 0 {
-            s = s + ", ".
+        while i < self:len() {
+            if i > 0 {
+                s = s + ", ".
+            }
+
+            s = s + self[i]:into().
+            i = i + 1.
         }
 
-        s = s + x[i]:into().
-        i = i + 1.
+        s = s + ']':into().
+        s
     }
+}
 
-    s = s + ']':into().
-    print(s + '\n':into()).
+fn main() -> Int {
+    let x = [1, 2, 3, 4, 5, 4, 3, 2, 1, -1].
 
-    print("> " + "hello"[2]:into() + "\n").
-
+    print("Array len is: " + x:len():into() + "\n").
+    print(x:into() + '\n':into()).
     0
 }
