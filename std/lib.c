@@ -64,6 +64,10 @@ struct string* fpP8internalP16transmute_string15int_into_string(i64 i) {
     return alloc_string(buf, size);
 }
 
+struct string* fpP8internalP16transmute_string16char_into_string(i8 c) {
+    return alloc_string(&c, 1);
+}
+
 struct string* fpP8internalP9operators10add_string(struct string* a,
                                                    struct string* b) {
     i64 total_size = a->size + b->size;
