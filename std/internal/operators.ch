@@ -6,6 +6,7 @@ export fn gt_int(a: Int, b: Int) -> Bool.
 export fn eq_int(a: Int, b: Int) -> Bool.
 export fn neg_int(a: Int) -> Int.
 export fn add_string(a: String, b: String) -> String.
+export fn get_char(s: String, i: Int) -> Char.
 
 impl Add<Int> for Int {
     type AddResult = Int.

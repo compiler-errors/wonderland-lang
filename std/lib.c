@@ -18,6 +18,14 @@ struct string {
     i8* ptr;
 };
 
+void ensure_bounds_or_panic(const char* type, i64 size, i64 idx) {
+  if (idx < 0 || idx >= size) {
+    fprintf(stderr, "PANIC: Tried to deref %s (size=%ld) at index %ld\n",
+        type, size, idx);
+    exit(1);
+  }
+}
+
 i1 fpP8internalP9operators6eq_int(i64 a, i64 b) {
     return a == b;
 }
@@ -82,6 +90,11 @@ struct string* fpP8internalP9operators10add_string(struct string* a,
     return new_string;
 }
 
+i8 fpP8internalP9operators8get_char(struct string* string, i64 idx) {
+  ensure_bounds_or_panic("String", string->size, idx);
+  return string->ptr[idx];
+}
+
 i8* alloc_array(i64 size, i64 elements) {
     i8* ptr = calloc(elements, size);
 
@@ -90,6 +103,11 @@ i8* alloc_array(i64 size, i64 elements) {
     array_ptr->size = elements;
 
     return (i8*) array_ptr;
+}
+
+void* array_idx_at(struct array* array, i64 elem_size, i64 idx) {
+  ensure_bounds_or_panic("<array>", array->size, idx);
+  return array->ptr + (elem_size * idx);
 }
 
 void fp5print(struct string* str) {
