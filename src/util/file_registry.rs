@@ -168,12 +168,12 @@ impl FileRegistry {
 
     /// Gets the mod_path of the folder containing the given file.
     ///
-    /// For `mod.cheshire` files, this is the same as the file's own
+    /// For `mod.ch` files, this is the same as the file's own
     /// mod_path.
     pub fn parent_mod_path(file_id: FileId) -> PResult<Vec<String>> {
         let mut mod_path = Self::mod_path(file_id)?;
 
-        // mod_path of `x/mod.cheshire` is already `x`, so we only need
+        // mod_path of `x/mod.ch` is already `x`, so we only need
         // to pop the last part of the path off if it's not a mod file.
         if Self::path(file_id)?.file_stem().unwrap() != "mod" {
             mod_path.pop();
