@@ -270,7 +270,7 @@ impl TyckSolver {
         let lhs = self.normalize_ty(lhs)?;
         let rhs = self.normalize_ty(rhs)?;
 
-        println!("; Unifying {:?} and {:?}", lhs, rhs);
+        println!("; Unifying {} and {}", lhs, rhs);
 
         match (&lhs, &rhs) {
             /* Generics should have been repl'ed out. */
