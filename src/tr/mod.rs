@@ -1,8 +1,8 @@
 use self::decorate::*;
+use self::type_helpers::*;
 use crate::inst::{InstFunctionSignature, InstObjectSignature, InstantiatedProgram};
 use crate::parser::ast::*;
 use crate::util::{IntoError, PError, PResult, ZipExact};
-use either::Either;
 use inkwell::attributes::{Attribute, AttributeLoc};
 use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
@@ -20,9 +20,9 @@ use std::sync::RwLock;
 use tempfile::TempDir;
 
 mod decorate;
+mod type_helpers;
 
-const MANAGED: AddressSpace = AddressSpace::Generic; /* This is fucked. */
-const GLOBAL: AddressSpace = AddressSpace::Generic; /* This too. */
+const GLOBAL: AddressSpace = AddressSpace::Generic; /* Wot. */
 
 lazy_static! {
     static ref STDLIB_PATH: &'static OsStr = OsStr::new("std/lib.c");
@@ -34,8 +34,6 @@ lazy_static! {
         panic!("Unsupported OS")
     };
 }
-
-type AccessSignature = Vec<usize>;
 
 enum Definition {
     Block(AstBlock),
@@ -160,7 +158,7 @@ impl Translator {
                 &[
                     context
                         .i8_type()
-                        .ptr_type(MANAGED)
+                        .ptr_type(GLOBAL)
                         .ptr_type(GLOBAL /* TODO: This is wrong. */)
                         .into(),
                     context.i8_type().ptr_type(GLOBAL).into(),
@@ -169,7 +167,7 @@ impl Translator {
             ),
             None,
         );
-        set_nounwind(&context, gcroot);
+        set_fn_attrs(&context, gcroot);
 
         let alloc_string = module.add_function(
             "alloc_string",
@@ -177,7 +175,7 @@ impl Translator {
                 .get_type("string")
                 .unwrap()
                 .into_struct_type()
-                .ptr_type(MANAGED)
+                .ptr_type(GLOBAL)
                 .fn_type(
                     &[
                         context.i8_type().ptr_type(GLOBAL).into(),
@@ -187,33 +185,33 @@ impl Translator {
                 ),
             None,
         );
-        set_nounwind(&context, alloc_string);
+        set_fn_attrs(&context, alloc_string);
 
         let alloc_object = module.add_function(
             "alloc_object",
             context
                 .i8_type()
-                .ptr_type(MANAGED)
+                .ptr_type(GLOBAL)
                 .fn_type(&[context.i64_type().into()], false),
             None,
         );
-        set_nounwind(&context, alloc_object);
+        set_fn_attrs(&context, alloc_object);
 
         let alloc_array = module.add_function(
             "alloc_array",
-            context.i8_type().ptr_type(MANAGED).fn_type(
+            context.i8_type().ptr_type(GLOBAL).fn_type(
                 &[context.i64_type().into(), context.i64_type().into()],
                 false,
             ),
             None,
         );
-        set_nounwind(&context, alloc_array);
+        set_fn_attrs(&context, alloc_array);
 
         let array_idx_at = module.add_function(
             "array_idx_at",
-            context.i8_type().ptr_type(MANAGED).fn_type(
+            context.i8_type().ptr_type(GLOBAL).fn_type(
                 &[
-                    context.i8_type().ptr_type(MANAGED).into(),
+                    context.i8_type().ptr_type(GLOBAL).into(),
                     context.i64_type().into(),
                     context.i64_type().into(),
                 ],
@@ -339,7 +337,7 @@ impl Translator {
         let llvm_fun = self.module.add_function(&name, fun_ty, None);
 
         llvm_fun.set_gc("shadow-stack");
-        set_nounwind(&self.context, llvm_fun);
+        set_fn_attrs(&self.context, llvm_fun);
 
         Ok(llvm_fun)
     }
@@ -416,7 +414,6 @@ impl Translator {
 
             let (ret, _) = self.translate_block(&start_builder, &definition)?;
             start_builder.build_return(Some(&ret));
-
         } else if let Definition::ArrayAccess = definition {
             // Emit array access logic for `FpP8internalP5deref11deref_array1...`
             let return_type = llvm_fun.get_type().get_return_type().unwrap();
@@ -433,7 +430,7 @@ impl Translator {
             // Take parameter zero, which is an array, and cast it to i8*
             let ptr = first_builder.build_pointer_cast(
                 array.into_pointer_value(),
-                self.context.i8_type().ptr_type(MANAGED),
+                self.context.i8_type().ptr_type(GLOBAL),
                 &temp_name(),
             );
 
@@ -455,7 +452,6 @@ impl Translator {
             let elem = first_builder.build_load(elem_ptr_typed, &temp_name());
 
             first_builder.build_return(Some(&elem));
-
         } else if let Definition::ArrayLen = definition {
             let block = llvm_fun.append_basic_block("pre");
             let first_builder = Builder::create();
@@ -466,8 +462,10 @@ impl Translator {
             let alloca = first_builder.build_alloca(array.get_type(), &temp_name());
             first_builder.build_store(alloca, array);
 
-            let size_ptr = unsafe { first_builder.build_struct_gep(array.into_pointer_value(), 0, &temp_name()) };
-            let size = first_builder.build_load(size_ptr, &temp_name());
+            let array_deref = first_builder.build_load(array.into_pointer_value(), &temp_name());
+            let size = first_builder
+                .build_extract_value(array_deref.into_struct_value(), 0, &temp_name())
+                .unwrap();
 
             first_builder.build_return(Some(&size));
         }
@@ -782,10 +780,25 @@ impl Translator {
 
             AstExpressionData::Assign { lhs, rhs } => {
                 let (lval, lval_temps) = self.translate_expression_lval(builder, &lhs)?;
-                let (rval, rval_temps) = self.translate_expression(builder, &rhs)?;
+                let (rval, mut rval_temps) = self.translate_expression(builder, &rhs)?;
 
                 self.free_temps(builder, &lval_temps)?;
                 builder.build_store(lval, rval);
+
+                // We can drain these rval temps into their actual, meaningful variable.
+                if let AstExpressionData::Identifier { variable_id, .. } = &lhs.data {
+                    for (rval_temp, dest_temp) in ZipExact::zip_exact(
+                        &rval_temps,
+                        &self.variables[variable_id.as_ref().unwrap()].1,
+                        "variable flattenings",
+                    )? {
+                        let t = builder.build_load(*rval_temp, &temp_name());
+                        builder.build_store(*dest_temp, t);
+                    }
+
+                    rval_temps.clear();
+                }
+
                 return Ok((rval, rval_temps));
             }
 
@@ -860,7 +873,6 @@ impl Translator {
                 let variable_id = &variable_id.unwrap();
                 (self.variables[variable_id].0, Vec::new())
             }
-            AstExpressionData::ArrayAccess { .. } => unreachable!(),
             AstExpressionData::ObjectAccess {
                 object, mem_idx, ..
             } => {
@@ -957,7 +969,6 @@ impl Translator {
             builder.build_store(loc, v);
 
             self.call_gcroot(first_builder, loc)?;
-
             ptrs.push(loc);
         }
 
@@ -1048,12 +1059,12 @@ impl Translator {
             AstType::Char => self.context.i8_type().into(),
             AstType::Bool => self.context.bool_type().into(),
 
-            AstType::String => ptr_type(self.module.get_type("string").unwrap(), MANAGED).into(),
+            AstType::String => ptr_type(self.module.get_type("string").unwrap(), GLOBAL).into(),
 
             AstType::Object(name, generics) => {
                 let name = decorate_object(name, generics)?;
                 let ty = self.module.get_type(&name).unwrap();
-                ptr_type(ty, MANAGED)
+                ptr_type(ty, GLOBAL)
             }
 
             AstType::Array { ty } => {
@@ -1061,11 +1072,11 @@ impl Translator {
                 let ctx = self
                     .context
                     .struct_type(
-                        &[self.context.i64_type().into(), ptr_type(ty, MANAGED)],
+                        &[self.context.i64_type().into(), ptr_type(ty, GLOBAL)],
                         false,
                     )
                     .into();
-                ptr_type(ctx, MANAGED)
+                ptr_type(ctx, GLOBAL)
             }
 
             AstType::Tuple { types } => {
@@ -1083,84 +1094,15 @@ impl Translator {
     }
 }
 
-fn set_nounwind(context: &Context, fun: FunctionValue) {
+fn set_fn_attrs(context: &Context, fun: FunctionValue) {
     fun.add_attribute(
         AttributeLoc::Function,
         context.create_enum_attribute(Attribute::get_named_enum_kind_id("nounwind"), 1),
     );
-}
-
-fn flatten_type(t: &AstType) -> Vec<(AccessSignature, AstType)> {
-    match t {
-        AstType::Int | AstType::Char | AstType::Bool => vec![],
-
-        AstType::String | AstType::Object(..) | AstType::Array { .. } => vec![(vec![], t.clone())],
-
-        AstType::Tuple { types } => types
-            .into_iter()
-            .enumerate()
-            .flat_map(|(i, v)| {
-                let mut sigs = flatten_type(v);
-
-                for (sig, _) in &mut sigs {
-                    sig.insert(0, i);
-                }
-
-                sigs
-            })
-            .collect(),
-
-        _ => unreachable!(),
-    }
-}
-
-fn fun_type(t: BasicTypeEnum, p: &[BasicTypeEnum]) -> FunctionType {
-    match t {
-        BasicTypeEnum::StructType(t) => t.fn_type(p, false),
-        BasicTypeEnum::ArrayType(t) => t.fn_type(p, false),
-        BasicTypeEnum::IntType(t) => t.fn_type(p, false),
-        BasicTypeEnum::FloatType(t) => t.fn_type(p, false),
-        BasicTypeEnum::PointerType(t) => t.fn_type(p, false),
-        BasicTypeEnum::VectorType(t) => t.fn_type(p, false),
-    }
-}
-
-fn ptr_type(t: BasicTypeEnum, a: AddressSpace) -> BasicTypeEnum {
-    match t {
-        BasicTypeEnum::StructType(t) => t.ptr_type(a),
-        BasicTypeEnum::ArrayType(t) => t.ptr_type(a),
-        BasicTypeEnum::IntType(t) => t.ptr_type(a),
-        BasicTypeEnum::FloatType(t) => t.ptr_type(a),
-        BasicTypeEnum::PointerType(t) => t.ptr_type(a),
-        BasicTypeEnum::VectorType(t) => t.ptr_type(a),
-    }
-    .into()
-}
-
-fn type_zero(t: BasicTypeEnum) -> PResult<BasicValueEnum> {
-    let ty: BasicValueEnum = match t {
-        BasicTypeEnum::StructType(t) => t.const_zero().into(),
-        BasicTypeEnum::ArrayType(t) => t.const_zero().into(),
-        BasicTypeEnum::IntType(t) => t.const_zero().into(),
-        BasicTypeEnum::FloatType(t) => t.const_zero().into(),
-        BasicTypeEnum::PointerType(t) => t.const_zero().into(),
-        BasicTypeEnum::VectorType(t) => t.const_zero().into(),
-    };
-
-    Ok(ty)
-}
-
-fn type_size(t: BasicTypeEnum) -> PResult<IntValue> {
-    let ty = match t {
-        BasicTypeEnum::StructType(t) => t.size_of().unwrap(),
-        BasicTypeEnum::ArrayType(t) => t.size_of().unwrap(),
-        BasicTypeEnum::IntType(t) => t.size_of(),
-        BasicTypeEnum::FloatType(t) => t.size_of(),
-        BasicTypeEnum::PointerType(t) => t.size_of(),
-        BasicTypeEnum::VectorType(t) => t.size_of().unwrap(),
-    };
-
-    Ok(ty)
+    fun.add_attribute(
+        AttributeLoc::Function,
+        context.create_enum_attribute(Attribute::get_named_enum_kind_id("inlinehint"), 1),
+    );
 }
 
 lazy_static! {
@@ -1173,13 +1115,6 @@ fn temp_name() -> String {
     let id: usize = *id_ref;
 
     format!("temp_{}", id)
-}
-
-fn unwrap_callsite(callsite: CallSiteValue) -> BasicValueEnum {
-    match callsite.try_as_basic_value() {
-        Either::Left(x) => x,
-        Either::Right(_) => unreachable!(),
-    }
 }
 
 fn is_array_deref(sig: &InstFunctionSignature) -> PResult<bool> {
