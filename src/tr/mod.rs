@@ -25,7 +25,7 @@ const GLOBAL: AddressSpace = AddressSpace::Generic; /* Wot. */
 const GC: AddressSpace = AddressSpace::Global; /* addrspace(1) is Managed, i swear */
 
 lazy_static! {
-    static ref STDLIB_PATH: &'static OsStr = OsStr::new("std/lib.c");
+    static ref STDLIB_PATH: &'static OsStr = OsStr::new("std/clib/clib.c");
     static ref LIBC_PATH: &'static OsStr = if cfg!(target_os = "linux") {
         OsStr::new("/usr/lib/libc.a")
     } else if cfg!(target_os = "macos") {
@@ -111,7 +111,14 @@ fn emit_module(
         ]);
 
         let mut llc_command = Command::new("llc".to_string());
-        llc_command.args(&[&ll_gc, OsStr::new("-o"), &ll_o, OsStr::new("-filetype=obj")]);
+        llc_command.args(&[
+            &ll_gc,
+            OsStr::new("-o"),
+            &ll_o,
+            OsStr::new("-relocation-model=pic"),
+            OsStr::new("-O3"),
+            OsStr::new("-filetype=obj"),
+        ]);
 
         let mut objcopy_command = Command::new("objcopy".to_string());
         objcopy_command.args(&[
@@ -120,7 +127,7 @@ fn emit_module(
             OsStr::new("--globalize-symbol=__LLVM_StackMaps"),
         ]);
 
-        let mut clang_command = Command::new("clang".to_string());
+        let mut clang_command = Command::new("gcc".to_string());
         clang_command
             .args(&[
                 *STDLIB_PATH,
@@ -129,6 +136,7 @@ fn emit_module(
                 OsStr::new(output_file),
                 OsStr::new("-O3"),
                 OsStr::new("-g"),
+                OsStr::new("-fPIC"),
             ])
             .args(&included_files);
 
@@ -253,13 +261,13 @@ impl Translator {
         for (sig, fun) in &file.instantiated_fns {
             let fun = fun.as_ref().unwrap();
             let name = decorate_fn(&sig.0, &sig.1)?;
-            self.forward_declare_function(&name, &fun.parameter_list, &fun.return_type)?;
+            self.forward_declare_function(&name, &fun.parameter_list, &fun.return_type, fun.definition.is_none())?;
         }
 
         for (sig, fun) in &file.instantiated_object_fns {
             let fun = fun.as_ref().unwrap();
             let name = decorate_object_fn(&sig.0, &sig.1, &sig.2, &sig.3)?;
-            self.forward_declare_function(&name, &fun.parameter_list, &fun.return_type)?;
+            self.forward_declare_function(&name, &fun.parameter_list, &fun.return_type, fun.definition.is_none())?;
         }
 
         for (sig, fun) in file.instantiated_fns {
@@ -313,7 +321,7 @@ impl Translator {
         let main_fn_name = decorate_fn(main_fn, &[])?;
         let cheshire_main_fn = self.module.get_function(&main_fn_name).unwrap();
 
-        let real_main_fn = self.forward_declare_function("main", &[], &AstType::Int)?;
+        let real_main_fn = self.forward_declare_function("main", &[], &AstType::Int, false)?;
         let block = real_main_fn.append_basic_block("pre");
         let first_builder = Builder::create();
         first_builder.position_at_end(&block);
@@ -328,6 +336,7 @@ impl Translator {
         name: &str,
         parameter_list: &[AstNamedVariable],
         return_type: &AstType,
+        exported: bool,
     ) -> PResult<FunctionValue> {
         let param_tys = parameter_list
             .iter()
@@ -338,8 +347,8 @@ impl Translator {
 
         let llvm_fun = self.module.add_function(&name, fun_ty, None);
 
-        llvm_fun.set_gc("statepoint-example");
-        set_fn_attrs(&self.context, llvm_fun);
+            llvm_fun.set_gc("statepoint-example");
+            set_fn_attrs(&self.context, llvm_fun);
 
         Ok(llvm_fun)
     }
@@ -804,6 +813,12 @@ impl Translator {
                         &temp_name(),
                     )
                 };
+
+                let member = builder.build_address_space_cast(
+                    member,
+                    ptr_type(self.get_type(&expression.ty)?, GLOBAL).into_pointer_type(),
+                    &temp_name(),
+                );
 
                 Ok(member)
             }

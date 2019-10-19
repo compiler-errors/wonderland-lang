@@ -97,7 +97,7 @@ fn main() {
     }
     .unwrap_or_else(|e| report_err(e));
 
-    println!("Okay!");
+    println!("; Okay!");
 }
 
 fn get_files(mode: Mode, matches: &[String]) -> PResult<Vec<FileId>> {
