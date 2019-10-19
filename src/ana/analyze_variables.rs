@@ -102,10 +102,6 @@ impl<'a> AstAdapter for AnalyzeVariables {
                 name,
                 variable_id: None,
             } => {
-                println!(
-                    "; Looking for variable {:?} in scope {:?}",
-                    name, self.scope
-                );
                 let variable_id = Some(
                     self.scope
                         .get(&name)

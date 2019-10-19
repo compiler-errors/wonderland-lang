@@ -1,26 +1,32 @@
-impl<_T> Into<String> for [_T] where _T: Into<String> {
-    fn into(self) -> String {
-        let i = 0.
-        let s = "[".
+export fn gc().
 
-        while i < self:len() {
-            if i > 0 {
-                s = s + ", ".
-            }
+object Foo {
+    i: Int.
+    b: Foo.
+}
 
-            s = s + self[i]:into().
-            i = i + 1.
-        }
+fn new_foo() -> Foo {
+    let x = allocate Foo.
+    gc().
+    x:i = 1.
+    x:b = null.
+    x
+}
 
-        s = s + ']':into().
-        s
+fn bar(i: Int) {
+    if i < 5 {
+        bar(i + 1).
+        gc().
     }
 }
 
 fn main() -> Int {
-    let x = [1, 2, 3, 4, 5, 4, 3, 2, 1, -1].
-
-    print("Array len is: " + x:len():into() + "\n").
-    print(x:into() + '\n':into()).
+    let y = new_foo().
+    gc().
+    print(y:i:into()).
+    bar(0).
+    gc().
+    y = null.
+    gc().
     0
 }

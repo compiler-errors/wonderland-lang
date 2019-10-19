@@ -5,7 +5,7 @@ use crate::parser::ast::*;
 use crate::parser::ast_visitor::AstAdapter;
 use crate::tyck::*;
 use crate::util::{Expect, IntoError, PResult, Visit};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::rc::Rc;
 
@@ -25,6 +25,7 @@ struct InstantiationAdapter {
     instantiated_object_fns: HashMap<InstObjectFunctionSignature, Option<AstObjectFunction>>,
     instantiated_impls: HashMap<InstImplSignature, Option<AstImpl>>,
     instantiated_objects: HashMap<InstObjectSignature, Option<AstObject>>,
+    instantiated_types: HashSet<AstType>,
 
     solved_impls: HashMap<TyckObjective, InstImplSignature>,
 }
@@ -36,6 +37,7 @@ pub struct InstantiatedProgram {
     pub instantiated_object_fns: HashMap<InstObjectFunctionSignature, Option<AstObjectFunction>>,
     pub instantiated_impls: HashMap<InstImplSignature, Option<AstImpl>>,
     pub instantiated_objects: HashMap<InstObjectSignature, Option<AstObject>>,
+    pub instantiated_types: HashSet<AstType>,
 }
 
 pub fn instantiate(
@@ -84,6 +86,7 @@ pub fn instantiate(
         instantiated_impls: HashMap::new(),
         instantiated_objects: HashMap::new(),
         solved_impls: HashMap::new(),
+        instantiated_types: HashSet::new(),
     };
 
     if main_finder.0.is_none() {
@@ -99,6 +102,7 @@ pub fn instantiate(
         instantiated_object_fns: i.instantiated_object_fns,
         instantiated_impls: i.instantiated_impls,
         instantiated_objects: i.instantiated_objects,
+        instantiated_types: i.instantiated_types,
     })
 }
 
@@ -272,6 +276,8 @@ impl AstAdapter for InstantiationAdapter {
             }
             _ => { /* Do nothing. */ }
         }
+
+        self.instantiated_types.insert(t.clone());
 
         Ok(t)
     }

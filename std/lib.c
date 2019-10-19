@@ -4,6 +4,8 @@
 #include <stdbool.h>
 #include <string.h>
 
+#include "statepoint.h"
+
 #define i64 int64_t
 #define i8 int8_t
 #define i1 bool
@@ -105,6 +107,12 @@ i8* alloc_array(i64 size, i64 elements) {
   return (i8*) array_ptr;
 }
 
+i8* alloc_object(i64 size) {
+  i8* ptr = malloc(size + 1);
+  ptr[0] = 20; //Stupid testing value. TODO: Replace this with a real object type identifier.
+  return ptr + 1;
+}
+
 void* array_idx_at(struct array* array, i64 elem_size, i64 idx) {
   ensure_bounds_or_panic("<array>", array->size, idx);
   return array->ptr + (elem_size * idx);
@@ -112,4 +120,42 @@ void* array_idx_at(struct array* array, i64 elem_size, i64 idx) {
 
 void fp5print(struct string* str) {
   printf("%s", str->ptr);
+}
+
+
+extern uint8_t __LLVM_StackMaps[] __attribute__ ((section(".llvm_stackmaps")));
+statepoint_table_t* table;
+bool table_built = false;
+
+void fP1a2gc() {
+    i8* esp = __builtin_frame_address(0);
+    esp += sizeof(void*);
+    int64_t ret = *(int64_t*) esp;
+    esp += sizeof(void*);
+
+    if (!table_built) {
+        printf("Building table!\n");
+
+        table = generate_table((void*) &__LLVM_StackMaps, 0.5);
+
+        printf("GC is invoked!\nprinting the table...\n");
+        print_table(stdout, table, true);
+        printf("\n");
+        table_built = true;
+    }
+
+    frame_info_t* frame = lookup_return_address(table, ret);
+
+    while (frame) {
+        printf("Frame @ 0x%" PRIX64 "\n", ret);
+
+
+        esp += frame->frameSize;
+        ret = *(int64_t*) esp;
+        esp += sizeof(void*);
+
+        frame = lookup_return_address(table, (int64_t) ret);
+    }
+
+    printf("End of frames!\n\n");
 }

@@ -8,10 +8,9 @@ use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::Module;
-use inkwell::passes::{PassManager, PassManagerBuilder};
 use inkwell::types::*;
 use inkwell::values::*;
-use inkwell::{AddressSpace, OptimizationLevel};
+use inkwell::AddressSpace;
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
@@ -23,6 +22,7 @@ mod decorate;
 mod type_helpers;
 
 const GLOBAL: AddressSpace = AddressSpace::Generic; /* Wot. */
+const GC: AddressSpace = AddressSpace::Global; /* addrspace(1) is Managed, i swear */
 
 lazy_static! {
     static ref STDLIB_PATH: &'static OsStr = OsStr::new("std/lib.c");
@@ -46,7 +46,6 @@ struct Translator {
     context: Context,
     module: Module,
 
-    gcroot: FunctionValue,
     alloc_string: FunctionValue,
     alloc_object: FunctionValue,
     alloc_array: FunctionValue,
@@ -54,7 +53,7 @@ struct Translator {
 
     break_continue: Option<(BasicBlock, BasicBlock)>,
 
-    variables: HashMap<VariableId, (PointerValue, Vec<PointerValue>)>,
+    variables: HashMap<VariableId, PointerValue>,
 }
 
 pub fn translate(
@@ -73,12 +72,6 @@ pub fn translate(
 
         PError::new(format!("LLVM: {}", why.to_string()));
     }
-
-    let pmb = PassManagerBuilder::create();
-    pmb.set_optimization_level(OptimizationLevel::Aggressive);
-    let pm = PassManager::create(());
-    pmb.populate_module_pass_manager(&pm);
-    pm.run_on(&module);
 
     if output_file != "-" {
         emit_module(module, llvm_ir, output_file, included_files)?;
@@ -105,37 +98,63 @@ fn emit_module(
     } else {
         let dir = TempDir::new().map_err(|e| PError::new(format!("Temp dir error: {}", e)))?;
         let ll = dir.path().join("file.ll").into_os_string();
+        let ll_gc = dir.path().join("file.gc.ll").into_os_string();
+        let ll_o = dir.path().join("file.o").into_os_string();
         module.write_bitcode_to_path(Path::new(&ll));
 
-        let mut command = Command::new(format!("clang"));
+        let mut opt_command = Command::new("opt".to_string());
+        opt_command.args(&[
+            &ll,
+            OsStr::new("--rewrite-statepoints-for-gc"),
+            OsStr::new("-o"),
+            &ll_gc,
+        ]);
 
-        command
+        let mut llc_command = Command::new("llc".to_string());
+        llc_command.args(&[&ll_gc, OsStr::new("-o"), &ll_o, OsStr::new("-filetype=obj")]);
+
+        let mut objcopy_command = Command::new("objcopy".to_string());
+        objcopy_command.args(&[
+            &ll_o,
+            &ll_o,
+            OsStr::new("--globalize-symbol=__LLVM_StackMaps"),
+        ]);
+
+        let mut clang_command = Command::new("clang".to_string());
+        clang_command
             .args(&[
                 *STDLIB_PATH,
-                &ll,
+                &ll_o,
                 OsStr::new("-o"),
                 OsStr::new(output_file),
                 OsStr::new("-O3"),
+                OsStr::new("-g"),
             ])
-            .args(&included_files)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null());
+            .args(&included_files);
 
-        println!("Executing command: {:?}", command);
-
-        let clang_status = command
-            .status()
-            .map_err(|e| PError::new(format!("Command Error (ld): {}", e)))?;
-
-        if !clang_status.success() {
-            return PResult::error(format!(
-                "Program `ld` exited with code: {}",
-                clang_status.code().unwrap_or(-1),
-            ));
-        }
+        execute_command(opt_command)?;
+        execute_command(llc_command)?;
+        execute_command(objcopy_command)?;
+        execute_command(clang_command)?;
     }
 
     Ok(())
+}
+
+fn execute_command(mut command: Command) -> PResult<()> {
+    let command = command.stdin(Stdio::null()).stdout(Stdio::null());
+    println!("Executing command: {:?}", command);
+    let clang_status = command
+        .status()
+        .map_err(|e| PError::new(format!("Command Error: {}", e)))?;
+    if clang_status.success() {
+        Ok(())
+    } else {
+        PResult::error(format!(
+            "Command exited with code: {}",
+            clang_status.code().unwrap_or(-1),
+        ))
+    }
 }
 
 impl Translator {
@@ -152,30 +171,13 @@ impl Translator {
             false,
         );
 
-        let gcroot = module.add_function(
-            "llvm.gcroot",
-            context.void_type().fn_type(
-                &[
-                    context
-                        .i8_type()
-                        .ptr_type(GLOBAL)
-                        .ptr_type(GLOBAL /* TODO: This is wrong. */)
-                        .into(),
-                    context.i8_type().ptr_type(GLOBAL).into(),
-                ],
-                false,
-            ),
-            None,
-        );
-        set_fn_attrs(&context, gcroot);
-
         let alloc_string = module.add_function(
             "alloc_string",
             module
                 .get_type("string")
                 .unwrap()
                 .into_struct_type()
-                .ptr_type(GLOBAL)
+                .ptr_type(GC)
                 .fn_type(
                     &[
                         context.i8_type().ptr_type(GLOBAL).into(),
@@ -219,12 +221,12 @@ impl Translator {
             ),
             None,
         );
+        set_fn_attrs(&context, alloc_array);
 
         Translator {
             module,
             context,
 
-            gcroot,
             alloc_string,
             alloc_object,
             alloc_array,
@@ -336,7 +338,7 @@ impl Translator {
 
         let llvm_fun = self.module.add_function(&name, fun_ty, None);
 
-        llvm_fun.set_gc("shadow-stack");
+        llvm_fun.set_gc("statepoint-example");
         set_fn_attrs(&self.context, llvm_fun);
 
         Ok(llvm_fun)
@@ -386,24 +388,7 @@ impl Translator {
                     .unwrap_or_else(|| type_zero(ty))?;
                 first_builder.build_store(loc, param);
 
-                let subtys = flatten_type(&var.ty);
-
-                // In this case, the `loc` is already basically a spilled version
-                // of itself.
-                // I'm sorry this predicate is kinda stupid. Basically saying if
-                // the spilled version of the object is just 1 type, and the signature
-                // of that is just [], meaning "nothing", then we already have allocated
-                // a space to spill it.
-                let spilled = if subtys.len() == 1 && subtys[0].0 == vec![] {
-                    self.call_gcroot(&first_builder, loc)?;
-                    first_builder.build_store(loc, param);
-
-                    vec![loc]
-                } else {
-                    self.spill_value(&first_builder, param, &var.ty, true)?
-                };
-
-                self.variables.insert(*id, (loc, spilled));
+                self.variables.insert(*id, loc);
             }
 
             let start_block = llvm_fun.append_basic_block("start");
@@ -412,7 +397,7 @@ impl Translator {
             let start_builder = Builder::create();
             start_builder.position_at_end(&start_block);
 
-            let (ret, _) = self.translate_block(&start_builder, &definition)?;
+            let ret = self.translate_block(&start_builder, &definition)?;
             start_builder.build_return(Some(&ret));
         } else if let Definition::ArrayAccess = definition {
             // Emit array access logic for `FpP8internalP5deref11deref_array1...`
@@ -473,49 +458,12 @@ impl Translator {
         Ok(())
     }
 
-    fn translate_block(
-        &mut self,
-        builder: &Builder,
-        block: &AstBlock,
-    ) -> PResult<(BasicValueEnum, Vec<PointerValue>)> {
-        if self.has_break_continue() && !block.locals.is_empty() {
-            let (inner_block, inner_builder) = self.get_new_block(builder)?;
-            let (break_block, break_builder) = self.get_new_block(builder)?;
-            let (continue_block, continue_builder) = self.get_new_block(builder)?;
-            let (after_block, _after_builder) = self.get_new_block(builder)?;
-
-            builder.build_unconditional_branch(&inner_block);
-            let (old_break, old_continue) = self
-                .set_break_continue(Some((break_block, continue_block)))
-                .unwrap();
-
-            for s in &block.statements {
-                self.translate_statement(&inner_builder, s)?;
-            }
-
-            let (val, temps) = self.translate_expression(&inner_builder, &block.expression)?;
-
-            self.set_break_continue(Some((old_break, old_continue)));
-            for f in &block.locals {
-                let (_, temps) = &self.variables[f];
-                self.free_temps(&inner_builder, temps)?;
-                self.free_temps(&break_builder, temps)?;
-                self.free_temps(&continue_builder, temps)?;
-            }
-
-            inner_builder.build_unconditional_branch(&after_block);
-            break_builder.build_unconditional_branch(self.get_break());
-            continue_builder.build_unconditional_branch(self.get_continue());
-            builder.position_at_end(&after_block);
-
-            Ok((val, temps))
-        } else {
-            for s in &block.statements {
-                self.translate_statement(&builder, s)?;
-            }
-
-            self.translate_expression(&builder, &block.expression)
+    fn translate_block(&mut self, builder: &Builder, block: &AstBlock) -> PResult<BasicValueEnum> {
+        for s in &block.statements {
+            self.translate_statement(&builder, s)?;
         }
+
+        self.translate_expression(&builder, &block.expression)
     }
 
     fn translate_statement(&mut self, builder: &Builder, statement: &AstStatement) -> PResult<()> {
@@ -524,8 +472,7 @@ impl Translator {
             AstStatement::Assert { .. } => unimplemented!(),
 
             AstStatement::Expression { expression } => {
-                let (_, temps) = self.translate_expression(builder, expression)?;
-                self.free_temps(builder, &temps)?;
+                self.translate_expression(builder, expression)?;
             }
 
             AstStatement::While { condition, block } => {
@@ -536,9 +483,7 @@ impl Translator {
                 builder.build_unconditional_branch(&condition_block);
                 builder.position_at_end(&end_block);
 
-                let (condition, temps) =
-                    self.translate_expression(&condition_builder, condition)?;
-                self.free_temps(&condition_builder, &temps)?;
+                let condition = self.translate_expression(&condition_builder, condition)?;
                 condition_builder.build_conditional_branch(
                     condition.into_int_value(),
                     &loop_block,
@@ -547,8 +492,7 @@ impl Translator {
 
                 let old_break_continue =
                     self.set_break_continue(Some((end_block, condition_block)));
-                let (_, temps) = self.translate_block(&loop_builder, block)?;
-                self.free_temps(&loop_builder, &temps)?;
+                let _ = self.translate_block(&loop_builder, block)?;
                 loop_builder.build_unconditional_branch(&condition_block);
 
                 self.set_break_continue(old_break_continue);
@@ -566,7 +510,7 @@ impl Translator {
                 builder.position_at_end(&fake_block);
             }
             AstStatement::Return { value } => {
-                let (val, _temps) = self.translate_expression(builder, value)?;
+                let val = self.translate_expression(builder, value)?;
 
                 builder.build_return(Some(&val));
 
@@ -582,7 +526,7 @@ impl Translator {
         &mut self,
         builder: &Builder,
         expression: &AstExpression,
-    ) -> PResult<(BasicValueEnum, Vec<PointerValue>)> {
+    ) -> PResult<BasicValueEnum> {
         let value: BasicValueEnum = match &expression.data {
             AstExpressionData::SelfRef => unreachable!(),
             AstExpressionData::Unimplemented => unreachable!(),
@@ -636,23 +580,17 @@ impl Translator {
 
             // Lval-always expressions. Can be calculated by getting the lval then deref'ing.
             AstExpressionData::Identifier { .. } | AstExpressionData::ObjectAccess { .. } => {
-                let (ptr, temps) = self.translate_expression_lval(builder, expression)?;
-                self.free_temps(builder, &temps)?;
+                let ptr = self.translate_expression_lval(builder, expression)?;
                 builder.build_load(ptr, &temp_name())
             }
 
             AstExpressionData::ArrayAccess { .. } => unreachable!(),
 
             AstExpressionData::Tuple { values } => {
-                let mapped = values
+                let values = values
                     .iter()
                     .map(|e| self.translate_expression(builder, e))
-                    .collect::<PResult<Vec<(BasicValueEnum, Vec<PointerValue>)>>>()?;
-                let (values, temps): (Vec<BasicValueEnum>, Vec<Vec<_>>) =
-                    mapped.into_iter().unzip();
-                let temps: Vec<_> = temps.into_iter().flat_map(|e| e.into_iter()).collect();
-
-                self.free_temps(builder, &temps)?;
+                    .collect::<PResult<Vec<_>>>()?;
 
                 let mut obj: StructValue = self
                     .get_type(&expression.ty)?
@@ -670,13 +608,10 @@ impl Translator {
             }
 
             AstExpressionData::ArrayLiteral { elements } => {
-                let mapped = elements
+                let elements = elements
                     .into_iter()
                     .map(|e| self.translate_expression(builder, e))
-                    .collect::<PResult<Vec<(BasicValueEnum, Vec<PointerValue>)>>>()?;
-                let (elements, temps): (Vec<BasicValueEnum>, Vec<Vec<_>>) =
-                    mapped.into_iter().unzip();
-                let temps: Vec<_> = temps.into_iter().flat_map(|e| e.into_iter()).collect();
+                    .collect::<PResult<Vec<_>>>()?;
 
                 // Allocating the array.
                 let element_ty = self.get_type(&AstType::get_element(&expression.ty)?)?;
@@ -692,11 +627,15 @@ impl Translator {
                     &[ty_size.into(), num_elements.into()],
                     &temp_name(),
                 );
-                let ptr = builder
-                    .build_bitcast(unwrap_callsite(ptr), array_ty, &temp_name())
-                    .into_pointer_value();
 
-                self.free_temps(builder, &temps)?;
+                let ptr = builder.build_address_space_cast(
+                    unwrap_callsite(ptr).into_pointer_value(),
+                    array_ty.into_pointer_type(),
+                    &temp_name(),
+                );
+                //let ptr = builder
+                //    .build_bitcast(unwrap_callsite(ptr), array_ty, &temp_name())
+                //    .into_pointer_value();
 
                 for (idx, &e) in elements.iter().enumerate() {
                     let idx = self.context.i64_type().const_int(idx as u64, false);
@@ -715,15 +654,12 @@ impl Translator {
                 let name = decorate_fn(fn_name, generics)?;
                 let fun = self.module.get_function(&name).unwrap();
 
-                let mapped = args
+                let args = args
                     .into_iter()
                     .map(|e| self.translate_expression(builder, e))
-                    .collect::<PResult<Vec<(BasicValueEnum, Vec<PointerValue>)>>>()?;
-                let (args, temps): (Vec<BasicValueEnum>, Vec<Vec<_>>) = mapped.into_iter().unzip();
-                let temps: Vec<_> = temps.into_iter().flat_map(|e| e.into_iter()).collect();
+                    .collect::<PResult<Vec<_>>>()?;
 
                 let fn_ret = builder.build_call(fun, &args, &temp_name());
-                self.free_temps(builder, &temps)?;
                 unwrap_callsite(fn_ret)
             }
 
@@ -745,22 +681,18 @@ impl Translator {
                 )?;
                 let fun = self.module.get_function(&name).unwrap();
 
-                let mapped = args
+                let args = args
                     .into_iter()
                     .map(|e| self.translate_expression(builder, e))
-                    .collect::<PResult<Vec<(BasicValueEnum, Vec<PointerValue>)>>>()?;
-                let (args, temps): (Vec<BasicValueEnum>, Vec<Vec<_>>) = mapped.into_iter().unzip();
-                let temps: Vec<_> = temps.into_iter().flat_map(|e| e.into_iter()).collect();
+                    .collect::<PResult<Vec<_>>>()?;
 
                 let fn_ret = builder.build_call(fun, &args, &temp_name());
-                self.free_temps(builder, &temps)?;
                 unwrap_callsite(fn_ret)
             }
 
             AstExpressionData::TupleAccess { accessible, idx } => {
-                let (tup, temps) = self.translate_expression(&builder, &accessible)?;
+                let tup = self.translate_expression(&builder, &accessible)?;
                 let tup = tup.into_struct_value();
-                self.free_temps(builder, &temps)?;
 
                 builder
                     .build_extract_value(tup, *idx as u32, &temp_name())
@@ -772,34 +704,20 @@ impl Translator {
                 let size = type_size(ptr_type.get_element_type().into_struct_type().into())?;
                 let val = builder.build_call(self.alloc_object, &[size.into()], &temp_name());
                 let ptr = unwrap_callsite(val);
-                builder.build_bitcast(ptr, ptr_type, &temp_name())
+                builder
+                    .build_address_space_cast(ptr.into_pointer_value(), ptr_type, &temp_name())
+                    .into()
             }
 
             AstExpressionData::Not(_expr) => unreachable!(),
             AstExpressionData::Negate(_expr) => unreachable!(),
 
             AstExpressionData::Assign { lhs, rhs } => {
-                let (lval, lval_temps) = self.translate_expression_lval(builder, &lhs)?;
-                let (rval, mut rval_temps) = self.translate_expression(builder, &rhs)?;
+                let lval = self.translate_expression_lval(builder, &lhs)?;
+                let rval = self.translate_expression(builder, &rhs)?;
 
-                self.free_temps(builder, &lval_temps)?;
                 builder.build_store(lval, rval);
-
-                // We can drain these rval temps into their actual, meaningful variable.
-                if let AstExpressionData::Identifier { variable_id, .. } = &lhs.data {
-                    for (rval_temp, dest_temp) in ZipExact::zip_exact(
-                        &rval_temps,
-                        &self.variables[variable_id.as_ref().unwrap()].1,
-                        "variable flattenings",
-                    )? {
-                        let t = builder.build_load(*rval_temp, &temp_name());
-                        builder.build_store(*dest_temp, t);
-                    }
-
-                    rval_temps.clear();
-                }
-
-                return Ok((rval, rval_temps));
+                return Ok(rval);
             }
 
             AstExpressionData::BinOp { .. } => unreachable!(),
@@ -817,20 +735,17 @@ impl Translator {
                 let (else_block, else_builder) = self.get_new_block(builder)?;
                 let (after_block, _) = self.get_new_block(builder)?;
 
-                let (condition, temps) = self.translate_expression(builder, &condition)?;
-                self.free_temps(builder, &temps)?;
+                let condition = self.translate_expression(builder, &condition)?;
                 builder.build_conditional_branch(
                     condition.into_int_value(),
                     &then_block,
                     &else_block,
                 );
 
-                let (then_value, temps) = self.translate_block(&then_builder, &then_ast_block)?;
-                self.free_temps(&then_builder, &temps)?;
+                let then_value = self.translate_block(&then_builder, &then_ast_block)?;
                 then_builder.build_unconditional_branch(&after_block);
 
-                let (else_value, temps) = self.translate_block(&else_builder, &else_ast_block)?;
-                self.free_temps(&else_builder, &temps)?;
+                let else_value = self.translate_block(&else_builder, &else_ast_block)?;
                 else_builder.build_unconditional_branch(&after_block);
 
                 builder.position_at_end(&after_block);
@@ -842,8 +757,7 @@ impl Translator {
             }
         };
 
-        let spill = self.spill_value(builder, value, &expression.ty, false)?;
-        Ok((value, spill))
+        Ok(value)
     }
 
     fn get_array_idx(
@@ -867,16 +781,16 @@ impl Translator {
         &mut self,
         builder: &Builder,
         expression: &AstExpression,
-    ) -> PResult<(PointerValue, Vec<PointerValue>)> {
-        let (value, spill) = match &expression.data {
+    ) -> PResult<PointerValue> {
+        match &expression.data {
             AstExpressionData::Identifier { variable_id, .. } => {
                 let variable_id = &variable_id.unwrap();
-                (self.variables[variable_id].0, Vec::new())
+                Ok(self.variables[variable_id])
             }
             AstExpressionData::ObjectAccess {
                 object, mem_idx, ..
             } => {
-                let (object, temps) = self.translate_expression(builder, &object)?;
+                let object = self.translate_expression(builder, &object)?;
 
                 let member = unsafe {
                     builder.build_gep(
@@ -891,10 +805,10 @@ impl Translator {
                     )
                 };
 
-                (member, temps)
+                Ok(member)
             }
             AstExpressionData::TupleAccess { accessible, idx } => {
-                let (object, temps) = self.translate_expression_lval(builder, &accessible)?;
+                let object = self.translate_expression_lval(builder, &accessible)?;
 
                 let member = unsafe {
                     builder.build_gep(
@@ -907,85 +821,10 @@ impl Translator {
                     )
                 };
 
-                (member, temps)
+                Ok(member)
             }
             _ => unreachable!(),
-        };
-
-        Ok((value, spill))
-    }
-
-    fn translate_access(
-        &self,
-        builder: &Builder,
-        mut value: BasicValueEnum,
-        sig: &AccessSignature,
-    ) -> PResult<BasicValueEnum> {
-        for &idx in sig {
-            value = builder
-                .build_extract_value(value.into_struct_value(), idx as u32, &temp_name())
-                .unwrap();
         }
-
-        Ok(value)
-    }
-
-    fn spill_value(
-        &mut self,
-        builder: &Builder,
-        value: BasicValueEnum,
-        ty: &AstType,
-        is_first: bool,
-    ) -> PResult<Vec<PointerValue>> {
-        let spillable = flatten_type(&ty);
-        if spillable.is_empty() {
-            return Ok(vec![]);
-        }
-
-        // Get the first builder, or make it if we don't have it.
-        // This is where we need to put the gc stuff.
-        let first_builder = if is_first {
-            None
-        } else {
-            Some(self.get_first_builder(builder)?)
-        };
-
-        let mut ptrs = Vec::new();
-
-        for (sig, ty) in spillable {
-            let first_builder = if is_first {
-                builder
-            } else {
-                first_builder.as_ref().unwrap()
-            };
-
-            let ty = self.get_type(&ty)?;
-            let loc = first_builder.build_alloca(ty, &temp_name());
-            let zero = type_zero(ty)?;
-
-            first_builder.build_store(loc, zero);
-
-            let v = self.translate_access(builder, value, &sig)?;
-            builder.build_store(loc, v);
-
-            self.call_gcroot(first_builder, loc)?;
-            ptrs.push(loc);
-        }
-
-        Ok(ptrs)
-    }
-
-    fn free_temps(&self, builder: &Builder, temps: &[PointerValue]) -> PResult<()> {
-        for &val in temps {
-            let ptr = val.get_type().get_element_type().into_pointer_type();
-            builder.build_store(val, ptr.const_null());
-        }
-
-        Ok(())
-    }
-
-    fn has_break_continue(&self) -> bool {
-        self.break_continue.is_some()
     }
 
     fn get_break(&self) -> &BasicBlock {
@@ -1005,19 +844,6 @@ impl Translator {
         break_continue
     }
 
-    fn get_first_builder(&mut self, builder: &Builder) -> PResult<Builder> {
-        let first_builder = Builder::create();
-
-        let b = builder.get_insert_block().unwrap(); /* Yes, builder is always assigned to a block. */
-        let p = b.get_parent().unwrap(); /* Yes, block is always attached to a function. */
-        let b = p.get_first_basic_block().unwrap(); /* Yes, we already have a first block. */
-        let i = b.get_last_instruction().unwrap(); /* This already has a jump instruction. */
-
-        first_builder.position_before(&i);
-
-        Ok(first_builder)
-    }
-
     fn get_new_block(&mut self, builder: &Builder) -> PResult<(BasicBlock, Builder)> {
         let b = builder.get_insert_block().unwrap();
         let p = b.get_parent().unwrap();
@@ -1028,43 +854,18 @@ impl Translator {
         Ok((block, builder))
     }
 
-    fn call_gcroot(&self, builder: &Builder, loc: PointerValue) -> PResult<()> {
-        let val = builder.build_bitcast(
-            loc,
-            self.context
-                .i8_type()
-                .ptr_type(AddressSpace::Generic)
-                .ptr_type(AddressSpace::Generic),
-            &temp_name(),
-        );
-        builder.build_call(
-            self.gcroot,
-            &[
-                val,
-                self.context
-                    .i8_type()
-                    .ptr_type(AddressSpace::Generic)
-                    .const_null()
-                    .into(),
-            ],
-            &temp_name(),
-        );
-
-        Ok(())
-    }
-
     fn get_type(&mut self, t: &AstType) -> PResult<BasicTypeEnum> {
         let ty = match t {
             AstType::Int => self.context.i64_type().into(),
             AstType::Char => self.context.i8_type().into(),
             AstType::Bool => self.context.bool_type().into(),
 
-            AstType::String => ptr_type(self.module.get_type("string").unwrap(), GLOBAL).into(),
+            AstType::String => ptr_type(self.module.get_type("string").unwrap(), GC).into(),
 
             AstType::Object(name, generics) => {
                 let name = decorate_object(name, generics)?;
                 let ty = self.module.get_type(&name).unwrap();
-                ptr_type(ty, GLOBAL)
+                ptr_type(ty, GC)
             }
 
             AstType::Array { ty } => {
@@ -1076,7 +877,7 @@ impl Translator {
                         false,
                     )
                     .into();
-                ptr_type(ctx, GLOBAL)
+                ptr_type(ctx, GC)
             }
 
             AstType::Tuple { types } => {
@@ -1105,6 +906,14 @@ fn set_fn_attrs(context: &Context, fun: FunctionValue) {
     );
 }
 
+fn is_array_deref(sig: &InstFunctionSignature) -> PResult<bool> {
+    return Ok(&sig.0.full_name()? == "std::internal::operators::deref_array");
+}
+
+fn is_array_len(sig: &InstFunctionSignature) -> PResult<bool> {
+    return Ok(&sig.0.full_name()? == "std::internal::operators::array_len");
+}
+
 lazy_static! {
     static ref TEMP_NAME_COUNTER: RwLock<usize> = RwLock::new(1);
 }
@@ -1115,12 +924,4 @@ fn temp_name() -> String {
     let id: usize = *id_ref;
 
     format!("temp_{}", id)
-}
-
-fn is_array_deref(sig: &InstFunctionSignature) -> PResult<bool> {
-    return Ok(&sig.0.full_name()? == "std::internal::operators::deref_array");
-}
-
-fn is_array_len(sig: &InstFunctionSignature) -> PResult<bool> {
-    return Ok(&sig.0.full_name()? == "std::internal::operators::array_len");
 }

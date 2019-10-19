@@ -1,35 +1,8 @@
-use crate::parser::ast::AstType;
 use crate::util::PResult;
 use either::Either;
 use inkwell::types::{BasicTypeEnum, FunctionType};
 use inkwell::values::{BasicValueEnum, CallSiteValue, IntValue};
 use inkwell::AddressSpace;
-
-pub type AccessSignature = Vec<usize>;
-
-pub fn flatten_type(t: &AstType) -> Vec<(AccessSignature, AstType)> {
-    match t {
-        AstType::Int | AstType::Char | AstType::Bool => vec![],
-
-        AstType::String | AstType::Object(..) | AstType::Array { .. } => vec![(vec![], t.clone())],
-
-        AstType::Tuple { types } => types
-            .into_iter()
-            .enumerate()
-            .flat_map(|(i, v)| {
-                let mut sigs = flatten_type(v);
-
-                for (sig, _) in &mut sigs {
-                    sig.insert(0, i);
-                }
-
-                sigs
-            })
-            .collect(),
-
-        _ => unreachable!(),
-    }
-}
 
 pub fn fun_type(t: BasicTypeEnum, p: &[BasicTypeEnum]) -> FunctionType {
     match t {
