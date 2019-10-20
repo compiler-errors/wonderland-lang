@@ -1,0 +1,355 @@
+#!/bin/env python3
+
+'''
+# Tea Test Framework
+A script that runs Cheshire tests.
+
+Use like:
+    ./tea stage lex                   (will run tests on the lex compiler stage)
+    ./tea stage full                  (compiles and runs full cheshire programs)
+    ./tea file test_me.ch                     (run the file test_me.ch directly)
+    ./tea -h                            (learn more through the usage messages!)
+
+## Test File Syntax
+Every test file must have a test comment as the first line of the file, e.g.
+
+    // full pass stderr="what happened?!"
+        or
+    // lex fail
+        or
+    // parse pass
+        or
+        ...
+
+The syntax varies according to the compiler stage. For every stage that is not
+`full`, the syntax is:
+
+    // <stage> (pass | fail)
+
+The stage name (lex, parse, etc) goes first, then is followed by either `pass`
+or `fail`.
+
+For the `full` stage, there are more options:
+
+    // full (pass | fail) [<option>...]
+
+After the stage, there still needs to be a `pass` or `fail`, but there may be
+extra options that follow. Some options are written as a key=value pair,
+whereas others only need the key, and are called "boolean" options.
+
+Options:
+    exit_code=<number>      the expected exit code of the test
+    stdin=<string>          input to feed to the test
+    stdout=<string>         the expected output on stdout
+    stderr=<string>         the expected output on stderr
+
+## Input/Output Handling for Tests
+Some `full` tests have more complicated input/output that cannot be specified
+easily in the test comment. Tea will read from any files with the same
+name as the test file, suffixed with `.stdin`, `.stdout`, or `.stderr`.
+
+For example, a test file with the path:
+    test/full/test_example.ch
+will correspond to files:
+    test/full/test_example.ch.stdin
+    test/full/test_example.ch.stdout
+    test/full/test_example.ch.stderr
+
+If the .stdin file exists, Tea reads it and pipes the input to the test.
+If the .stdout and/or .stderr files exist, Tea checks the ouput of the test
+against the contents of the files.
+
+If both a file and the corresponding test option are given, the test comment
+option takes precedence.
+
+If neither the file nor test comment are given, then the input/output is not
+piped/checked.
+'''
+
+import os
+import glob
+import argparse
+import subprocess
+import shlex
+
+class Color:
+    HEADER = '\033[95m'
+    TEST = '\033[94m'
+    WARN = '\033[0;93m'
+    BG_WARN = '\033[0;1;43m'
+    PASS = '\033[0;1;92m'
+    FAIL = '\033[0;1;41m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
+    CLEAR = '\033[0m'
+
+stages = 'lex parse tyck inst full'.split(' ')
+stage_opts = 'lex parse tyck inst full all'.split(' ')
+pass_fail_results = 'pass fail'.split(' ')
+default_test_dir = 'test'
+stage_path_template = '{0}/test*.ch'
+
+def warn(message):
+    raise RuntimeError(message)
+
+def warn_if(condition, message):
+    if condition: warn(message)
+
+def read_file_or(path, default):
+    try:
+        with open(path) as f:
+            return f.read()
+    except FileNotFoundError:
+        return default
+
+class SubcommandHelpFormatter(argparse.RawDescriptionHelpFormatter):
+    def _format_action(self, action):
+        parts = super(argparse.RawDescriptionHelpFormatter, self)._format_action(action)
+        if action.nargs == argparse.PARSER:
+            parts = "\n".join(parts.split("\n")[1:])
+        return parts
+
+class TestWorkload:
+    def __init__(self, paths, args):
+        self.paths = paths
+        self.args = args
+        self.num_passed = 0
+        self.num_failed = 0
+        self.num_warnings = 0
+
+    def run(self):
+        for path in self.paths:
+            self.run_file(path, self.args)
+
+        total = self.num_passed + self.num_failed + self.num_warnings
+        print()
+        print('  ' + Color.BOLD + Color.UNDERLINE + f'{total} test(s):' + Color.CLEAR, end=' ')
+        if self.num_passed > 0:
+            print(Color.PASS, end='')
+        print(f'{self.num_passed} passed' + Color.CLEAR, end=', ')
+        if self.num_failed > 0:
+            print(Color.FAIL, end='')
+        print(f'{self.num_failed} failed' + Color.CLEAR, end=', ')
+        if self.num_warnings > 0:
+            print(Color.WARN, end='')
+        print(f'{self.num_warnings} warn(s)' + Color.CLEAR)
+        print()
+
+    def run_file(self, path, args):
+        pass_str, fail_str = args.pass_fail_str
+        try:
+            test_config = parse_file(path)
+            test_result = test_config.run_test(args.libs)
+
+            passed = test_result.passed()
+            if passed:
+                print('  ' + Color.PASS + pass_str + Color.CLEAR, end='')
+                self.num_passed += 1
+            else:
+                print('  ' + Color.FAIL + fail_str + Color.CLEAR, end='')
+                self.num_failed += 1
+
+            print(' ' + Color.TEST + f'{path}' + Color.CLEAR)
+
+            if not args.summary:
+                if args.verbose:
+                    test_result.show_info()
+
+                if not passed:
+                    test_result.explain_unmet_expectations()
+
+        except RuntimeError as e:
+            print('  ' + Color.BG_WARN + 'WARN' + Color.WARN + f' {path} ' + str(e) + Color.CLEAR)
+            self.num_warnings += 1
+
+
+class TestResult:
+    def __init__(self, process_result, expectations):
+        self.expectations = expectations
+        self.process_result = process_result
+
+    def unmet_expectations(self):
+        return {key: pair for key, pair in self.expectations.items()
+                if pair[0] != pair[1]}
+
+    def passed(self):
+        return len(self.unmet_expectations()) == 0
+
+    def explain_unmet_expectations(self):
+        print('  └─╴Unmet expectations:')
+        for key, (expected, actual) in self.unmet_expectations().items():
+            print(f"     * For {repr(key)}: expected {repr(expected)}, got {repr(actual)}")
+
+    def show_info(self):
+        pass_fail = 'pass' if 'pass' in self.expectations else 'fail'
+        expected_exit = '0' if self.expectations[pass_fail][0] == 'pass' else '!=0'
+        print('  └─╴Expected:')
+        print('     * exit_code:', expected_exit)
+        print('     * stdout:', repr(self.expectations.get('stdout', ['', ''])[0]))
+        print('     * stderr:', repr(self.expectations.get('stderr', ['',''])[0]))
+        print('  └─╴Actual:')
+        print('     * exit_code:', self.process_result.returncode)
+        print('     * stdout:', repr(self.process_result.stdout))
+        print('     * stderr:', repr(self.process_result.stderr))
+
+class PassFailTest:
+    def __init__(self, stage, path, expected):
+        self.stage = stage
+        self.path = path
+        self.expected = expected
+
+    def run_test(self, libs=[]):
+        result = subprocess.run(['cargo', 'run', '--',
+                                 f'--{self.stage}', *libs, self.path],
+                                 text=True,
+                                 capture_output=True)
+        expectations = {}
+        expectations[self.expected] = [self.expected, 'pass' if result.returncode == 0 else 'fail']
+        return TestResult(result, expectations)
+
+class FullTest:
+    def __init__(self, path, args):
+        self.path = path
+        self.args = args
+        #print(args)
+
+    def run_test(self, libs=[]):
+        # Compile the program then run cheshire.out.
+        result = subprocess.run(['cargo', 'run', '--', *libs, self.path],
+                                text=True, capture_output=True)
+
+        # Only try running cheshire.out if compilation succeeds.
+        if result.returncode == 0:
+            # Grab stdin before running the process.
+            stdin = None
+            stdin = read_file_or(self.path + '.stdin', stdin)
+            stdin = self.args.get('stdin', stdin)
+
+            # Run it.
+            result = subprocess.run(['./cheshire.out'], input=stdin, text=True,
+                                    capture_output=True)
+
+        expectations = {}
+
+        # Handle 'pass' and 'fail'.
+        warn_if('pass' not in self.args and 'fail' not in self.args,
+                 f"Must specify 'pass' or 'fail' for this test")
+        warn_if('pass' in self.args and 'fail' in self.args,
+                 f"Both 'pass' and 'fail' encountered. There may only be one")
+        pass_fail = 'pass' if 'pass' in self.args else 'fail'
+        expectations[pass_fail] = [pass_fail, 'fail' if result.returncode != 0 else 'pass']
+
+        # If 'exit_code' set, then check if the program exited with that code.
+        if 'exit_code' in self.args:
+            expectations['exit_code'] = [self.args['exit_code'], result.returncode]
+
+        # Handle output checks.
+        stdout = stderr = None
+
+        stdout = read_file_or(self.path + '.stdout', stdout)
+        stderr = read_file_or(self.path + '.stderr', stderr)
+
+        # 'stdout', 'stderr' take precedence over file input.
+        stdout = self.args.get('stdout', stdout)
+        stderr = self.args.get('stderr', stderr)
+
+        # Only check the output if it was set via file or stdout/stderr args.
+        if stdout is not None:
+            expectations['stdout'] = [stdout, result.stdout]
+        if stderr is not None:
+            expectations['stderr'] = [stderr, result.stderr]
+
+        return TestResult(result, expectations)
+
+def parse_file(path):
+    with open(path) as f:
+        line = f.readline().strip()
+        warn_if(not line.startswith('//'), f'First line of file missing test comment')
+
+        line = line[2:].strip()
+        warn_if(not line, f"Test comment is empty")
+
+        tokens = shlex.split(line)
+        stage = tokens[0]
+        tokens = tokens[1:]
+
+        warn_if(stage not in stages, f"Stage '{stage}' not one of {stages}")
+
+        if stage == 'full':
+            args = {}
+            for arg in tokens:
+                key, _, val = arg.partition('=')
+                if not val:
+                    val = 'None'
+                val = val.replace(r'\n', '\n')
+                args[key.lower()] = val
+            return FullTest(path, args)
+        else:
+            try:
+                expected = tokens[0].lower()
+            except IndexError:
+                warn(f"Missing one of {pass_fail_results} for '{stage}' stage result")
+
+            warn_if(len(tokens) > 1, f"Unexpected extra text after result {expected}")
+            warn_if(expected not in pass_fail_results,
+                     f"Result '{expected}' not one of {pass_fail_results}")
+            return PassFailTest(stage, path, expected)
+
+def run_stage(args):
+    if args.stage == 'all':
+        paths = sum([glob.glob(os.path.join(args.test_dir, stage, 'test*.ch')) for stage in stages], [])
+    else:
+        joined_path = os.path.join(args.test_dir, stage_path_template.format(args.stage))
+        paths = glob.glob(joined_path)
+
+    print('\n  ' + Color.BOLD + Color.UNDERLINE + f'Running {args.stage} tests\n' + Color.CLEAR)
+    workload = TestWorkload(paths, args)
+    workload.run()
+
+def run_files(args):
+    print('\n  ' + Color.BOLD + Color.UNDERLINE + f'Running custom tests\n' + Color.CLEAR)
+    workload = TestWorkload(args.FILE, args)
+    workload.run()
+
+parser = argparse.ArgumentParser(description='Run Cheshire tests.',
+    formatter_class=SubcommandHelpFormatter)
+
+parser.add_argument('-l', '--lib', metavar='LIB', dest='libs', action='append',
+    default=[],
+    help='add external libraries by path. this flag may be specified multiple times')
+parser.add_argument('-v', '--verbose', action='store_true', dest='verbose',
+    help='show more output for each test')
+parser.add_argument('-s', '--summary', action='store_true', dest='summary',
+    help="only show PASS/FAIL summary")
+parser.add_argument('-y', '--yeet', action='store_const', default=('PASS', 'FAIL'),
+    const=('YEET', 'YOINK'), dest='pass_fail_str',
+    help='yeet mode')
+
+subparsers = parser.add_subparsers(required=True, description='', dest='subcommand')
+
+stage_parser = subparsers.add_parser('stage',
+    description='''Run Cheshire tests on a particular compilation stage.
+                   This command expects the test files to be stored in a
+                   test directory, with subdirectories named lex, parse, tyck,
+                   inst, and full. The test files inside each of these
+                   directories must match the pattern 'test*.ch' to be picked
+                   up by the testing framework.''',
+    help=f'run tests based on compilation stage {{{", ".join(stages)}}}')
+stage_parser.add_argument('stage', choices=stage_opts, nargs='?', default='all', help='The stage to run')
+stage_parser.add_argument('-d', '--test-dir', metavar='DIR', default=default_test_dir,
+    dest='test_dir',
+    help=f"the test directory to use. defaults to '{default_test_dir}'")
+stage_parser.set_defaults(func=run_stage)
+
+files_parser = subparsers.add_parser('file',
+    aliases=['files'],
+    description='''Run Cheshire test on a particular set of files. This command
+                   does not assume any test directory hierarchy.''',
+    help='run tests on particular files')
+files_parser.add_argument('FILE', nargs='+',
+    help='The path of a specific test file to run')
+files_parser.set_defaults(func=run_files)
+
+args = parser.parse_args()
+#print(args)
+args.func(args)

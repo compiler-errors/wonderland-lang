@@ -1,0 +1,3 @@
+// inst fail
+
+fn main() {}
