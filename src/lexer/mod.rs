@@ -216,7 +216,6 @@ impl Lexer {
     /// Scans a new parsed string token.
     fn scan_string(&mut self) -> PResult<Token> {
         self.bump(1); // Blindly consume the quote character
-        let mut len = 0;
         let mut string = String::new();
 
         loop {
@@ -234,7 +233,6 @@ impl Lexer {
                                 .error(format!("Unknown escaped character in string '\\{}'", c));
                         }
                     }
-                    len += 1;
                     self.bump(2);
                 }
                 '\"' => {
@@ -246,12 +244,12 @@ impl Lexer {
                 }
                 c => {
                     string.push(c);
-                    len += 1;
                     self.bump(1);
                 }
             }
         }
 
+        let len = string.len();
         return Ok(Token::String(string, len));
     }
 
