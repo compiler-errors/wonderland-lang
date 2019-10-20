@@ -82,7 +82,7 @@ impl AnalyzeOperators {
         let (trt_name, fn_name) = match kind {
             BinOpKind::Multiply => ("Multiply", "mul"),
             BinOpKind::Divide => ("Divide", "div"),
-            BinOpKind::Modulo => ("Modulo", "mod"),
+            BinOpKind::Modulo => ("Modulo", "rem"),
             BinOpKind::Add => ("Add", "add"),
             BinOpKind::Subtract => ("Subtract", "sub"),
             BinOpKind::Greater => ("Compare", "gt"),
