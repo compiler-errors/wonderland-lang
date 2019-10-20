@@ -6,6 +6,7 @@ pub use crate::tyck::tyck_objectives::TyckObjectiveAdapter;
 pub use crate::tyck::tyck_solver::{TyckSolution, TyckSolver};
 use crate::util::{Comment, FileRegistry, IntoError, PResult, Visit, ZipExact};
 use std::collections::HashSet;
+use std::fmt::Debug;
 use std::rc::Rc;
 
 mod tyck_constraints;
@@ -152,13 +153,16 @@ pub fn typecheck_simple<T>(
 ) -> PResult<(T, TyckSolution)>
 where
     T: Visit<TyckObjectiveAdapter>,
+    T: Debug,
 {
     let mut objective_adapter = TyckObjectiveAdapter::new(base_solver.clone(), program);
 
-    let obj = t.visit(&mut objective_adapter)?;
+    let t = t.visit(&mut objective_adapter)?;
+    println!("Solving...\n{:#?}", t);
+
     let solution = objective_adapter.solver.solve()?;
 
-    Ok((obj, solution))
+    Ok((t, solution))
 }
 
 pub fn typecheck_associated_type(

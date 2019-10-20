@@ -1,3 +1,4 @@
+use crate::parser::ast::AstType;
 use crate::util::PResult;
 use either::Either;
 use inkwell::types::{BasicTypeEnum, FunctionType};
@@ -57,5 +58,13 @@ pub fn unwrap_callsite(callsite: CallSiteValue) -> BasicValueEnum {
     match callsite.try_as_basic_value() {
         Either::Left(x) => x,
         Either::Right(_) => unreachable!(),
+    }
+}
+
+pub fn num_subvals(t: &AstType) -> usize {
+    if let AstType::Tuple { types } = t {
+        types.iter().map(num_subvals).sum()
+    } else {
+        1usize
     }
 }

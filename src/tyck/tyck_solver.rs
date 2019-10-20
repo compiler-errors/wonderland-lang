@@ -84,7 +84,8 @@ impl TyckSolver {
             }
 
             if universe.is_deadlocked() {
-                return TyckSolver::error("Deadlocked universe");
+                println!("Deadlocked universe...");
+                continue;
             }
 
             if let Ok(children) = universe.elaborate_all() {
@@ -434,72 +435,87 @@ impl TyckSolver {
             self.objectives.push_back(obj);
         }
 
-        // The next step will push all still-delayed unifications into the set.
-        let mut delayed_objectives = Vec::new();
-        std::mem::swap(&mut delayed_objectives, &mut self.delayed_objectives);
+        let mut progress = true;
+        while progress {
+            progress = false;
 
-        for d in delayed_objectives {
-            match d {
-                TyckDelayedObjective::Unify(a, b) => {
-                    let a = self.normalize_ty(&a)?;
-                    let b = self.normalize_ty(&b)?;
+            // The next step will push all still-delayed unifications into the set.
+            // We do this iteratively because sometimes one unstuck objective will cause
+            // another objective to become unstuck.
+            // I know, I hate that too.
+            let mut delayed_objectives = Vec::new();
+            std::mem::swap(&mut delayed_objectives, &mut self.delayed_objectives);
 
-                    self.unify(&a, &b)?;
-                }
-                TyckDelayedObjective::TupleAccess(tuple, idx, element) => {
-                    let tuple = self.normalize_ty(&tuple)?;
-                    let element = self.normalize_ty(&element)?;
+            for d in delayed_objectives {
+                match d {
+                    TyckDelayedObjective::Unify(a, b) => {
+                        let norm_a = self.normalize_ty(&a)?;
+                        let norm_b = self.normalize_ty(&b)?;
 
-                    if let AstType::Tuple { types } = &tuple {
-                        if types.len() > idx {
-                            self.unify(&element, &types[idx])?;
-                        } else {
-                            TyckSolver::error("Tuple has wrong number of arguments")?;
+                        self.unify(&norm_a, &norm_b)?;
+
+                        if a != norm_a || b != norm_b {
+                            progress = true;
                         }
-                    } else if let AstType::Infer(..) = &tuple {
-                        self.delayed_objectives
-                            .push(TyckDelayedObjective::TupleAccess(tuple, idx, element));
-                    } else {
-                        TyckSolver::error(&format!("Tuple type expected, got {:?}", tuple))?;
                     }
-                }
-                TyckDelayedObjective::ObjectAccess(object, member_name, member) => {
-                    let object = self.normalize_ty(&object)?;
-                    let member = self.normalize_ty(&member)?;
+                    TyckDelayedObjective::TupleAccess(tuple, idx, element) => {
+                        let tuple = self.normalize_ty(&tuple)?;
+                        let element = self.normalize_ty(&element)?;
 
-                    if let AstType::Object(object_name, generics) = &object {
-                        let expected_member = GenericsInstantiator::instantiate_object_member(
-                            &*self.analyzed_program,
-                            object_name,
-                            generics,
-                            &member_name,
-                        )?;
-                        self.unify(&expected_member, &member)?;
-                    } else if let AstType::Infer(..) = &object {
-                        self.delayed_objectives
-                            .push(TyckDelayedObjective::ObjectAccess(
-                                object,
-                                member_name,
-                                member,
-                            ));
-                    } else {
-                        TyckSolver::error(&format!("Object type expected, got {:?}", object))?;
-                    }
-                }
-                TyckDelayedObjective::Nullable(object) => {
-                    match &self.normalize_ty(&object)? {
-                        AstType::Object(..) | AstType::String | AstType::Array { .. } => {
-                            /* Okay! */
-                        }
-                        AstType::Infer(..) => {
+                        if let AstType::Tuple { types } = &tuple {
+                            if types.len() > idx {
+                                self.unify(&element, &types[idx])?;
+                                progress = true;
+                            } else {
+                                TyckSolver::error("Tuple has wrong number of arguments")?;
+                            }
+                        } else if let AstType::Infer(..) = &tuple {
                             self.delayed_objectives
-                                .push(TyckDelayedObjective::Nullable(object));
+                                .push(TyckDelayedObjective::TupleAccess(tuple, idx, element));
+                        } else {
+                            TyckSolver::error(&format!("Tuple type expected, got {:?}", tuple))?;
                         }
-                        _ => {
-                            return TyckSolver::error(&format!(
-                                "Object type expected, got {:?}",
-                                object
-                            ))
+                    }
+                    TyckDelayedObjective::ObjectAccess(object, member_name, member) => {
+                        let object = self.normalize_ty(&object)?;
+                        let member = self.normalize_ty(&member)?;
+
+                        if let AstType::Object(object_name, generics) = &object {
+                            let expected_member = GenericsInstantiator::instantiate_object_member(
+                                &*self.analyzed_program,
+                                object_name,
+                                generics,
+                                &member_name,
+                            )?;
+                            self.unify(&expected_member, &member)?;
+                            progress = true;
+                        } else if let AstType::Infer(..) = &object {
+                            self.delayed_objectives
+                                .push(TyckDelayedObjective::ObjectAccess(
+                                    object,
+                                    member_name,
+                                    member,
+                                ));
+                        } else {
+                            TyckSolver::error(&format!("Object type expected, got {:?}", object))?;
+                        }
+                    }
+                    TyckDelayedObjective::Nullable(object) => {
+                        match &self.normalize_ty(&object)? {
+                            AstType::Object(..) | AstType::String | AstType::Array { .. } => {
+                                /* Okay! */
+                                progress = true;
+                            }
+                            AstType::Infer(..) => {
+                                self.delayed_objectives
+                                    .push(TyckDelayedObjective::Nullable(object));
+                            }
+                            _ => {
+                                return TyckSolver::error(&format!(
+                                    "Object type expected, got {:?}",
+                                    object
+                                ))
+                            }
                         }
                     }
                 }
