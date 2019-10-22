@@ -7,9 +7,9 @@
 #include <stdbool.h>
 #include <string.h>
 
-#define i64 int64_t
-#define i16 int16_t
-#define i8 int8_t
+#define i64 uint64_t
+#define i16 uint16_t
+#define i8 uint8_t
 #define i1 bool
 
 struct array {
