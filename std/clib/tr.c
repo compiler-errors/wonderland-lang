@@ -13,7 +13,9 @@ struct string* gc_alloc_string(i8* string, i64 length) {
 }
 
 i8* gc_alloc_array(i64 element_size, i64 elements, i16 type) {
-  i8* block = malloc(sizeof(i16) + sizeof(struct array) + sizeof(i8) * element_size * elements);
+  size_t bytes = sizeof(i16) + sizeof(struct array) + sizeof(i8) * element_size * elements;
+  i8* block = malloc(bytes);
+  bzero(block, bytes);
   *((i16*) block) = type;
 
   struct array* array_ptr = (struct array*) (block + sizeof(i16));
@@ -25,9 +27,12 @@ i8* gc_alloc_array(i64 element_size, i64 elements, i16 type) {
 }
 
 i8* gc_alloc_object(i64 size, i16 type) {
-  i8* ptr = malloc(size + sizeof(i16));
-  *((i16*) ptr) = type;
-  return ptr + sizeof(i16);
+  gc(__builtin_frame_address(0));
+  i8* block = malloc(size + sizeof(i16));
+  bzero(block, size + sizeof(i16));
+  printf("Allocated object at %p\n", block);
+  *((i16*) block) = type;
+  return block + sizeof(i16);
 }
 
 i8* gc_array_idx_at(struct array* array, i64 idx) {

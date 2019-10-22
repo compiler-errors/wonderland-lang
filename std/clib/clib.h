@@ -12,6 +12,8 @@
 #define i8 uint8_t
 #define i1 bool
 
+#define NOINLINE __attribute__((noinline))
+
 struct array {
   i64 length;
   i64 element_size;

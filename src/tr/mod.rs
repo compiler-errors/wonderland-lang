@@ -104,7 +104,7 @@ fn emit_module(
         let ll_o = dir.path().join("file.o").into_os_string();
         module.write_bitcode_to_path(Path::new(&ll));
 
-        let mut opt_command = Command::new("opt-5.0".to_string());
+        let mut opt_command = Command::new("opt".to_string());
         opt_command.args(&[
             &ll,
             //OsStr::new("-O3"),
@@ -114,7 +114,7 @@ fn emit_module(
             &ll_gc,
         ]);
 
-        let mut llc_command = Command::new("llc-5.0".to_string());
+        let mut llc_command = Command::new("llc".to_string());
         llc_command.args(&[
             &ll_gc,
             OsStr::new("-o"),
@@ -1052,8 +1052,8 @@ impl Translator {
                     let (next_block, _) = self.get_new_block(&builder)?;
                     builder.build_conditional_branch(
                         marked.into_int_value(),
-                        &next_block,
                         &end_block,
+                        &next_block,
                     );
                     builder.position_at_end(&next_block);
 
@@ -1102,26 +1102,17 @@ impl Translator {
                     // Now get the array addrspace(1)*
                     let array = builder.build_load(array_ptr, &temp_name());
 
-                    let mark_ptr = builder.build_pointer_cast(
+                    let array_ptr = builder.build_pointer_cast(
                         array.into_pointer_value(),
                         self.context.i8_type().ptr_type(GC),
                         &temp_name(),
                     );
-                    let marked = builder.build_call(gc_mark, &[mark_ptr.into()], &temp_name());
-                    let marked = unwrap_callsite(marked);
-                    let (next_block, _) = self.get_new_block(&builder)?;
-                    builder.build_conditional_branch(
-                        marked.into_int_value(),
-                        &next_block,
-                        &end_block,
-                    );
-                    builder.position_at_end(&next_block);
 
                     let elem_type_id = self.type_ids[&ty];
                     builder.build_call(
                         gc_visit_array,
                         &[
-                            mark_ptr.into(),
+                            array_ptr.into(),
                             self.context
                                 .i16_type()
                                 .const_int(elem_type_id as u64, false)
