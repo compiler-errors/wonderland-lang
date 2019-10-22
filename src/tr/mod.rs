@@ -11,7 +11,7 @@ use inkwell::module::Module;
 use inkwell::types::*;
 use inkwell::values::*;
 use inkwell::AddressSpace;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -54,6 +54,7 @@ struct Translator {
     break_continue: Option<(BasicBlock, BasicBlock)>,
 
     variables: HashMap<VariableId, Vec<PointerValue>>,
+    type_ids: HashMap<AstType, usize>,
 }
 
 pub fn translate(
@@ -200,7 +201,7 @@ impl Translator {
         set_fn_attrs(&context, alloc_string);
 
         let alloc_object = module.add_function(
-            "alloc_object",
+            "gc_alloc_object",
             context
                 .i8_type()
                 .ptr_type(GC)
@@ -210,7 +211,7 @@ impl Translator {
         set_fn_attrs(&context, alloc_object);
 
         let alloc_array = module.add_function(
-            "alloc_array",
+            "gc_alloc_array",
             context.i8_type().ptr_type(GC).fn_type(
                 &[context.i64_type().into(), context.i64_type().into()],
                 false,
@@ -220,11 +221,10 @@ impl Translator {
         set_fn_attrs(&context, alloc_array);
 
         let array_idx_at = module.add_function(
-            "array_idx_at",
+            "gc_array_idx_at",
             context.i8_type().ptr_type(GLOBAL).fn_type(
                 &[
                     context.i8_type().ptr_type(GC).into(),
-                    context.i64_type().into(),
                     context.i64_type().into(),
                 ],
                 false,
@@ -245,19 +245,24 @@ impl Translator {
             break_continue: None,
 
             variables: HashMap::new(),
+            type_ids: HashMap::new(),
         }
     }
 
     fn translate(&mut self, file: InstantiatedProgram) -> PResult<()> {
-        // Forward declaration.
+        // Forward declare the type id.
+        for (i, ty) in file.instantiated_types.iter().enumerate() {
+            self.type_ids.insert(ty.clone(), i);
+        }
 
+        // Forward declaration.
         for (sig, _) in &file.instantiated_objects {
             let name = decorate_object(&sig.0, &sig.1)?;
             self.context.opaque_struct_type(&name);
         }
 
-        for (sig, obj) in file.instantiated_objects {
-            self.translate_object(sig, obj.unwrap())?;
+        for (sig, obj) in &file.instantiated_objects {
+            self.translate_object(sig, obj.as_ref().unwrap())?;
         }
 
         for (sig, fun) in &file.instantiated_fns {
@@ -324,6 +329,7 @@ impl Translator {
             )?;
         }
 
+        self.translate_gc_visit(&file.instantiated_types, &file.instantiated_objects)?;
         self.translate_main(&file.main_fn)?;
 
         Ok(())
@@ -365,7 +371,7 @@ impl Translator {
         Ok(llvm_fun)
     }
 
-    fn translate_object(&mut self, sig: InstObjectSignature, obj: AstObject) -> PResult<()> {
+    fn translate_object(&mut self, sig: &InstObjectSignature, obj: &AstObject) -> PResult<()> {
         let name = decorate_object(&sig.0, &sig.1)?;
         let ty = self.module.get_type(&name).unwrap().into_struct_type();
 
@@ -885,6 +891,227 @@ impl Translator {
         }
     }
 
+    fn translate_gc_visit(
+        &self,
+        tys: &HashSet<AstType>,
+        instantiated_objects: &HashMap<InstObjectSignature, Option<AstObject>>,
+    ) -> PResult<()> {
+        let gc_visit = self.module.add_function(
+            "gc_visit",
+            self.context.void_type().fn_type(
+                &[
+                    self.context.i8_type().ptr_type(GLOBAL).into(),
+                    self.context.i16_type().into(),
+                ],
+                false,
+            ),
+            None,
+        );
+
+        let gc_visit_array = self.module.add_function(
+            "gc_visit_array",
+            self.context.void_type().fn_type(
+                &[
+                    self.context.i8_type().ptr_type(GLOBAL).into(),
+                    self.context.i16_type().into(), // Child type
+                ],
+                false,
+            ),
+            None,
+        );
+
+        let gc_mark = self.module.add_function(
+            "gc_mark",
+            self.context
+                .bool_type()
+                .fn_type(&[self.context.i8_type().ptr_type(GC).into()], false),
+            None,
+        );
+
+        let ptr_param = gc_visit.get_params()[0].into_pointer_value();
+        let id_param = gc_visit.get_params()[1].into_int_value();
+
+        let block = gc_visit.append_basic_block("first");
+        let builder = Builder::create();
+        builder.position_at_end(&block);
+
+        let (end_block, end_builder) = self.get_new_block(&builder)?;
+
+        let mut switch = Vec::new();
+        for t in tys {
+            let id = self.type_ids[&t];
+            let (block, builder) = self.get_new_block(&builder)?;
+
+            match t {
+                AstType::Int | AstType::Char | AstType::Bool => {
+                    // Do nothing.
+                }
+
+                AstType::String => {
+                    // Change the i8* into an string addrspace(1)**
+                    let string_ptr = builder.build_pointer_cast(
+                        ptr_param,
+                        ptr_type(self.get_type(t)?, GLOBAL).into_pointer_type(),
+                        &temp_name(),
+                    );
+                    let string = builder.build_load(string_ptr, &temp_name());
+                    let mark_ptr = builder.build_pointer_cast(
+                        string.into_pointer_value(),
+                        self.context.i8_type().ptr_type(GC),
+                        &temp_name(),
+                    );
+                    builder.build_call(gc_mark, &[mark_ptr.into()], &temp_name());
+                }
+
+                AstType::Object(name, generics) => {
+                    // Change the i8* into an object addrspace(1)**
+                    let object_ptr = builder.build_pointer_cast(
+                        ptr_param,
+                        ptr_type(self.get_type(t)?, GLOBAL).into_pointer_type(),
+                        &temp_name(),
+                    );
+                    let object = builder.build_load(object_ptr, &temp_name());
+
+                    // Stupid logic to make the object back into an i8 addrspace(1)* and mark it.
+                    // Then conditionally branch to the end if it has been marked, so we don't
+                    // loop forever.
+                    let mark_ptr = builder.build_pointer_cast(
+                        object.into_pointer_value(),
+                        self.context.i8_type().ptr_type(GC),
+                        &temp_name(),
+                    );
+                    let marked = builder.build_call(gc_mark, &[mark_ptr.into()], &temp_name());
+                    let marked = unwrap_callsite(marked);
+                    let (next_block, _) = self.get_new_block(&builder)?;
+                    builder.build_conditional_branch(
+                        marked.into_int_value(),
+                        &next_block,
+                        &end_block,
+                    );
+                    builder.position_at_end(&next_block);
+
+                    for (idx, member) in instantiated_objects
+                        [&InstObjectSignature(name.clone(), generics.clone())]
+                        .as_ref()
+                        .unwrap()
+                        .members
+                        .iter()
+                        .enumerate()
+                    {
+                        let mem_type_id = self.type_ids[&member.member_type];
+                        let mem_ptr = unsafe {
+                            builder.build_struct_gep(
+                                object.into_pointer_value(),
+                                idx as u32,
+                                &temp_name(),
+                            )
+                        };
+                        let mem_ptr = builder.build_pointer_cast(
+                            mem_ptr,
+                            self.context.i8_type().ptr_type(GLOBAL),
+                            &temp_name(),
+                        );
+                        builder.build_call(
+                            gc_visit,
+                            &[
+                                mem_ptr.into(),
+                                self.context
+                                    .i16_type()
+                                    .const_int(mem_type_id as u64, false)
+                                    .into(),
+                            ],
+                            &temp_name(),
+                        );
+                    }
+                }
+
+                AstType::Array { ty } => {
+                    // Change the i8* into an array addrspace(1)**
+                    let array_ptr = builder.build_pointer_cast(
+                        ptr_param,
+                        ptr_type(self.get_type(t)?, GLOBAL).into_pointer_type(),
+                        &temp_name(),
+                    );
+                    // Now get the array addrspace(1)*
+                    let array = builder.build_load(array_ptr, &temp_name());
+
+                    let mark_ptr = builder.build_pointer_cast(
+                        array.into_pointer_value(),
+                        self.context.i8_type().ptr_type(GC),
+                        &temp_name(),
+                    );
+                    let marked = builder.build_call(gc_mark, &[mark_ptr.into()], &temp_name());
+                    let marked = unwrap_callsite(marked);
+                    let (next_block, _) = self.get_new_block(&builder)?;
+                    builder.build_conditional_branch(
+                        marked.into_int_value(),
+                        &next_block,
+                        &end_block,
+                    );
+                    builder.position_at_end(&next_block);
+
+                    let elem_type_id = self.type_ids[&ty];
+                    builder.build_call(
+                        gc_visit_array,
+                        &[
+                            array,
+                            self.context
+                                .i16_type()
+                                .const_int(elem_type_id as u64, false)
+                                .into(),
+                        ],
+                        &temp_name(),
+                    );
+                }
+
+                AstType::Tuple { types } => {
+                    let tuple_ptr = builder.build_pointer_cast(
+                        ptr_param,
+                        ptr_type(self.get_type(t)?, GLOBAL).into_pointer_type(),
+                        &temp_name(),
+                    );
+
+                    for (idx, ty) in types.iter().enumerate() {
+                        let subty_id = self.type_ids[&ty];
+                        let subty_ptr = unsafe {
+                            builder.build_struct_gep(tuple_ptr, idx as u32, &temp_name())
+                        };
+                        let subty_ptr = builder.build_pointer_cast(
+                            subty_ptr,
+                            self.context.i8_type().ptr_type(GLOBAL),
+                            &temp_name(),
+                        );
+                        builder.build_call(
+                            gc_visit,
+                            &[
+                                subty_ptr.into(),
+                                self.context
+                                    .i16_type()
+                                    .const_int(subty_id as u64, false)
+                                    .into(),
+                            ],
+                            &temp_name(),
+                        );
+                    }
+                }
+
+                _ => unreachable!(),
+            }
+
+            builder.build_unconditional_branch(&end_block);
+            switch.push((id, block));
+        }
+
+        let switch: Vec<_> = switch
+            .iter()
+            .map(|(id, block)| (self.context.i16_type().const_int(*id as u64, false), block))
+            .collect();
+        builder.build_switch(id_param, &end_block, &switch);
+        end_builder.build_return(None);
+
+        Ok(())
+    }
+
     fn get_break(&self) -> &BasicBlock {
         self.break_continue.as_ref().map(|(b, _)| b).unwrap()
     }
@@ -902,7 +1129,7 @@ impl Translator {
         break_continue
     }
 
-    fn get_new_block(&mut self, builder: &Builder) -> PResult<(BasicBlock, Builder)> {
+    fn get_new_block(&self, builder: &Builder) -> PResult<(BasicBlock, Builder)> {
         let b = builder.get_insert_block().unwrap();
         let p = b.get_parent().unwrap();
 
@@ -931,7 +1158,11 @@ impl Translator {
                 let ctx = self
                     .context
                     .struct_type(
-                        &[self.context.i64_type().into(), ptr_type(ty, GLOBAL)],
+                        &[
+                            self.context.i64_type().into(),
+                            self.context.i64_type().into(),
+                            ptr_type(ty, GLOBAL),
+                        ],
                         false,
                     )
                     .into();
@@ -1057,15 +1288,11 @@ impl Translator {
     }
 }
 
-fn set_fn_attrs(_context: &Context, _fun: FunctionValue) {
-    /*fun.add_attribute(
+fn set_fn_attrs(context: &Context, fun: FunctionValue) {
+    fun.add_attribute(
         AttributeLoc::Function,
         context.create_enum_attribute(Attribute::get_named_enum_kind_id("nounwind"), 1),
     );
-    fun.add_attribute(
-        AttributeLoc::Function,
-        context.create_enum_attribute(Attribute::get_named_enum_kind_id("inlinehint"), 1),
-    );*/
 }
 
 fn is_array_deref(sig: &InstFunctionSignature) -> PResult<bool> {

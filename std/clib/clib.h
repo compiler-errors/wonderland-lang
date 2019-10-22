@@ -12,13 +12,14 @@
 #define i1 bool
 
 struct array {
-  i64 size;
-  i8* ptr;
+  i64 length;
+  i8* element_size;
+  i8* pointer;
 };
 
 struct string {
-  i64 size;
-  i8* ptr;
+  i64 length;
+  i8* pointer;
 };
 
 inline void _ensure_bounds_or_panic(const char* type, i64 size, i64 idx) {

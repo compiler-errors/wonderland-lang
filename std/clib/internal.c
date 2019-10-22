@@ -33,6 +33,8 @@ i64 fpP8internalP9operators7mod_int(i64 a, i64 b) {
 }
 
 struct string* alloc_string(i8* string, i64 size) {
+    // TODO: Rewrite me
+
   i8* string_copy = calloc(size + 1, sizeof(i8));
   memcpy(string_copy, string, size * sizeof(i8));
 
@@ -47,10 +49,12 @@ struct string* fpP8internalP16transmute_string15int_into_string(i64 i) {
   i8 buf[21] = {0};
   i64 size = sprintf((char*) buf, "%ld", i);
 
+    // TODO: Blease do not use alloc_string here.
   return alloc_string(buf, size);
 }
 
 struct string* fpP8internalP16transmute_string16char_into_string(i8 c) {
+    // TODO: Blease do not use alloc_string here.
   return alloc_string(&c, 1);
 }
 

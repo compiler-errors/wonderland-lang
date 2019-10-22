@@ -1,6 +1,6 @@
 pub mod ast;
-pub mod ast_visitor;
 pub mod ast_display;
+pub mod ast_visitor;
 
 use self::ast::*;
 use crate::lexer::*;

@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::parser::ast::{AstType, AstTraitType};
+use crate::parser::ast::{AstTraitType, AstType};
 
 impl fmt::Display for AstType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -13,22 +13,33 @@ impl fmt::Display for AstType {
             AstType::SelfType => write!(f, "Self"),
             AstType::Generic(id) => write!(f, "_{}", id),
             AstType::Array { ty } => write!(f, "[{}]", ty),
-            AstType::Tuple { types } => {
-                write!(f, "({})", DisplayAstTypeList(types, true))
-            },
-            AstType::Object(module, generics) => {
-                write!(f, "{}{}", module.full_name().unwrap(), DisplayGenerics(generics))
-            },
-            AstType::AssociatedType { obj_ty, trait_ty, name } => {
+            AstType::Tuple { types } => write!(f, "({})", DisplayAstTypeList(types, true)),
+            AstType::Object(module, generics) => write!(
+                f,
+                "{}{}",
+                module.full_name().unwrap(),
+                DisplayGenerics(generics)
+            ),
+            AstType::AssociatedType {
+                obj_ty,
+                trait_ty,
+                name,
+            } => {
                 if trait_ty.is_none() {
                     write!(f, "{}::{}", obj_ty, name)
                 } else {
-                    write!(f, "<{} as {}>::{}", obj_ty, trait_ty.as_ref().unwrap(), name)
+                    write!(
+                        f,
+                        "<{} as {}>::{}",
+                        obj_ty,
+                        trait_ty.as_ref().unwrap(),
+                        name
+                    )
                 }
-            },
+            }
             AstType::ElaboratedType { obj_ty, trait_ty } => {
                 write!(f, "<{} as {}>", obj_ty, trait_ty)
-            },
+            }
             AstType::GenericPlaceholder(id, name) => write!(f, "_{}{}", name, id.0),
             AstType::DummyGeneric(id, name) => write!(f, "_{}{}", name, id.0),
             AstType::Dummy(id) => write!(f, "_{}", id.0),
@@ -39,7 +50,12 @@ impl fmt::Display for AstType {
 impl fmt::Display for AstTraitType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let AstTraitType(module, generics) = self;
-        write!(f, "{}{}", module.full_name().unwrap(), DisplayGenerics(generics))
+        write!(
+            f,
+            "{}{}",
+            module.full_name().unwrap(),
+            DisplayGenerics(generics)
+        )
     }
 }
 

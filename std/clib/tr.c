@@ -1,6 +1,9 @@
 #include "clib.h"
 
-i8* alloc_array(i64 size, i64 elements) {
+i8* alloc_array(i64 size, i64 elements, i16 type) {
+    // TODO: Mark the type, 2 bytes before the actual p
+    // TODO: Rewrite metr
+
   i8* ptr = calloc(elements, size);
 
   struct array* array_ptr = malloc(sizeof(struct array));
@@ -10,7 +13,10 @@ i8* alloc_array(i64 size, i64 elements) {
   return (i8*) array_ptr;
 }
 
-i8* alloc_object(i64 size) {
+i8* alloc_object(i64 size, i16 type) {
+    // TODO: Rewrite me
+    // TODO: Mark the type, 2 bytes before the actual ptr
+
   i8* ptr = malloc(size + 1);
   ptr[0] = 20; //Stupid testing value. TODO: Replace this with a real object type identifier.
   return ptr + 1;
