@@ -8,18 +8,19 @@
 #include <string.h>
 
 #define i64 int64_t
+#define i16 int16_t
 #define i8 int8_t
 #define i1 bool
 
 struct array {
   i64 length;
-  i8* element_size;
-  i8* pointer;
+  i64 element_size;
+  i8 payload[];
 };
 
 struct string {
   i64 length;
-  i8* pointer;
+  i8 payload[];
 };
 
 inline void _ensure_bounds_or_panic(const char* type, i64 size, i64 idx) {

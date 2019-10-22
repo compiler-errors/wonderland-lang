@@ -10,6 +10,7 @@ export fn get_char(s: String, i: Int) -> Char.
 
 // Cursed exports bc they don't actually live in stdlib.
 export fn deref_array<_T>(array: [_T], idx: Int) -> _T.
+export fn deref_array_assign<_T>(array: [_T], idx: Int, value: _T) -> _T.
 export fn array_len<_T>(array: [_T]) -> Int.
 
 impl Add<Int> for Int {
@@ -141,7 +142,8 @@ impl Add<String> for String {
     }
 }
 
-impl<_T> Deref<Int> for [_T] {
+impl<_T> Deref for [_T] {
+    type DerefIdx = Int.
     type DerefResult = _T.
 
     fn deref(self, idx: Int) -> _T {
@@ -149,11 +151,21 @@ impl<_T> Deref<Int> for [_T] {
     }
 }
 
-impl<_T> Deref<Int> for String {
+impl Deref for String {
+    type DerefIdx = Int.
     type DerefResult = Char.
 
     fn deref(self, idx: Int) -> Char {
         get_char(self, idx)
+    }
+}
+
+impl<_T> DerefAssign for [_T] {
+    type DerefAssignIdx = Int.
+    type DerefAssignValue = _T.
+
+    fn deref_assign(self, idx: Int, value: _T) -> _T {
+        deref_array_assign(self, idx, value)
     }
 }
 

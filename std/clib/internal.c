@@ -1,7 +1,7 @@
 #include "clib.h"
 
 void fp5print(struct string* str) {
-  printf("%s", str->ptr);
+  printf("%s", str->payload);
 }
 
 i1 fpP8internalP9operators6eq_int(i64 a, i64 b) {
@@ -32,47 +32,46 @@ i64 fpP8internalP9operators7mod_int(i64 a, i64 b) {
   return a % b;
 }
 
-struct string* alloc_string(i8* string, i64 size) {
-    // TODO: Rewrite me
+struct string* fpP8internalP16transmute_string15int_into_string(i64 i) {
+  i64 length = snprintf(NULL, 0, "%"PRId64"", i);
 
-  i8* string_copy = calloc(size + 1, sizeof(i8));
-  memcpy(string_copy, string, size * sizeof(i8));
+  i8* block = malloc(sizeof(i16) + sizeof(struct string) + (length + 1) * sizeof(i8));
+  *((i16*) block) = 0; // String type is ALWAYS 0.
 
-  struct string* string_ptr = malloc(sizeof(struct string));
-  string_ptr->ptr = string_copy;
-  string_ptr->size = size;
+  struct string* string_ptr = (struct string*) (block + sizeof(i16));
+  string_ptr->length = length;
+  snprintf((char*) string_ptr->payload, length + 1, "%"PRId64"", i);
 
   return string_ptr;
 }
 
-struct string* fpP8internalP16transmute_string15int_into_string(i64 i) {
-  i8 buf[21] = {0};
-  i64 size = sprintf((char*) buf, "%ld", i);
-
-    // TODO: Blease do not use alloc_string here.
-  return alloc_string(buf, size);
-}
-
 struct string* fpP8internalP16transmute_string16char_into_string(i8 c) {
-    // TODO: Blease do not use alloc_string here.
-  return alloc_string(&c, 1);
+  i8* block = malloc(sizeof(i16) + sizeof(struct string) + 2 * sizeof(i8));
+  *((i16*) block) = 0; // String type is ALWAYS 0.
+
+  struct string* string_ptr = (struct string*) (block + sizeof(i16));
+  string_ptr->length = 1;
+  string_ptr->payload[0] = c;
+  string_ptr->payload[1] = '\0';
+
+  return string_ptr;
 }
 
 struct string* fpP8internalP9operators10add_string(struct string* a,
                                                    struct string* b) {
-  i64 total_size = a->size + b->size;
-  i8* concat = calloc(total_size + 1, sizeof(i8));
-  strcat((char*) concat, (char*) a->ptr);
-  strcat((char*) concat, (char*) b->ptr);
+  i64 length = strlen((char*) a->payload) + strlen((char*) b->payload);
 
-  struct string* new_string = malloc(sizeof(struct string));
-  new_string->ptr = concat;
-  new_string->size = total_size;
+  i8* block = malloc(sizeof(i16) + sizeof(struct string) + (length + 1) * sizeof(i8));
+  *((i16*) block) = 0; // String type is ALWAYS 0.
 
-  return new_string;
+  struct string* string_ptr = (struct string*) (block + sizeof(i16));
+  string_ptr->length = length;
+  snprintf((char*) string_ptr->payload, length + 1, "%s%s", a->payload, b->payload);
+
+  return string_ptr;
 }
 
 i8 fpP8internalP9operators8get_char(struct string* string, i64 idx) {
-  _ensure_bounds_or_panic("String", string->size, idx);
-  return string->ptr[idx];
+  _ensure_bounds_or_panic("String", string->length, idx);
+  return string->payload[idx];
 }

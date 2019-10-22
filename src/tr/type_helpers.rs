@@ -16,6 +16,17 @@ pub fn fun_type(t: BasicTypeEnum, p: &[BasicTypeEnum]) -> FunctionType {
     }
 }
 
+pub fn array_type(t: BasicTypeEnum) -> BasicTypeEnum {
+    match t {
+        BasicTypeEnum::StructType(t) => t.array_type(0),
+        BasicTypeEnum::ArrayType(t) => t.array_type(0),
+        BasicTypeEnum::IntType(t) => t.array_type(0),
+        BasicTypeEnum::FloatType(t) => t.array_type(0),
+        BasicTypeEnum::PointerType(t) => t.array_type(0),
+        BasicTypeEnum::VectorType(t) => t.array_type(0),
+    }.into()
+}
+
 pub fn ptr_type(t: BasicTypeEnum, a: AddressSpace) -> BasicTypeEnum {
     match t {
         BasicTypeEnum::StructType(t) => t.ptr_type(a),

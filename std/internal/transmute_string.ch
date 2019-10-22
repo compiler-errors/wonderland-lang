@@ -42,3 +42,21 @@ impl<_T, _S> Into<String> for (_T, _S) where _T: Into<String>,
         "(" + self:0:into() + ", " + self:1:into() + ")"
     }
 }
+
+impl<_T> Into<String> for [_T] where _T: Into<String> {
+    fn into(self) -> String {
+        let s = "[".
+        let i = 0.
+
+        while i < self:len() {
+            if i > 0 {
+                s = s + ", ".
+            }
+
+            s = s + self[i]:into().
+            i = i + 1.
+        }
+
+        s + "]"
+    }
+}

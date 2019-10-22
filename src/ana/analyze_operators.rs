@@ -130,15 +130,43 @@ impl AstAdapter for AnalyzeOperators {
                 associated_trait: Some(AstTraitType(self.construct_ref("Not")?, vec![])),
                 impl_signature: None,
             },
+            AstExpressionData::Assign { lhs, rhs } => {
+                let AstExpression {
+                    data: lhs_data,
+                    ty,
+                    span,
+                } = *lhs;
+
+                match lhs_data {
+                    AstExpressionData::ArrayAccess { accessible, idx } => {
+                        AstExpressionData::StaticCall {
+                            call_type: AstType::infer(),
+                            fn_name: "deref_assign".into(),
+                            fn_generics: vec![],
+                            args: vec![*accessible, *idx, *rhs],
+                            associated_trait: Some(AstTraitType(
+                                self.construct_ref("DerefAssign")?,
+                                vec![],
+                            )),
+                            impl_signature: None,
+                        }
+                    }
+                    lhs_data => AstExpressionData::Assign {
+                        lhs: Box::new(AstExpression {
+                            data: lhs_data,
+                            ty,
+                            span,
+                        }),
+                        rhs,
+                    },
+                }
+            }
             AstExpressionData::ArrayAccess { accessible, idx } => AstExpressionData::StaticCall {
                 call_type: AstType::infer(),
                 fn_name: "deref".into(),
                 fn_generics: vec![],
                 args: vec![*accessible, *idx],
-                associated_trait: Some(AstTraitType(
-                    self.construct_ref("Deref")?,
-                    vec![AstType::infer()],
-                )),
+                associated_trait: Some(AstTraitType(self.construct_ref("Deref")?, vec![])),
                 impl_signature: None,
             },
             AstExpressionData::BinOp { kind, lhs, rhs } => self.get_binop_call(kind, lhs, rhs)?,

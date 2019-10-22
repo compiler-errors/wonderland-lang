@@ -39,6 +39,7 @@ enum Definition {
     Block(AstBlock),
     None,
     ArrayAccess,
+    ArrayAssign,
     ArrayLen,
 }
 
@@ -183,7 +184,7 @@ impl Translator {
         );
 
         let alloc_string = module.add_function(
-            "alloc_string",
+            "gc_alloc_string",
             module
                 .get_type("string")
                 .unwrap()
@@ -202,10 +203,10 @@ impl Translator {
 
         let alloc_object = module.add_function(
             "gc_alloc_object",
-            context
-                .i8_type()
-                .ptr_type(GC)
-                .fn_type(&[context.i64_type().into()], false),
+            context.i8_type().ptr_type(GC).fn_type(
+                &[context.i64_type().into(), context.i16_type().into()],
+                false,
+            ),
             None,
         );
         set_fn_attrs(&context, alloc_object);
@@ -213,7 +214,11 @@ impl Translator {
         let alloc_array = module.add_function(
             "gc_alloc_array",
             context.i8_type().ptr_type(GC).fn_type(
-                &[context.i64_type().into(), context.i64_type().into()],
+                &[
+                    context.i64_type().into(),
+                    context.i64_type().into(),
+                    context.i16_type().into(),
+                ],
                 false,
             ),
             None,
@@ -249,10 +254,12 @@ impl Translator {
         }
     }
 
-    fn translate(&mut self, file: InstantiatedProgram) -> PResult<()> {
-        // Forward declare the type id.
+    fn translate(&mut self, mut file: InstantiatedProgram) -> PResult<()> {
+        // Forward declare the type ids.
+        file.instantiated_types.remove(&AstType::String);
+        self.type_ids.insert(AstType::String, 0);
         for (i, ty) in file.instantiated_types.iter().enumerate() {
-            self.type_ids.insert(ty.clone(), i);
+            self.type_ids.insert(ty.clone(), i + 1); // 0 is left for for string...
         }
 
         // Forward declaration.
@@ -295,6 +302,8 @@ impl Translator {
                 Definition::ArrayAccess
             } else if is_array_len(&sig)? {
                 Definition::ArrayLen
+            } else if is_array_deref_assign(&sig)? {
+                Definition::ArrayAssign
             } else if fun.definition.is_some() {
                 Definition::Block(fun.definition.unwrap())
             } else {
@@ -449,11 +458,10 @@ impl Translator {
             );
 
             // Call array_idx_at with array, elem size, and idx.
-            let size = type_size(return_type)?.const_cast(IntType::i64_type(), false);
             let idx = llvm_fun.get_params()[1];
             let elem_ptr = unwrap_callsite(first_builder.build_call(
                 self.array_idx_at,
-                &[ptr.into(), size.into(), idx],
+                &[ptr.into(), idx],
                 &temp_name(),
             ));
 
@@ -466,6 +474,45 @@ impl Translator {
             let elem = first_builder.build_load(elem_ptr_typed, &temp_name());
 
             first_builder.build_return(Some(&elem));
+        } else if let Definition::ArrayAssign = definition {
+            // TODO: Don't decorate me? I think??
+
+            // Emit array access logic for `FpP8internalP5deref11deref_array1...`
+            let return_type = llvm_fun.get_type().get_return_type().unwrap();
+
+            let block = llvm_fun.append_basic_block("pre");
+            let first_builder = Builder::create();
+            first_builder.position_at_end(&block);
+
+            // Alloca and store the array parameter.
+            let array = llvm_fun.get_params()[0];
+            let alloca = first_builder.build_alloca(array.get_type(), &temp_name());
+            first_builder.build_store(alloca, array);
+
+            // Take parameter zero, which is an array, and cast it to i8*
+            let ptr = first_builder.build_pointer_cast(
+                array.into_pointer_value(),
+                self.context.i8_type().ptr_type(GC),
+                &temp_name(),
+            );
+
+            // Call array_idx_at with array, elem size, and idx.
+            let idx = llvm_fun.get_params()[1];
+            let elem_ptr = unwrap_callsite(first_builder.build_call(
+                self.array_idx_at,
+                &[ptr.into(), idx],
+                &temp_name(),
+            ));
+
+            // Cast that pointer to T*
+            let elem_ptr_typed = first_builder.build_pointer_cast(
+                elem_ptr.into_pointer_value(),
+                ptr_type(return_type, GLOBAL).into_pointer_type(),
+                &temp_name(),
+            );
+            let value = llvm_fun.get_params()[2];
+            first_builder.build_store(elem_ptr_typed, value);
+            first_builder.build_return(Some(&value));
         } else if let Definition::ArrayLen = definition {
             let block = llvm_fun.append_basic_block("pre");
             let first_builder = Builder::create();
@@ -649,9 +696,17 @@ impl Translator {
                     .i64_type()
                     .const_int(elements.len() as u64, false);
 
+                let ty_id = self.type_ids[&expression.ty];
                 let ptr = builder.build_call(
                     self.alloc_array,
-                    &[ty_size.into(), num_elements.into()],
+                    &[
+                        ty_size.into(),
+                        num_elements.into(),
+                        self.context
+                            .i16_type()
+                            .const_int(ty_id as u64, false)
+                            .into(),
+                    ],
                     &temp_name(),
                 );
 
@@ -663,8 +718,7 @@ impl Translator {
 
                 for (idx, e) in elements.iter().enumerate() {
                     let idx = self.context.i64_type().const_int(idx as u64, false);
-                    let loc = self.get_array_idx(builder, ptr, idx)?;
-
+                    let loc = self.get_array_idx(builder, ptr, idx, element_ty)?;
                     let e = self.bundle_vals(builder, e, &element_ast_ty)?;
                     builder.build_store(loc, e);
                 }
@@ -748,7 +802,19 @@ impl Translator {
             AstExpressionData::AllocateObject { object } => {
                 let ptr_type = self.get_type(object)?.into_pointer_type();
                 let size = type_size(ptr_type.get_element_type().into_struct_type().into())?;
-                let val = builder.build_call(self.alloc_object, &[size.into()], &temp_name());
+                let ty_id = self.type_ids[&expression.ty];
+
+                let val = builder.build_call(
+                    self.alloc_object,
+                    &[
+                        size.into(),
+                        self.context
+                            .i16_type()
+                            .const_int(ty_id as u64, false)
+                            .into(),
+                    ],
+                    &temp_name(),
+                );
                 let ptr = unwrap_callsite(val);
 
                 vec![builder
@@ -826,14 +892,15 @@ impl Translator {
         builder: &Builder,
         loc: PointerValue,
         idx: IntValue,
+        element_ty: BasicTypeEnum,
     ) -> PResult<PointerValue> {
-        let struct_val = builder.build_load(loc, &temp_name()).into_struct_value();
-        let array_ptr = builder
-            .build_extract_value(struct_val, 1, &temp_name())
-            .unwrap()
-            .into_pointer_value();
+        let array = unsafe { builder.build_struct_gep(loc, 2, &temp_name()) };
+        let array_ptr = builder.build_pointer_cast(
+            array,
+            ptr_type(element_ty, GLOBAL).into_pointer_type(),
+            &temp_name(),
+        );
         let elem_ptr = unsafe { builder.build_gep(array_ptr, &[idx], &temp_name()) };
-
         Ok(elem_ptr)
     }
 
@@ -912,7 +979,7 @@ impl Translator {
             "gc_visit_array",
             self.context.void_type().fn_type(
                 &[
-                    self.context.i8_type().ptr_type(GLOBAL).into(),
+                    self.context.i8_type().ptr_type(GC).into(),
                     self.context.i16_type().into(), // Child type
                 ],
                 false,
@@ -1054,7 +1121,7 @@ impl Translator {
                     builder.build_call(
                         gc_visit_array,
                         &[
-                            array,
+                            mark_ptr.into(),
                             self.context
                                 .i16_type()
                                 .const_int(elem_type_id as u64, false)
@@ -1161,7 +1228,7 @@ impl Translator {
                         &[
                             self.context.i64_type().into(),
                             self.context.i64_type().into(),
-                            ptr_type(ty, GLOBAL),
+                            array_type(ty),
                         ],
                         false,
                     )
@@ -1297,6 +1364,10 @@ fn set_fn_attrs(context: &Context, fun: FunctionValue) {
 
 fn is_array_deref(sig: &InstFunctionSignature) -> PResult<bool> {
     return Ok(&sig.0.full_name()? == "std::internal::operators::deref_array");
+}
+
+fn is_array_deref_assign(sig: &InstFunctionSignature) -> PResult<bool> {
+    return Ok(&sig.0.full_name()? == "std::internal::operators::deref_array_assign");
 }
 
 fn is_array_len(sig: &InstFunctionSignature) -> PResult<bool> {

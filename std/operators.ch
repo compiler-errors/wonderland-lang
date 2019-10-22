@@ -59,10 +59,21 @@ trait Negate {
     fn negate(self) -> <Self as Negate>::NegateResult.
 }
 
-trait Deref<_Idx> {
+trait Deref {
+    type DerefIdx.
     type DerefResult.
 
-    fn deref(self, idx: _Idx) -> <Self as Deref<_Idx>>::DerefResult.
+    fn deref(self, idx: <Self as Deref>::DerefIdx) -> <Self as Deref>::DerefResult.
+}
+
+trait DerefAssign {
+    type DerefAssignIdx.
+    type DerefAssignValue.
+
+    fn deref_assign(
+        self,
+        idx: <Self as DerefAssign>::DerefAssignIdx,
+        value: <Self as DerefAssign>::DerefAssignValue) -> <Self as DerefAssign>::DerefAssignValue.
 }
 
 trait Len {
