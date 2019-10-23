@@ -32,24 +32,20 @@ i64 fpP8internalP9operators7mod_int(i64 a, i64 b) {
   return a % b;
 }
 
-struct string* fpP8internalP16transmute_string15int_into_string(i64 i) {
+NOINLINE struct string* fpP8internalP16transmute_string15int_into_string(i64 i) {
   i64 length = snprintf(NULL, 0, "%"PRId64"", i);
 
-  i8* block = malloc(sizeof(i16) + sizeof(struct string) + (length + 1) * sizeof(i8));
-  *((i16*) block) = 0; // String type is ALWAYS 0.
-
-  struct string* string_ptr = (struct string*) (block + sizeof(i16));
+  i64 block_size = (i64) (sizeof(struct string) + (length + 1) * sizeof(i8));
+  struct string* string_ptr = gc_alloc_block(block_size, 0 /* string type */, __builtin_frame_address(0));
   string_ptr->length = length;
   snprintf((char*) string_ptr->payload, length + 1, "%"PRId64"", i);
 
   return string_ptr;
 }
 
-struct string* fpP8internalP16transmute_string16char_into_string(i8 c) {
-  i8* block = malloc(sizeof(i16) + sizeof(struct string) + 2 * sizeof(i8));
-  *((i16*) block) = 0; // String type is ALWAYS 0.
-
-  struct string* string_ptr = (struct string*) (block + sizeof(i16));
+NOINLINE struct string* fpP8internalP16transmute_string16char_into_string(i8 c) {
+  i64 block_size = (i64) (sizeof(struct string) + 2 * sizeof(i8));
+  struct string* string_ptr = gc_alloc_block(block_size, 0 /* string type */, __builtin_frame_address(0));
   string_ptr->length = 1;
   string_ptr->payload[0] = c;
   string_ptr->payload[1] = '\0';
@@ -57,14 +53,12 @@ struct string* fpP8internalP16transmute_string16char_into_string(i8 c) {
   return string_ptr;
 }
 
-struct string* fpP8internalP9operators10add_string(struct string* a,
+NOINLINE struct string* fpP8internalP9operators10add_string(struct string* a,
                                                    struct string* b) {
   i64 length = strlen((char*) a->payload) + strlen((char*) b->payload);
 
-  i8* block = malloc(sizeof(i16) + sizeof(struct string) + (length + 1) * sizeof(i8));
-  *((i16*) block) = 0; // String type is ALWAYS 0.
-
-  struct string* string_ptr = (struct string*) (block + sizeof(i16));
+  i64 block_size = (i64) (sizeof(struct string) + (length + 1) * sizeof(i8));
+  struct string* string_ptr = gc_alloc_block(block_size, 0 /* string type */, __builtin_frame_address(0));
   string_ptr->length = length;
   snprintf((char*) string_ptr->payload, length + 1, "%s%s", a->payload, b->payload);
 

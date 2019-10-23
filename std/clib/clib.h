@@ -8,10 +8,12 @@
 #include <string.h>
 
 #define i64 uint64_t
+#define i32 uint32_t
 #define i16 uint16_t
 #define i8 uint8_t
 #define i1 bool
 
+#define DEBUG_PRINTF(...) if (false) { printf(__VA_ARGS__); }
 #define NOINLINE __attribute__((noinline))
 
 struct array {
@@ -32,5 +34,8 @@ inline void _ensure_bounds_or_panic(const char* type, i64 size, i64 idx) {
     exit(1);
   }
 }
+
+void* gc_alloc_block(i64 size, i16 type, i8* cheshire_stack_root);
+void gc(i8* cheshire_stack_root);
 
 #endif // __CLIB_H

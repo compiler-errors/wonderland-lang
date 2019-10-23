@@ -24,7 +24,8 @@ pub fn array_type(t: BasicTypeEnum) -> BasicTypeEnum {
         BasicTypeEnum::FloatType(t) => t.array_type(0),
         BasicTypeEnum::PointerType(t) => t.array_type(0),
         BasicTypeEnum::VectorType(t) => t.array_type(0),
-    }.into()
+    }
+    .into()
 }
 
 pub fn ptr_type(t: BasicTypeEnum, a: AddressSpace) -> BasicTypeEnum {

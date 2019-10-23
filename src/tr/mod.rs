@@ -255,12 +255,13 @@ impl Translator {
     }
 
     fn translate(&mut self, mut file: InstantiatedProgram) -> PResult<()> {
-        // Forward declare the type ids.
+        // Forward declare the type ids. Explicitly declare string as 0.
         file.instantiated_types.remove(&AstType::String);
         self.type_ids.insert(AstType::String, 0);
         for (i, ty) in file.instantiated_types.iter().enumerate() {
             self.type_ids.insert(ty.clone(), i + 1); // 0 is left for for string...
         }
+        file.instantiated_types.insert(AstType::String);
 
         // Forward declaration.
         for (sig, _) in &file.instantiated_objects {
@@ -963,12 +964,20 @@ impl Translator {
         tys: &HashSet<AstType>,
         instantiated_objects: &HashMap<InstObjectSignature, Option<AstObject>>,
     ) -> PResult<()> {
+        let callback_value_type = self.context.i8_type().ptr_type(GC).ptr_type(GLOBAL);
+        let gc_callback_type = self
+            .context
+            .bool_type()
+            .fn_type(&[callback_value_type.into()], false)
+            .ptr_type(GLOBAL);
+
         let gc_visit = self.module.add_function(
             "gc_visit",
             self.context.void_type().fn_type(
                 &[
                     self.context.i8_type().ptr_type(GLOBAL).into(),
                     self.context.i16_type().into(),
+                    gc_callback_type.into(),
                 ],
                 false,
             ),
@@ -979,24 +988,18 @@ impl Translator {
             "gc_visit_array",
             self.context.void_type().fn_type(
                 &[
-                    self.context.i8_type().ptr_type(GC).into(),
+                    callback_value_type.into(),
                     self.context.i16_type().into(), // Child type
+                    gc_callback_type.into(),
                 ],
                 false,
             ),
             None,
         );
 
-        let gc_mark = self.module.add_function(
-            "gc_mark",
-            self.context
-                .bool_type()
-                .fn_type(&[self.context.i8_type().ptr_type(GC).into()], false),
-            None,
-        );
-
         let ptr_param = gc_visit.get_params()[0].into_pointer_value();
         let id_param = gc_visit.get_params()[1].into_int_value();
+        let callback_param = gc_visit.get_params()[2].into_pointer_value();
 
         let block = gc_visit.append_basic_block("first");
         let builder = Builder::create();
@@ -1007,6 +1010,7 @@ impl Translator {
         let mut switch = Vec::new();
         for t in tys {
             let id = self.type_ids[&t];
+            println!("GC_VISIT: {} => {}", t, id);
             let (block, builder) = self.get_new_block(&builder)?;
 
             match t {
@@ -1015,22 +1019,30 @@ impl Translator {
                 }
 
                 AstType::String => {
-                    // Change the i8* into an string addrspace(1)**
-                    let string_ptr = builder.build_pointer_cast(
-                        ptr_param,
-                        ptr_type(self.get_type(t)?, GLOBAL).into_pointer_type(),
-                        &temp_name(),
-                    );
-                    let string = builder.build_load(string_ptr, &temp_name());
-                    let mark_ptr = builder.build_pointer_cast(
-                        string.into_pointer_value(),
-                        self.context.i8_type().ptr_type(GC),
-                        &temp_name(),
-                    );
-                    builder.build_call(gc_mark, &[mark_ptr.into()], &temp_name());
+                    // Change the i8* into an i8 addrspace(1)**
+                    let callback_value =
+                        builder.build_pointer_cast(ptr_param, callback_value_type, &temp_name());
+                    builder.build_call(callback_param, &[callback_value.into()], &temp_name());
                 }
 
                 AstType::Object(name, generics) => {
+                    // Change the i8* into an i8 addrspace(1)**
+                    let callback_value =
+                        builder.build_pointer_cast(ptr_param, callback_value_type, &temp_name());
+                    let marked = unwrap_callsite(builder.build_call(
+                        callback_param,
+                        &[callback_value.into()],
+                        &temp_name(),
+                    ));
+                    let (next_block, _) = self.get_new_block(&builder)?;
+                    builder.build_conditional_branch(
+                        marked.into_int_value(),
+                        &next_block,
+                        &end_block,
+                    );
+                    builder.position_at_end(&next_block);
+
+                    // _MUST_ read the object after calling the callback. We might remap it in the callback!
                     // Change the i8* into an object addrspace(1)**
                     let object_ptr = builder.build_pointer_cast(
                         ptr_param,
@@ -1038,24 +1050,6 @@ impl Translator {
                         &temp_name(),
                     );
                     let object = builder.build_load(object_ptr, &temp_name());
-
-                    // Stupid logic to make the object back into an i8 addrspace(1)* and mark it.
-                    // Then conditionally branch to the end if it has been marked, so we don't
-                    // loop forever.
-                    let mark_ptr = builder.build_pointer_cast(
-                        object.into_pointer_value(),
-                        self.context.i8_type().ptr_type(GC),
-                        &temp_name(),
-                    );
-                    let marked = builder.build_call(gc_mark, &[mark_ptr.into()], &temp_name());
-                    let marked = unwrap_callsite(marked);
-                    let (next_block, _) = self.get_new_block(&builder)?;
-                    builder.build_conditional_branch(
-                        marked.into_int_value(),
-                        &end_block,
-                        &next_block,
-                    );
-                    builder.position_at_end(&next_block);
 
                     for (idx, member) in instantiated_objects
                         [&InstObjectSignature(name.clone(), generics.clone())]
@@ -1086,6 +1080,7 @@ impl Translator {
                                     .i16_type()
                                     .const_int(mem_type_id as u64, false)
                                     .into(),
+                                callback_param.into(),
                             ],
                             &temp_name(),
                         );
@@ -1094,19 +1089,8 @@ impl Translator {
 
                 AstType::Array { ty } => {
                     // Change the i8* into an array addrspace(1)**
-                    let array_ptr = builder.build_pointer_cast(
-                        ptr_param,
-                        ptr_type(self.get_type(t)?, GLOBAL).into_pointer_type(),
-                        &temp_name(),
-                    );
-                    // Now get the array addrspace(1)*
-                    let array = builder.build_load(array_ptr, &temp_name());
-
-                    let array_ptr = builder.build_pointer_cast(
-                        array.into_pointer_value(),
-                        self.context.i8_type().ptr_type(GC),
-                        &temp_name(),
-                    );
+                    let array_ptr =
+                        builder.build_pointer_cast(ptr_param, callback_value_type, &temp_name());
 
                     let elem_type_id = self.type_ids[&ty];
                     builder.build_call(
@@ -1117,6 +1101,7 @@ impl Translator {
                                 .i16_type()
                                 .const_int(elem_type_id as u64, false)
                                 .into(),
+                            callback_param.into(),
                         ],
                         &temp_name(),
                     );
@@ -1147,6 +1132,7 @@ impl Translator {
                                     .i16_type()
                                     .const_int(subty_id as u64, false)
                                     .into(),
+                                callback_param.into(),
                             ],
                             &temp_name(),
                         );
