@@ -276,6 +276,17 @@ impl<T: AstAdapter> Visit<T> for AstStatement {
                 condition: condition.visit(adapter)?,
                 block: block.visit(adapter)?,
             },
+            AstStatement::For {
+                span,
+                identifier,
+                iterable,
+                block,
+            } => AstStatement::For {
+                span,
+                identifier,
+                iterable: iterable.visit(adapter)?,
+                block: block.visit(adapter)?,
+            },
             AstStatement::Return { value } => AstStatement::Return {
                 value: value.visit(adapter)?,
             },

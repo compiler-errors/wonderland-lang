@@ -80,8 +80,11 @@ impl<'a> AstAdapter for TyckObjectiveAdapter {
 
     fn enter_statement(&mut self, s: AstStatement) -> PResult<AstStatement> {
         match &s {
-            AstStatement::Expression { .. } | AstStatement::Break | AstStatement::Continue => {}
+            // Removed in earlier stages
             AstStatement::Let { .. } => unreachable!(),
+            AstStatement::For { .. } => unreachable!(),
+
+            AstStatement::Expression { .. } | AstStatement::Break | AstStatement::Continue => {}
             AstStatement::While { condition, .. } => {
                 self.solver.unify(&condition.ty, &AstType::Bool)?;
             }

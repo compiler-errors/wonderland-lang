@@ -659,6 +659,7 @@ impl Parser {
         match &self.next_token {
             Token::Let => self.parse_let_statement(),
             Token::While => self.parse_while_loop(),
+            Token::For => self.parse_for_loop(),
             Token::Break => {
                 self.bump()?;
                 Ok(AstStatement::break_stmt())
@@ -699,6 +700,17 @@ impl Parser {
         let (block, _) = self.parse_block()?;
 
         Ok(AstStatement::while_loop(condition, block))
+    }
+
+    fn parse_for_loop(&mut self) -> PResult<AstStatement> {
+        let span = self.next_span;
+        self.expect_consume(Token::For)?;
+        let ident = self.expect_consume_identifier()?;
+        self.expect_consume(Token::In)?;
+        let iter_expr = self.parse_expression()?;
+        let (block, _) = self.parse_block()?;
+
+        Ok(AstStatement::for_loop(span, ident, iter_expr, block))
     }
 
     fn parse_return_statement(&mut self) -> PResult<AstStatement> {
@@ -1231,6 +1243,7 @@ impl Parser {
                     },
             }
             | AstStatement::While { .. } => Ok(()),
+            | AstStatement::For { .. } => Ok(()),
             _ => PResult::error_at(span, format!("Statement must be ended with a `.`")),
         }
     }

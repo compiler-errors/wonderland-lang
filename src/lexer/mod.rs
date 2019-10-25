@@ -352,6 +352,7 @@ impl Lexer {
             "else" => Token::Else,
             "while" => Token::While,
             "for" => Token::For,
+            "in" => Token::In,
             "as" => Token::As,
             "break" => Token::Break,
             "continue" => Token::Continue,
@@ -372,6 +373,7 @@ impl Lexer {
             "Char" => Token::Char,
             "_" => Token::Infer,
             "Self" => Token::SelfType,
+            "Fn" => Token::FnType,
 
             _ => match string.chars().nth(0).unwrap() {
                 '_' => Token::GenericName(string[1..].into()),

@@ -375,7 +375,6 @@ impl Translator {
 
         let llvm_fun = self.module.add_function(&name, fun_ty, None);
 
-        llvm_fun.set_gc("statepoint-example");
         set_fn_attrs(&self.context, llvm_fun);
 
         Ok(llvm_fun)
@@ -406,6 +405,8 @@ impl Translator {
         let llvm_fun = self.module.get_function(&fun_name).unwrap();
 
         if let Definition::Block(definition) = definition {
+            set_gc(&self.context, llvm_fun);
+
             let param_values: HashMap<_, _> =
                 ZipExact::zip_exact(parameter_list, &llvm_fun.get_params(), "params")?
                     .map(|(p, v)| (p.id, v.clone()))
@@ -549,7 +550,10 @@ impl Translator {
 
     fn translate_statement(&mut self, builder: &Builder, statement: &AstStatement) -> PResult<()> {
         match statement {
+            // Removed in earlier stages
             AstStatement::Let { .. } => unreachable!(),
+            AstStatement::For { .. } => unreachable!(),
+
             AstStatement::Assert { .. } => unimplemented!(),
 
             AstStatement::Expression { expression } => {
@@ -616,7 +620,7 @@ impl Translator {
             AstExpressionData::Unimplemented => unreachable!(),
 
             AstExpressionData::True => vec![self.context.bool_type().const_int(1, false).into()],
-            AstExpressionData::False => vec![self.context.bool_type().const_int(1, false).into()],
+            AstExpressionData::False => vec![self.context.bool_type().const_int(0, false).into()],
 
             AstExpressionData::Null => vec![self
                 .get_type(&expression.ty)?
@@ -1060,6 +1064,7 @@ impl Translator {
                         .enumerate()
                     {
                         let mem_type_id = self.type_ids[&member.member_type];
+
                         let mem_ptr = unsafe {
                             builder.build_struct_gep(
                                 object.into_pointer_value(),
@@ -1337,6 +1342,10 @@ fn set_fn_attrs(context: &Context, fun: FunctionValue) {
         AttributeLoc::Function,
         context.create_enum_attribute(Attribute::get_named_enum_kind_id("nounwind"), 1),
     );
+}
+
+fn set_gc(context: &Context, fun: FunctionValue) {
+    fun.set_gc("statepoint-example");
 }
 
 fn is_array_deref(sig: &InstFunctionSignature) -> PResult<bool> {

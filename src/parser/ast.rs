@@ -331,6 +331,12 @@ pub enum AstStatement {
         condition: AstExpression,
         block: AstBlock,
     },
+    For {
+        span: Span,
+        identifier: String,
+        iterable: AstExpression,
+        block: AstBlock,
+    },
     Break,
     Continue,
     Return {
@@ -361,6 +367,20 @@ impl AstStatement {
 
     pub fn while_loop(condition: AstExpression, block: AstBlock) -> AstStatement {
         AstStatement::While { condition, block }
+    }
+
+    pub fn for_loop(
+        span: Span,
+        identifier: String,
+        iterable: AstExpression,
+        block: AstBlock,
+    ) -> AstStatement {
+        AstStatement::For {
+            span,
+            identifier,
+            iterable,
+            block,
+        }
     }
 
     pub fn return_statement(value: AstExpression) -> AstStatement {

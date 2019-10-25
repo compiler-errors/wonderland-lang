@@ -9,7 +9,8 @@ i1 fpP8internalP9operators6eq_int(i64 a, i64 b) {
 }
 
 i1 fpP8internalP9operators6gt_int(i64 a, i64 b) {
-  return a > b;
+  // SIGNED comparison, please.
+  return ((int64_t) a) > ((int64_t) b);
 }
 
 i64 fpP8internalP9operators7add_int(i64 a, i64 b) {
@@ -37,6 +38,8 @@ NOINLINE struct string* fpP8internalP16transmute_string15int_into_string(i64 i) 
 
   i64 block_size = (i64) (sizeof(struct string) + (length + 1) * sizeof(i8));
   struct string* string_ptr = gc_alloc_block(block_size, 0 /* string type */, __builtin_frame_address(0));
+  gc_remap_free();
+
   string_ptr->length = length;
   snprintf((char*) string_ptr->payload, length + 1, "%"PRId64"", i);
 
@@ -46,6 +49,8 @@ NOINLINE struct string* fpP8internalP16transmute_string15int_into_string(i64 i) 
 NOINLINE struct string* fpP8internalP16transmute_string16char_into_string(i8 c) {
   i64 block_size = (i64) (sizeof(struct string) + 2 * sizeof(i8));
   struct string* string_ptr = gc_alloc_block(block_size, 0 /* string type */, __builtin_frame_address(0));
+  gc_remap_free();
+
   string_ptr->length = 1;
   string_ptr->payload[0] = c;
   string_ptr->payload[1] = '\0';
@@ -59,6 +64,10 @@ NOINLINE struct string* fpP8internalP9operators10add_string(struct string* a,
 
   i64 block_size = (i64) (sizeof(struct string) + (length + 1) * sizeof(i8));
   struct string* string_ptr = gc_alloc_block(block_size, 0 /* string type */, __builtin_frame_address(0));
+  a = (struct string*) gc_remap_object((i8*) a);
+  b = (struct string*) gc_remap_object((i8*) b);
+  gc_remap_free();
+
   string_ptr->length = length;
   snprintf((char*) string_ptr->payload, length + 1, "%s%s", a->payload, b->payload);
 

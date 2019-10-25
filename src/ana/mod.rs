@@ -18,12 +18,14 @@ use crate::ana::analyze_variables::AnalyzeVariables;
 use crate::parser::ast::AstProgram;
 
 use crate::ana::analyze_elaborations::AnalyzeElaborations;
+use crate::ana::analyze_for_loops::AnalyzeForLoops;
 use crate::util::{Comment, PResult, Visit};
 
 mod analyze_argument_parity;
 mod analyze_associated_types;
 mod analyze_control_flow;
 mod analyze_elaborations;
+mod analyze_for_loops;
 mod analyze_generics;
 mod analyze_generics_parity;
 mod analyze_illegal_infers;
@@ -69,10 +71,13 @@ pub fn analyze(p: AstProgram) -> PResult<(AnalyzedProgram, AstProgram)> {
     let mut a = analyze_info.analyzed_program;
 
     let passes: Vec<(&str, AnalysisPassFn)> = vec![
+        // All the syntactic sugar needs to go first.
+        ("analyze_for_loops", Box::new(AnalyzeForLoops::analyze)),
         (
             "analyze_elaborations",
             Box::new(AnalyzeElaborations::analyze),
         ),
+        // Then the rest.
         ("analyze_names", Box::new(AnalyzeNames::analyze)),
         (
             "analyze_associated_types",
