@@ -2,13 +2,14 @@ use crate::ana::represent::AnalyzedProgram;
 use crate::ana::represent_visitor::PureAnalysisPass;
 use crate::parser::ast::*;
 use crate::parser::ast_visitor::AstAdapter;
-use crate::util::{Expect, IntoError, PResult, StackMap, Visit};
+use crate::util::{Expect, FileId, IntoError, PResult, StackMap, Visit};
 use std::collections::HashMap;
 
 pub struct AnalyzeVariables {
     analyzed_program: AnalyzedProgram,
     fn_variables: HashMap<VariableId, AstNamedVariable>,
     scope: StackMap<String, VariableId>,
+    global_variables: HashMap<String, FileId>,
 }
 
 impl PureAnalysisPass for AnalyzeVariables {
@@ -17,6 +18,7 @@ impl PureAnalysisPass for AnalyzeVariables {
             analyzed_program,
             fn_variables: HashMap::new(),
             scope: StackMap::new(),
+            global_variables: HashMap::new(),
         })
     }
 
@@ -47,8 +49,21 @@ impl AnalyzeVariables {
 }
 
 impl<'a> AstAdapter for AnalyzeVariables {
+    fn enter_module(&mut self, m: AstModule) -> PResult<AstModule> {
+        self.global_variables.clear();
+
+        let mm = self.analyzed_program.analyzed_modules[&m.id].clone();
+        let mm = (*mm).borrow();
+
+        for (name, id) in mm.top_level_symbols() {
+            self.global_variables.insert(name, id);
+        }
+
+        Ok(m)
+    }
+
     fn enter_function(&mut self, f: AstFunction) -> PResult<AstFunction> {
-        self.scope.reset();
+        self.scope.push();
         self.fn_variables.clear();
 
         if !f.variables.is_empty() {
@@ -67,7 +82,6 @@ impl<'a> AstAdapter for AnalyzeVariables {
 
     fn enter_block(&mut self, b: AstBlock) -> PResult<AstBlock> {
         self.scope.push();
-
         Ok(b)
     }
 
@@ -102,12 +116,18 @@ impl<'a> AstAdapter for AnalyzeVariables {
                 name,
                 variable_id: None,
             } => {
-                let variable_id = Some(
-                    self.scope
-                        .get(&name)
-                        .is_expected(e.span, "variable", &name)?,
-                );
-                AstExpressionData::Identifier { name, variable_id }
+                if let Some(id) = self.scope.get(&name) {
+                    AstExpressionData::Identifier {
+                        name,
+                        variable_id: Some(id),
+                    }
+                } else if let Some(id) = self.global_variables.get(&name) {
+                    AstExpressionData::GlobalVariable {
+                        name: ModuleRef::Normalized(*id, name),
+                    }
+                } else {
+                    return PResult::error(format!("Cannot find variable by name: `{}`", name));
+                }
             }
             AstExpressionData::SelfRef => {
                 let variable_id = Some(
@@ -127,7 +147,7 @@ impl<'a> AstAdapter for AnalyzeVariables {
     }
 
     fn enter_object_function(&mut self, f: AstObjectFunction) -> PResult<AstObjectFunction> {
-        self.scope.reset();
+        self.scope.push();
         self.fn_variables.clear();
 
         if !f.variables.is_empty() {
@@ -144,12 +164,18 @@ impl<'a> AstAdapter for AnalyzeVariables {
         Ok(f)
     }
 
+    fn exit_module(&mut self, a: AstModule) -> PResult<AstModule> {
+        self.global_variables.clear();
+        Ok(a)
+    }
+
     fn exit_function(&mut self, f: AstFunction) -> PResult<AstFunction> {
         let variables = self.fn_variables.clone();
         self.analyzed_program
             .variable_ids
             .extend(self.fn_variables.drain());
 
+        self.scope.pop();
         Ok(AstFunction { variables, ..f })
     }
 
@@ -166,6 +192,7 @@ impl<'a> AstAdapter for AnalyzeVariables {
             .variable_ids
             .extend(self.fn_variables.drain());
 
+        self.scope.pop();
         Ok(AstObjectFunction { variables, ..o })
     }
 }

@@ -46,6 +46,7 @@ pub struct AstModule {
     pub objects: HashMap<String, AstObject>,
     pub traits: HashMap<String, AstTrait>,
     pub impls: HashMap<ImplId, AstImpl>,
+    pub globals: HashMap<String, AstGlobalVariable>,
 }
 
 impl AstModule {
@@ -58,6 +59,7 @@ impl AstModule {
         objects: HashMap<String, AstObject>,
         traits: HashMap<String, AstTrait>,
         impls: HashMap<ImplId, AstImpl>,
+        globals: HashMap<String, AstGlobalVariable>,
     ) -> AstModule {
         AstModule {
             id,
@@ -68,6 +70,7 @@ impl AstModule {
             objects,
             traits,
             impls,
+            globals,
         }
     }
 }
@@ -209,6 +212,11 @@ pub enum AstType {
     },
     Object(ModuleRef, Vec<AstType>),
 
+    ClosureType {
+        args: Vec<AstType>,
+        ret_ty: Box<AstType>,
+    },
+
     AssociatedType {
         obj_ty: Box<AstType>,
         trait_ty: Option<AstTraitType>,
@@ -271,6 +279,13 @@ impl AstType {
 
     pub fn object(object: ModuleRef, generics: Vec<AstType>) -> AstType {
         AstType::Object(object, generics)
+    }
+
+    pub fn closure_type(args: Vec<AstType>, ret_ty: AstType) -> AstType {
+        AstType::ClosureType {
+            args,
+            ret_ty: Box::new(ret_ty),
+        }
     }
 
     pub fn generic(generic: String) -> AstType {
@@ -437,6 +452,9 @@ pub enum AstExpressionData {
         name: String,
         variable_id: Option<VariableId>,
     },
+    GlobalVariable {
+        name: ModuleRef,
+    },
     Tuple {
         values: Vec<AstExpression>,
     },
@@ -445,9 +463,14 @@ pub enum AstExpressionData {
     },
 
     /// A regular function call
-    Call {
+    FnCall {
         fn_name: ModuleRef,
         generics: Vec<AstType>,
+        args: Vec<AstExpression>,
+    },
+    // A call to an subexpression.
+    ExprCall {
+        expr: SubExpression,
         args: Vec<AstExpression>,
     },
     /// Call an object's member function
@@ -595,6 +618,16 @@ impl AstExpression {
         }
     }
 
+    pub fn global_variable(span: Span, path: Vec<String>) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::GlobalVariable {
+                name: ModuleRef::Denormalized(path),
+            },
+            ty: AstType::infer(),
+        }
+    }
+
     pub fn tuple_literal(span: Span, values: Vec<AstExpression>) -> AstExpression {
         AstExpression {
             span,
@@ -629,9 +662,20 @@ impl AstExpression {
     ) -> AstExpression {
         AstExpression {
             span,
-            data: AstExpressionData::Call {
+            data: AstExpressionData::FnCall {
                 fn_name,
                 generics,
+                args,
+            },
+            ty: AstType::infer(),
+        }
+    }
+
+    pub fn expr_call(span: Span, expr: AstExpression, args: Vec<AstExpression>) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::ExprCall {
+                expr: Box::new(expr),
                 args,
             },
             ty: AstType::infer(),
@@ -1021,6 +1065,35 @@ impl AstImpl {
         *id_ref += 1;
 
         ImplId(id_ref.clone())
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct AstGlobalVariable {
+    pub name_span: Span,
+
+    pub name: String,
+    pub module_ref: ModuleRef,
+
+    pub ty: AstType,
+    pub init: AstExpression,
+}
+
+impl AstGlobalVariable {
+    pub fn new(
+        file_id: FileId,
+        name_span: Span,
+        name: String,
+        ty: AstType,
+        init: AstExpression,
+    ) -> AstGlobalVariable {
+        AstGlobalVariable {
+            name_span,
+            module_ref: ModuleRef::Normalized(file_id, name.clone()),
+            name,
+            ty,
+            init,
+        }
     }
 }
 

@@ -1,5 +1,7 @@
 use crate::ana::represent_visitor::AstAnalysisPass;
-use crate::parser::ast::{AstFunction, AstImpl, AstObject, AstObjectFunction, AstTrait, AstType};
+use crate::parser::ast::{
+    AstFunction, AstGlobalVariable, AstImpl, AstObject, AstObjectFunction, AstTrait, AstType,
+};
 use crate::parser::ast_visitor::AstAdapter;
 use crate::util::{IntoError, PResult, Visit};
 
@@ -49,6 +51,12 @@ impl AstAdapter for AnalyzeIllegalInfers {
         i.associated_types = i.associated_types.visit(&mut DenyInfer)?;
 
         Ok(i)
+    }
+
+    fn enter_global_variable(&mut self, mut g: AstGlobalVariable) -> PResult<AstGlobalVariable> {
+        g.ty = g.ty.visit(&mut DenyInfer)?;
+
+        Ok(g)
     }
 }
 

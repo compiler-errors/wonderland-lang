@@ -55,6 +55,7 @@ struct Translator {
     break_continue: Option<(BasicBlock, BasicBlock)>,
 
     variables: HashMap<VariableId, Vec<PointerValue>>,
+    globals: HashMap<ModuleRef, Vec<GlobalValue>>,
     type_ids: HashMap<AstType, usize>,
 }
 
@@ -250,6 +251,7 @@ impl Translator {
             break_continue: None,
 
             variables: HashMap::new(),
+            globals: HashMap::new(),
             type_ids: HashMap::new(),
         }
     }
@@ -293,6 +295,10 @@ impl Translator {
                 &fun.return_type,
                 fun.definition.is_none(),
             )?;
+        }
+
+        for (name, global) in &file.instantiated_globals {
+            self.forward_declare_global(&name, &global.ty)?;
         }
 
         for (sig, fun) in file.instantiated_fns {
@@ -340,12 +346,16 @@ impl Translator {
         }
 
         self.translate_gc_visit(&file.instantiated_types, &file.instantiated_objects)?;
-        self.translate_main(&file.main_fn)?;
+        self.translate_main(&file.main_fn, &file.instantiated_globals)?;
 
         Ok(())
     }
 
-    fn translate_main(&mut self, main_fn: &ModuleRef) -> PResult<()> {
+    fn translate_main(
+        &mut self,
+        main_fn: &ModuleRef,
+        globals: &HashMap<ModuleRef, AstGlobalVariable>,
+    ) -> PResult<()> {
         let main_fn_name = decorate_fn(main_fn, &[])?;
         let cheshire_main_fn = self.module.get_function(&main_fn_name).unwrap();
 
@@ -353,6 +363,16 @@ impl Translator {
         let block = real_main_fn.append_basic_block("pre");
         let first_builder = Builder::create();
         first_builder.position_at_end(&block);
+
+        // Initialize all of our globals here.
+        for (name, g) in globals {
+            let values = self.translate_expression(&first_builder, &g.init)?;
+
+            for (ptr, v) in ZipExact::zip_exact(&self.globals[name], values, "globals")? {
+                first_builder.build_store(ptr.as_pointer_value(), v);
+            }
+        }
+
         let ret = first_builder.build_call(cheshire_main_fn, &[], &temp_name());
         first_builder.build_return(Some(&unwrap_callsite(ret)));
 
@@ -378,6 +398,11 @@ impl Translator {
         set_fn_attrs(&self.context, llvm_fun);
 
         Ok(llvm_fun)
+    }
+
+    fn forward_declare_global(&mut self, name: &ModuleRef, ty: &AstType) -> PResult<()> {
+        self.globals.insert(name.clone(), self.flatten_globals(ty)?);
+        Ok(())
     }
 
     fn translate_object(&mut self, sig: &InstObjectSignature, obj: &AstObject) -> PResult<()> {
@@ -618,6 +643,7 @@ impl Translator {
         let value: Vec<BasicValueEnum> = match &expression.data {
             AstExpressionData::SelfRef => unreachable!(),
             AstExpressionData::Unimplemented => unreachable!(),
+            AstExpressionData::ExprCall { .. } => unimplemented!(),
 
             AstExpressionData::True => vec![self.context.bool_type().const_int(1, false).into()],
             AstExpressionData::False => vec![self.context.bool_type().const_int(0, false).into()],
@@ -668,7 +694,9 @@ impl Translator {
             }
 
             // Lval-always expressions. Can be calculated by getting the lval then deref'ing.
-            AstExpressionData::Identifier { .. } | AstExpressionData::ObjectAccess { .. } => self
+            AstExpressionData::Identifier { .. }
+            | AstExpressionData::ObjectAccess { .. }
+            | AstExpressionData::GlobalVariable { .. } => self
                 .translate_expression_lval(builder, expression)?
                 .iter()
                 .map(|e| builder.build_load(*e, &temp_name()))
@@ -731,7 +759,7 @@ impl Translator {
                 vec![ptr.into()]
             }
 
-            AstExpressionData::Call {
+            AstExpressionData::FnCall {
                 fn_name,
                 generics,
                 args,
@@ -959,6 +987,10 @@ impl Translator {
                     unreachable!()
                 }
             }
+            AstExpressionData::GlobalVariable { name } => Ok(self.globals[name]
+                .iter()
+                .map(|e| e.as_pointer_value())
+                .collect()),
             _ => unreachable!(),
         }
     }
@@ -1332,6 +1364,23 @@ impl Translator {
             let ptr = builder.build_alloca(self.get_type(t)?, &temp_name());
             builder.build_store(ptr, v);
 
+            Ok(vec![ptr])
+        }
+    }
+
+    fn flatten_globals(&self, t: &AstType) -> PResult<Vec<GlobalValue>> {
+        if let AstType::Tuple { types } = t {
+            let mut ret = Vec::new();
+
+            for (i, subty) in types.into_iter().enumerate() {
+                ret.extend(self.flatten_globals(subty)?);
+            }
+
+            Ok(ret)
+        } else {
+            let ty = self.get_type(t)?;
+            let ptr = self.module.add_global(ty, None, &temp_name());
+            ptr.set_initializer(&type_undefined(ty)?);
             Ok(vec![ptr])
         }
     }

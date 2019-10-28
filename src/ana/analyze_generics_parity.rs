@@ -72,13 +72,13 @@ impl AstAdapter for AnalyzeGenericsParity {
         let AstExpression { data, ty, span } = e;
 
         let data = match data {
-            AstExpressionData::Call {
+            AstExpressionData::FnCall {
                 fn_name,
                 generics,
                 args,
             } => {
                 let generics = self.check_generics(&fn_name, generics)?;
-                AstExpressionData::Call {
+                AstExpressionData::FnCall {
                     fn_name,
                     args,
                     generics,

@@ -79,3 +79,9 @@ trait DerefAssign {
 trait Len {
     fn len(self) -> Int.
 }
+
+trait Call<_Args> {
+    type CallReturn.
+
+    fn call(self, args: _Args) -> <Self as Call<_Args>>::CallReturn.
+}

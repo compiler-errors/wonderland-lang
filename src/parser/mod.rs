@@ -197,6 +197,7 @@ impl Parser {
         let mut objects = HashMap::new();
         let mut traits = HashMap::new();
         let mut impls = HashMap::new();
+        let mut globals = HashMap::new();
 
         while self.check_consume(Token::Use)? {
             if self.check_consume(Token::Pub)? {
@@ -244,6 +245,14 @@ impl Parser {
                 let imp = self.parse_impl()?;
 
                 impls.insert(imp.impl_id, imp);
+            } else if self.check(Token::Let) {
+                let global = self.parse_global()?;
+                let name = global.name.clone();
+                let span = global.name_span;
+
+                globals
+                    .insert(global.name.clone(), global)
+                    .is_not_expected(span, "global", &name)?;
             } else {
                 // TODO: wonky
                 return self.error_here(format!(
@@ -262,6 +271,7 @@ impl Parser {
             objects,
             traits,
             impls,
+            globals,
         ))
     }
 
@@ -470,6 +480,20 @@ impl Parser {
                 self.bump()?;
                 (AstType::SelfType, self.next_span)
             }
+            Token::FnType => {
+                self.bump()?;
+                let mut span = self.next_span;
+                let (args, s) = self.parse_fn_type_args()?;
+                span = span.unite(s);
+                let ret_ty = if self.check_consume(Token::RArrow)? {
+                    let (t, s) = self.parse_type()?;
+                    span = span.unite(s);
+                    t
+                } else {
+                    AstType::none()
+                };
+                (AstType::closure_type(args, ret_ty), span)
+            }
             Token::LSqBracket => self.parse_array_type()?,
             Token::LParen => self.parse_tuple_type()?,
             Token::TypeName(..) | Token::Identifier(..) => self.parse_object_type()?,
@@ -612,6 +636,30 @@ impl Parser {
         let span = self.next_span;
         let generic = self.expect_consume_generic()?;
         Ok((AstType::generic(generic), span))
+    }
+
+    fn parse_fn_type_args(&mut self) -> PResult<(Vec<AstType>, Span)> {
+        let mut span = self.next_span;
+        self.expect_consume(Token::LParen)?;
+
+        span = span.unite(self.next_span);
+        if self.check_consume(Token::RParen)? {
+            Ok((vec![], span))
+        } else {
+            let mut types = Vec::new();
+
+            while !self.check_consume(Token::RParen)? {
+                if types.len() != 0 {
+                    self.expect_consume(Token::Comma)?;
+                }
+
+                let (subty, _) = self.parse_type()?;
+                types.push(subty);
+                span = span.unite(self.next_span);
+            }
+
+            Ok((types, span))
+        }
     }
 
     // Parse a block of statements including LBrace and RBrace.
@@ -836,6 +884,12 @@ impl Parser {
                         ))?;
                     }
                 }
+                Token::LParen => {
+                    let (args, args_span) = self.parse_expr_args()?;
+                    span = span.unite(args_span);
+                    lhs = AstExpression::expr_call(span, lhs, args);
+                    continue;
+                }
                 _ => {}
             }
 
@@ -1002,17 +1056,7 @@ impl Parser {
     fn parse_identifier_expr(&mut self, path: Vec<String>) -> PResult<AstExpression> {
         let mut span = self.next_span;
 
-        if self.check(Token::LParen) {
-            span = span.unite(self.next_span);
-            let (args, args_span) = self.parse_expr_args()?;
-            span = span.unite(args_span);
-            Ok(AstExpression::call(
-                span,
-                ModuleRef::Denormalized(path),
-                Vec::new(),
-                args,
-            ))
-        } else if self.check(Token::ColonLt) {
+        if self.check(Token::ColonLt) {
             span = span.unite(self.next_span);
             self.expect_consume_colon()?;
             let (generics, generics_span) = self.parse_expr_generics()?;
@@ -1028,7 +1072,7 @@ impl Parser {
             let identifier = path[0].clone();
             Ok(AstExpression::identifier(span, identifier))
         } else {
-            unimplemented!("Error: Identifiers must be path-length 1. No global variables yet.");
+            Ok(AstExpression::global_variable(span, path))
         }
     }
 
@@ -1204,6 +1248,7 @@ impl Parser {
     fn ensure_lval(&self, expr: &AstExpression) -> PResult<()> {
         match &expr.data {
             AstExpressionData::Identifier { .. }
+            | AstExpressionData::GlobalVariable { .. }
             | AstExpressionData::ArrayAccess { .. }
             | AstExpressionData::ObjectAccess { .. } => Ok(()),
             AstExpressionData::TupleAccess { accessible, .. } => self.ensure_lval(accessible),
@@ -1243,7 +1288,7 @@ impl Parser {
                     },
             }
             | AstStatement::While { .. } => Ok(()),
-            | AstStatement::For { .. } => Ok(()),
+            AstStatement::For { .. } => Ok(()),
             _ => PResult::error_at(span, format!("Statement must be ended with a `.`")),
         }
     }
@@ -1459,6 +1504,19 @@ impl Parser {
         self.expect_consume(Token::Dot)?;
 
         Ok((name, ty))
+    }
+
+    fn parse_global(&mut self) -> PResult<AstGlobalVariable> {
+        self.expect_consume(Token::Let)?;
+        let name_span = self.next_span;
+        let name = self.expect_consume_identifier()?;
+        self.expect_consume_colon()?;
+        let (ty, _) = self.parse_type()?;
+        self.expect_consume(Token::Equals)?;
+        let init = self.parse_expression()?;
+        self.expect_consume(Token::Dot)?;
+
+        Ok(AstGlobalVariable::new(self.file, name_span, name, ty, init))
     }
 }
 

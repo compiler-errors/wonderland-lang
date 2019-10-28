@@ -2,11 +2,12 @@ use crate::parser::ast::*;
 use crate::parser::ast_visitor::AstAdapter;
 use crate::util::{Comment, FileId, PError};
 use crate::util::{FileRegistry, IntoError, PResult};
+use std::borrow::BorrowMut;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-type SharedModule = Rc<RefCell<MappedModule>>;
+pub type SharedModule = Rc<RefCell<MappedModule>>;
 
 #[derive(Debug)]
 pub struct ModuleMap {
@@ -119,6 +120,20 @@ impl MappedModule {
             })
             .cloned()
     }
+
+    pub fn top_level_symbols(&self) -> Vec<(String, FileId)> {
+        self.children
+            .iter()
+            .map(|(name, item)| {
+                if let ModuleItem::Symbol(id) = item {
+                    Some((name.clone(), *id))
+                } else {
+                    None
+                }
+            })
+            .filter_map(|x| x)
+            .collect()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -153,6 +168,7 @@ impl<'a> AstAdapter for AnalyzeModules<'a> {
         let symbols: Vec<_> = (m.functions.keys())
             .chain(m.traits.keys())
             .chain(m.objects.keys())
+            .chain(m.globals.keys())
             .collect();
 
         let path = FileRegistry::mod_path(m.id)?;
@@ -269,6 +285,7 @@ pub struct AnalyzeUses<'a> {
     mod_map: &'a ModuleMap,
     current_mod: Option<SharedModule>,
     current_mod_name: Option<String>,
+    pub modules: HashMap<FileId, SharedModule>,
 }
 
 impl<'a> AnalyzeUses<'a> {
@@ -277,6 +294,7 @@ impl<'a> AnalyzeUses<'a> {
             mod_map,
             current_mod: None,
             current_mod_name: None,
+            modules: HashMap::new(),
         }
     }
 }
@@ -371,7 +389,9 @@ impl<'a> AstAdapter for AnalyzeUses<'a> {
     }
 
     fn exit_module(&mut self, m: AstModule) -> PResult<AstModule> {
-        self.current_mod = None;
+        let mut s = None;
+        std::mem::swap(&mut s, &mut self.current_mod);
+        self.modules.insert(m.id, s.unwrap());
 
         Ok(m)
     }

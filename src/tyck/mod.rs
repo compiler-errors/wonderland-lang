@@ -57,6 +57,7 @@ pub fn typecheck_module(
         objects,
         traits,
         impls,
+        globals,
         ..
     } = module;
 
@@ -73,6 +74,10 @@ pub fn typecheck_module(
 
     for (_name, trt) in traits {
         typecheck_simple(analyzed_program.clone(), &base_solver, trt)?;
+    }
+
+    for (_name, global) in globals {
+        typecheck_simple(analyzed_program.clone(), &base_solver, global)?;
     }
 
     for (_, imp) in impls {

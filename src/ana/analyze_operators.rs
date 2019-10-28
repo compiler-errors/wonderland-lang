@@ -170,6 +170,22 @@ impl AstAdapter for AnalyzeOperators {
                 impl_signature: None,
             },
             AstExpressionData::BinOp { kind, lhs, rhs } => self.get_binop_call(kind, lhs, rhs)?,
+            AstExpressionData::ExprCall { expr, args } => {
+                let arg_tys = args.iter().map(|a| a.ty.clone()).collect();
+                let args = AstExpression::tuple_literal(span, args);
+
+                AstExpressionData::StaticCall {
+                    call_type: AstType::infer(),
+                    fn_name: "call".into(),
+                    fn_generics: vec![],
+                    args: vec![*expr, args],
+                    associated_trait: Some(AstTraitType(
+                        self.construct_ref("Call")?,
+                        vec![AstType::tuple(arg_tys)],
+                    )),
+                    impl_signature: None,
+                }
+            }
             e => e,
         };
 

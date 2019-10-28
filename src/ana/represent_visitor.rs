@@ -93,6 +93,8 @@ impl<T: AnAdapter> Visit<T> for AnalyzedProgram {
             analyzed_traits,
             analyzed_objects,
             analyzed_impls,
+            analyzed_modules,
+            analyzed_globals,
         } = adapter.enter_analyzed_program(self)?;
 
         let i = AnalyzedProgram {
@@ -101,6 +103,8 @@ impl<T: AnAdapter> Visit<T> for AnalyzedProgram {
             analyzed_traits: analyzed_traits.visit(adapter)?,
             analyzed_objects: analyzed_objects.visit(adapter)?,
             analyzed_impls: analyzed_impls.visit(adapter)?,
+            analyzed_globals: analyzed_globals.visit(adapter)?,
+            analyzed_modules,
         };
 
         adapter.exit_analyzed_program(i)

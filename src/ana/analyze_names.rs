@@ -37,11 +37,23 @@ impl AstAdapter for AnalyzeNames {
 
     fn enter_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
         match &e.data {
-            AstExpressionData::Call { fn_name, .. } => {
+            AstExpressionData::FnCall { fn_name, .. } => {
                 if !self.0.analyzed_functions.contains_key(fn_name) {
                     return PResult::error_at(
                         e.span,
                         format!("No such function named `{}`.", fn_name.full_name()?),
+                    );
+                }
+            }
+            AstExpressionData::GlobalVariable { name } => {
+                if self.0.analyzed_globals.contains_key(name) {
+                    // Okay. Do nothing.
+                } else if self.0.analyzed_functions.contains_key(name) {
+                    // Okay. Do nothing either.
+                } else {
+                    return PResult::error_at(
+                        e.span,
+                        format!("No such global variable named `{}`.", name.full_name()?),
                     );
                 }
             }

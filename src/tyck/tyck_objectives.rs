@@ -104,6 +104,8 @@ impl<'a> AstAdapter for TyckObjectiveAdapter {
         let AstExpression { data, ty, span } = e;
 
         match &data {
+            AstExpressionData::ExprCall { .. } => unreachable!(),
+
             AstExpressionData::Unimplemented => {}
             AstExpressionData::Block { block } => {
                 self.solver.unify(&block.expression.ty, &ty)?;
@@ -136,6 +138,10 @@ impl<'a> AstAdapter for TyckObjectiveAdapter {
                 let variable_id = variable_id.as_ref().unwrap();
                 self.solver.unify(&ty, &self.variables[variable_id])?;
             }
+            AstExpressionData::GlobalVariable { name } => {
+                self.solver
+                    .unify(&ty, &self.analyzed_program.analyzed_globals[name])?;
+            }
             AstExpressionData::Tuple { values } => {
                 let tuple_tys = into_types(values);
                 self.solver.unify(&ty, &AstType::tuple(tuple_tys))?;
@@ -152,7 +158,7 @@ impl<'a> AstAdapter for TyckObjectiveAdapter {
             }
 
             // A regular function call
-            AstExpressionData::Call {
+            AstExpressionData::FnCall {
                 fn_name,
                 generics,
                 args,
@@ -257,6 +263,12 @@ impl<'a> AstAdapter for TyckObjectiveAdapter {
         self.solver.add_type(&t)?;
 
         Ok(t)
+    }
+
+    fn enter_global_variable(&mut self, g: AstGlobalVariable) -> PResult<AstGlobalVariable> {
+        self.solver.unify(&g.ty, &g.init.ty)?;
+
+        Ok(g)
     }
 }
 

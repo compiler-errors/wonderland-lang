@@ -37,6 +37,7 @@ pub struct InstantiatedProgram {
     pub instantiated_object_fns: HashMap<InstObjectFunctionSignature, Option<AstObjectFunction>>,
     pub instantiated_impls: HashMap<InstImplSignature, Option<AstImpl>>,
     pub instantiated_objects: HashMap<InstObjectSignature, Option<AstObject>>,
+    pub instantiated_globals: HashMap<ModuleRef, AstGlobalVariable>,
     pub instantiated_types: HashSet<AstType>,
 }
 
@@ -51,6 +52,7 @@ pub fn instantiate(
     let mut objects = HashMap::new();
     let mut impls = HashMap::new();
     let mut obj_fns = HashMap::new();
+    let mut globals = HashMap::new();
 
     for m in parsed_program.modules {
         for (_, f) in m.functions {
@@ -67,6 +69,10 @@ pub fn instantiate(
             }
 
             impls.insert(id, i);
+        }
+
+        for (_, g) in m.globals {
+            globals.insert(g.module_ref.clone(), g);
         }
     }
 
@@ -96,8 +102,15 @@ pub fn instantiate(
     let main_fn = main_finder.0.unwrap();
     i.instantiate_function(&main_fn, &[])?;
 
+    let mut instantiated_globals = HashMap::new();
+    for (name, g) in globals {
+        let g = i.process_simple(g, &[], &[])?;
+        instantiated_globals.insert(name, g);
+    }
+
     Ok(InstantiatedProgram {
         main_fn,
+        instantiated_globals,
         instantiated_fns: i.instantiated_fns,
         instantiated_object_fns: i.instantiated_object_fns,
         instantiated_impls: i.instantiated_impls,
@@ -284,7 +297,7 @@ impl AstAdapter for InstantiationAdapter {
 
     fn enter_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
         match &e.data {
-            AstExpressionData::Call {
+            AstExpressionData::FnCall {
                 fn_name, generics, ..
             } => {
                 self.instantiate_function(fn_name, generics)?;

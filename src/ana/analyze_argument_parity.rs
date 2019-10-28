@@ -19,7 +19,7 @@ impl PureAnalysisPass for AnalyzeArgumentParity {
 impl AstAdapter for AnalyzeArgumentParity {
     fn enter_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
         match &e.data {
-            AstExpressionData::Call { fn_name, args, .. } => {
+            AstExpressionData::FnCall { fn_name, args, .. } => {
                 let expected = self.0.analyzed_functions[&fn_name].parameters.len();
                 let provided = args.len();
 

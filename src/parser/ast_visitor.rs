@@ -58,6 +58,9 @@ pub trait AstAdapter {
     fn enter_impl(&mut self, i: AstImpl) -> PResult<AstImpl> {
         Ok(i)
     }
+    fn enter_global_variable(&mut self, g: AstGlobalVariable) -> PResult<AstGlobalVariable> {
+        Ok(g)
+    }
 
     fn exit_program(&mut self, p: AstProgram) -> PResult<AstProgram> {
         Ok(p)
@@ -115,6 +118,9 @@ pub trait AstAdapter {
     fn exit_impl(&mut self, i: AstImpl) -> PResult<AstImpl> {
         Ok(i)
     }
+    fn exit_global_variable(&mut self, g: AstGlobalVariable) -> PResult<AstGlobalVariable> {
+        Ok(g)
+    }
 }
 
 impl<T: AstAdapter> Visit<T> for AstProgram {
@@ -147,6 +153,7 @@ impl<T: AstAdapter> Visit<T> for AstModule {
             traits,
             impls,
             functions,
+            globals,
         } = adapter.enter_module(self)?;
 
         let uses = uses.visit(adapter)?;
@@ -155,6 +162,7 @@ impl<T: AstAdapter> Visit<T> for AstModule {
         let traits = traits.visit(adapter)?;
         let impls = impls.visit(adapter)?;
         let functions = functions.visit(adapter)?;
+        let globals = globals.visit(adapter)?;
 
         let i = AstModule {
             id,
@@ -165,6 +173,7 @@ impl<T: AstAdapter> Visit<T> for AstModule {
             traits,
             impls,
             functions,
+            globals,
         };
 
         adapter.exit_module(i)
@@ -318,6 +327,9 @@ impl<T: AstAdapter> Visit<T> for AstExpression {
             | i @ AstExpressionData::Char(..)
             | i @ AstExpressionData::Identifier { .. }
             | i @ AstExpressionData::Unimplemented => i,
+            AstExpressionData::GlobalVariable { name } => AstExpressionData::GlobalVariable {
+                name: name.visit(adapter)?,
+            },
             AstExpressionData::Block { block } => AstExpressionData::Block {
                 block: block.visit(adapter)?,
             },
@@ -336,13 +348,17 @@ impl<T: AstAdapter> Visit<T> for AstExpression {
             AstExpressionData::ArrayLiteral { elements } => AstExpressionData::ArrayLiteral {
                 elements: elements.visit(adapter)?,
             },
-            AstExpressionData::Call {
+            AstExpressionData::FnCall {
                 fn_name,
                 generics,
                 args,
-            } => AstExpressionData::Call {
+            } => AstExpressionData::FnCall {
                 fn_name: fn_name.visit(adapter)?,
                 generics: generics.visit(adapter)?,
+                args: args.visit(adapter)?,
+            },
+            AstExpressionData::ExprCall { expr, args } => AstExpressionData::ExprCall {
+                expr: expr.visit(adapter)?,
                 args: args.visit(adapter)?,
             },
             AstExpressionData::ObjectCall {
@@ -432,6 +448,10 @@ impl<T: AstAdapter> Visit<T> for AstType {
             AstType::Object(name, types) => {
                 AstType::Object(name.visit(adapter)?, types.visit(adapter)?)
             }
+            AstType::ClosureType { args, ret_ty } => AstType::ClosureType {
+                args: args.visit(adapter)?,
+                ret_ty: ret_ty.visit(adapter)?,
+            },
             AstType::AssociatedType {
                 obj_ty,
                 trait_ty,
@@ -573,7 +593,7 @@ impl<T: AstAdapter> Visit<T> for AstAssociatedType {
 }
 
 impl<T: AstAdapter> Visit<T> for AstImpl {
-    fn visit(self, adapter: &mut T) -> PResult<Self> {
+    fn visit(self, adapter: &mut T) -> PResult<AstImpl> {
         let AstImpl {
             impl_id,
             name_span,
@@ -597,5 +617,27 @@ impl<T: AstAdapter> Visit<T> for AstImpl {
         };
 
         adapter.exit_impl(i)
+    }
+}
+
+impl<T: AstAdapter> Visit<T> for AstGlobalVariable {
+    fn visit(self, adapter: &mut T) -> PResult<AstGlobalVariable> {
+        let AstGlobalVariable {
+            name_span,
+            name,
+            module_ref,
+            ty,
+            init,
+        } = adapter.enter_global_variable(self)?;
+
+        let i = AstGlobalVariable {
+            name_span,
+            name,
+            module_ref: module_ref.visit(adapter)?,
+            ty: ty.visit(adapter)?,
+            init: init.visit(adapter)?,
+        };
+
+        adapter.exit_global_variable(i)
     }
 }

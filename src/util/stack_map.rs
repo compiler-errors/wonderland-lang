@@ -13,11 +13,6 @@ impl<K: Eq + Hash + Debug, V: Clone + Debug> StackMap<K, V> {
         StackMap { stack: Vec::new() }
     }
 
-    pub fn reset(&mut self) {
-        self.stack = Vec::new();
-        self.push();
-    }
-
     pub fn push(&mut self) {
         self.stack.push(HashMap::new())
     }

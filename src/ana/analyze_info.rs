@@ -19,6 +19,8 @@ impl AnalyzeInfo {
                 analyzed_traits: HashMap::new(),
                 analyzed_objects: HashMap::new(),
                 analyzed_impls: HashMap::new(),
+                analyzed_modules: HashMap::new(),
+                analyzed_globals: Default::default(),
             },
         }
     }
@@ -115,6 +117,12 @@ impl AstAdapter for AnalyzeInfo {
             self.analyzed_program
                 .analyzed_impls
                 .insert(imp.impl_id, ana_imp);
+        }
+
+        for global in m.globals.values() {
+            self.analyzed_program
+                .analyzed_globals
+                .insert(global.module_ref.clone(), global.ty.clone());
         }
 
         Ok(m)

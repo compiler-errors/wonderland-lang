@@ -53,6 +53,19 @@ pub fn type_zero(t: BasicTypeEnum) -> PResult<BasicValueEnum> {
     Ok(ty)
 }
 
+pub fn type_undefined(t: BasicTypeEnum) -> PResult<BasicValueEnum> {
+    let ty: BasicValueEnum = match t {
+        BasicTypeEnum::StructType(t) => t.get_undef().into(),
+        BasicTypeEnum::ArrayType(t) => t.get_undef().into(),
+        BasicTypeEnum::IntType(t) => t.get_undef().into(),
+        BasicTypeEnum::FloatType(t) => t.get_undef().into(),
+        BasicTypeEnum::PointerType(t) => t.get_undef().into(),
+        BasicTypeEnum::VectorType(t) => t.get_undef().into(),
+    };
+
+    Ok(ty)
+}
+
 pub fn type_size(t: BasicTypeEnum) -> PResult<IntValue> {
     let ty = match t {
         BasicTypeEnum::StructType(t) => t.size_of().unwrap(),

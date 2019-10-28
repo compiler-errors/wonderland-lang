@@ -18,16 +18,20 @@ use crate::ana::analyze_variables::AnalyzeVariables;
 use crate::parser::ast::AstProgram;
 
 use crate::ana::analyze_elaborations::AnalyzeElaborations;
+use crate::ana::analyze_fn_calls::AnalyzeFnCalls;
 use crate::ana::analyze_for_loops::AnalyzeForLoops;
+use crate::ana::analyze_illegal_globals::AnalyzeIllegalGlobals;
 use crate::util::{Comment, PResult, Visit};
 
 mod analyze_argument_parity;
 mod analyze_associated_types;
 mod analyze_control_flow;
 mod analyze_elaborations;
+mod analyze_fn_calls;
 mod analyze_for_loops;
 mod analyze_generics;
 mod analyze_generics_parity;
+mod analyze_illegal_globals;
 mod analyze_illegal_infers;
 mod analyze_impls;
 mod analyze_info;
@@ -69,6 +73,7 @@ pub fn analyze(p: AstProgram) -> PResult<(AnalyzedProgram, AstProgram)> {
 
     let mut p = p.visit(&mut analyze_info)?;
     let mut a = analyze_info.analyzed_program;
+    a.analyzed_modules = analyze_uses.modules;
 
     let passes: Vec<(&str, AnalysisPassFn)> = vec![
         // All the syntactic sugar needs to go first.
@@ -83,11 +88,10 @@ pub fn analyze(p: AstProgram) -> PResult<(AnalyzedProgram, AstProgram)> {
             "analyze_associated_types",
             Box::new(AnalyzeAssociatedTypes::analyze),
         ), // Before generics
-        (
-            "analyze_generics_parity",
-            Box::new(AnalyzeGenericsParity::analyze),
-        ),
         ("analyze_generics", Box::new(AnalyzeGenerics::analyze)),
+        ("analyze_variables", Box::new(AnalyzeVariables::analyze)),
+        ("analyze_fn_calls", Box::new(AnalyzeFnCalls::analyze)),
+        ("analyze_operators", Box::new(AnalyzeOperators::analyze)),
         (
             "analyze_control_flow",
             Box::new(AnalyzeControlFlow::analyze),
@@ -97,16 +101,22 @@ pub fn analyze(p: AstProgram) -> PResult<(AnalyzedProgram, AstProgram)> {
             "analyze_object_functions",
             Box::new(AnalyzeObjectFunctions::analyze),
         ),
-        ("analyze_variables", Box::new(AnalyzeVariables::analyze)),
-        ("analyze_self", Box::new(AnalyzeSelf::analyze)), // Before elaborations
+        ("analyze_self", Box::new(AnalyzeSelf::analyze)),
         (
             "analyze_argument_parity",
             Box::new(AnalyzeArgumentParity::analyze),
         ),
-        ("analyze_operators", Box::new(AnalyzeOperators::analyze)),
+        (
+            "analyze_generics_parity",
+            Box::new(AnalyzeGenericsParity::analyze),
+        ),
         (
             "analyze_illegal_infers",
             Box::new(AnalyzeIllegalInfers::analyze),
+        ),
+        (
+            "analyze_illegal_globals",
+            Box::new(AnalyzeIllegalGlobals::analyze),
         ),
     ];
 

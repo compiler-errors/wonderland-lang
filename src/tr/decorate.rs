@@ -176,3 +176,9 @@ pub fn decorate_object_fn(
         string
     })
 }
+
+pub fn decorate_global(name: &ModuleRef) -> PResult<String> {
+    let (decorated_module, name) = decorate_module(name)?;
+
+    Ok(format!("g{}{}{}", decorated_module, name.len(), name))
+}
