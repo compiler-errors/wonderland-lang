@@ -1,8 +1,5 @@
 use crate::ana::represent_visitor::AstAnalysisPass;
-use crate::parser::ast::{
-    AstExpression, AstExpressionData, AstFunction, AstGlobalVariable, AstImpl, AstObject,
-    AstObjectFunction, AstTrait, AstType, ModuleRef,
-};
+use crate::parser::ast::*;
 use crate::parser::ast_visitor::AstAdapter;
 use crate::util::{IntoError, PResult, Visit};
 

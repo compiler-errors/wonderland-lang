@@ -1,5 +1,5 @@
 use crate::ana::represent_visitor::AstAnalysisPass;
-use crate::parser::ast::{AstBlock, AstExpression, AstStatement, AstType, BinOpKind};
+use crate::parser::ast::{AstBlock, AstExpression, AstStatement, AstType};
 use crate::parser::ast_visitor::AstAdapter;
 use crate::util::PResult;
 

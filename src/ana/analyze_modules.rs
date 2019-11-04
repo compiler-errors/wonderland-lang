@@ -2,7 +2,6 @@ use crate::parser::ast::*;
 use crate::parser::ast_visitor::AstAdapter;
 use crate::util::{Comment, FileId, PError};
 use crate::util::{FileRegistry, IntoError, PResult};
-use std::borrow::BorrowMut;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;

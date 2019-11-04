@@ -181,7 +181,7 @@ impl AstAdapter for AnalyzeOperators {
                     args: vec![*expr, args],
                     associated_trait: Some(AstTraitType(
                         self.construct_ref("Call")?,
-                        vec![AstType::tuple(arg_tys)],
+                        vec![AstType::tuple(arg_tys), AstType::infer()],
                     )),
                     impl_signature: None,
                 }

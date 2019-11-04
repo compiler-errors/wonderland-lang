@@ -20,12 +20,12 @@ impl fmt::Display for AstType {
                 module.full_name().unwrap(),
                 DisplayGenerics(generics)
             ),
-            AstType::ClosureType { args, ret_ty } => write!(
-                f,
-                "Closure{} -> {}",
-                DisplayAstTypeList(args, false),
-                *ret_ty,
-            ),
+            AstType::ClosureType { args, ret_ty } => {
+                write!(f, "|{}| -> {}", DisplayAstTypeList(args, false), *ret_ty,)
+            }
+            AstType::FnPointerType { args, ret_ty } => {
+                write!(f, "fn({}) -> {}", DisplayAstTypeList(args, false), *ret_ty,)
+            }
             AstType::AssociatedType {
                 obj_ty,
                 trait_ty,

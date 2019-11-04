@@ -65,6 +65,34 @@ pub fn decorate_ty(t: &AstType) -> PResult<String> {
             string
         }
 
+        AstType::ClosureType { args, ret_ty } => {
+            if args.is_empty() {
+                format!("c{}", decorate_ty(&ret_ty)?)
+            } else {
+                let mut string = format!("C{}{}", decorate_ty(&ret_ty)?, args.len());
+
+                for t in args {
+                    string.push_str(&decorate_ty(t)?);
+                }
+
+                string
+            }
+        }
+
+        AstType::FnPointerType { args, ret_ty } => {
+            if args.is_empty() {
+                format!("f{}", decorate_ty(&ret_ty)?)
+            } else {
+                let mut string = format!("F{}{}", decorate_ty(&ret_ty)?, args.len());
+
+                for t in args {
+                    string.push_str(&decorate_ty(t)?);
+                }
+
+                string
+            }
+        }
+
         _ => unreachable!(),
     })
 }
@@ -175,10 +203,4 @@ pub fn decorate_object_fn(
 
         string
     })
-}
-
-pub fn decorate_global(name: &ModuleRef) -> PResult<String> {
-    let (decorated_module, name) = decorate_module(name)?;
-
-    Ok(format!("g{}{}{}", decorated_module, name.len(), name))
 }

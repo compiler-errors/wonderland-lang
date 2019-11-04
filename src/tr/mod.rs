@@ -1,6 +1,6 @@
 use self::decorate::*;
 use self::type_helpers::*;
-use crate::inst::{InstFunctionSignature, InstObjectSignature, InstantiatedProgram};
+use crate::inst::{InstObjectSignature, InstantiatedProgram};
 use crate::parser::ast::*;
 use crate::util::{IntoError, PError, PResult, ZipExact};
 use inkwell::attributes::{Attribute, AttributeLoc};
@@ -10,7 +10,6 @@ use inkwell::context::Context;
 use inkwell::module::Module;
 use inkwell::types::*;
 use inkwell::values::*;
-use inkwell::AddressSpace;
 use std::collections::{HashMap, HashSet};
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
@@ -20,9 +19,6 @@ use tempfile::TempDir;
 
 mod decorate;
 mod type_helpers;
-
-const GLOBAL: AddressSpace = AddressSpace::Generic; /* Wot. */
-const GC: AddressSpace = AddressSpace::Global; /* addrspace(1) is Managed, i swear */
 
 lazy_static! {
     static ref STDLIB_PATH: &'static OsStr = OsStr::new("std/clib/clib.c");
@@ -41,6 +37,9 @@ enum Definition {
     ArrayAccess,
     ArrayAssign,
     ArrayLen,
+    CursedTransmute,
+    CallFn,
+    CallClosure,
 }
 
 struct Translator {
@@ -56,7 +55,10 @@ struct Translator {
 
     variables: HashMap<VariableId, Vec<PointerValue>>,
     globals: HashMap<ModuleRef, Vec<GlobalValue>>,
+
     type_ids: HashMap<AstType, usize>,
+    // TODO: Do I need to store it like this? Why can't I just store it in reverse (usize -> ..)?
+    closure_object_ids: HashMap<usize, TrClosureCaptureEnvironment>,
 }
 
 pub fn translate(
@@ -100,17 +102,20 @@ fn emit_module(
         }
     } else {
         let dir = TempDir::new().map_err(|e| PError::new(format!("Temp dir error: {}", e)))?;
-        let ll = dir.path().join("file.ll").into_os_string();
-        let ll_gc = dir.path().join("file.gc.ll").into_os_string();
-        let ll_o = dir.path().join("file.o").into_os_string();
+        let dir_path = dir.path();
+        //let dir_path = Path::new("./tmpout/");
+
+        let ll = dir_path.join("file.ll").into_os_string();
+        let ll_gc = dir_path.join("file.gc.ll").into_os_string();
+        let ll_o = dir_path.join("file.o").into_os_string();
         module.write_bitcode_to_path(Path::new(&ll));
 
         let mut opt_command = Command::new("opt".to_string());
         opt_command.args(&[
             &ll,
-            //OsStr::new("-O3"),
             OsStr::new("--mem2reg"),
             OsStr::new("--rewrite-statepoints-for-gc"),
+            OsStr::new("-O3"),
             OsStr::new("-o"),
             &ll_gc,
         ]);
@@ -200,7 +205,7 @@ impl Translator {
                 ),
             None,
         );
-        set_fn_attrs(&context, alloc_string);
+        set_all_fn_attributes(&context, alloc_string);
 
         let alloc_object = module.add_function(
             "gc_alloc_object",
@@ -210,7 +215,7 @@ impl Translator {
             ),
             None,
         );
-        set_fn_attrs(&context, alloc_object);
+        set_all_fn_attributes(&context, alloc_object);
 
         let alloc_array = module.add_function(
             "gc_alloc_array",
@@ -224,7 +229,7 @@ impl Translator {
             ),
             None,
         );
-        set_fn_attrs(&context, alloc_array);
+        set_all_fn_attributes(&context, alloc_array);
 
         let array_idx_at = module.add_function(
             "gc_array_idx_at",
@@ -237,7 +242,7 @@ impl Translator {
             ),
             None,
         );
-        set_fn_attrs(&context, alloc_array);
+        set_all_fn_attributes(&context, alloc_array);
 
         Translator {
             module,
@@ -253,6 +258,7 @@ impl Translator {
             variables: HashMap::new(),
             globals: HashMap::new(),
             type_ids: HashMap::new(),
+            closure_object_ids: HashMap::new(),
         }
     }
 
@@ -260,8 +266,8 @@ impl Translator {
         // Forward declare the type ids. Explicitly declare string as 0.
         file.instantiated_types.remove(&AstType::String);
         self.type_ids.insert(AstType::String, 0);
-        for (i, ty) in file.instantiated_types.iter().enumerate() {
-            self.type_ids.insert(ty.clone(), i + 1); // 0 is left for for string...
+        for ty in file.instantiated_types.iter() {
+            self.type_ids.insert(ty.clone(), new_type_id());
         }
         file.instantiated_types.insert(AstType::String);
 
@@ -304,18 +310,7 @@ impl Translator {
         for (sig, fun) in file.instantiated_fns {
             let fun = fun.unwrap();
             let name = decorate_fn(&sig.0, &sig.1)?;
-
-            let definition = if is_array_deref(&sig)? {
-                Definition::ArrayAccess
-            } else if is_array_len(&sig)? {
-                Definition::ArrayLen
-            } else if is_array_deref_assign(&sig)? {
-                Definition::ArrayAssign
-            } else if fun.definition.is_some() {
-                Definition::Block(fun.definition.unwrap())
-            } else {
-                Definition::None
-            };
+            let definition = map_definition(&sig.0.full_name()?, fun.definition);
 
             self.translate_function(
                 &name,
@@ -345,8 +340,10 @@ impl Translator {
             )?;
         }
 
-        self.translate_gc_visit(&file.instantiated_types, &file.instantiated_objects)?;
         self.translate_main(&file.main_fn, &file.instantiated_globals)?;
+
+        // This must happen last, so we can make sure that all of the closure capture objects have been created already.
+        self.translate_gc_visit(&file.instantiated_types, &file.instantiated_objects)?;
 
         Ok(())
     }
@@ -360,6 +357,7 @@ impl Translator {
         let cheshire_main_fn = self.module.get_function(&main_fn_name).unwrap();
 
         let real_main_fn = self.forward_declare_function("main", &[], &AstType::Int, false)?;
+        set_cheshire_fn_attributes(&self.context, real_main_fn);
         let block = real_main_fn.append_basic_block("pre");
         let first_builder = Builder::create();
         first_builder.position_at_end(&block);
@@ -395,7 +393,7 @@ impl Translator {
 
         let llvm_fun = self.module.add_function(&name, fun_ty, None);
 
-        set_fn_attrs(&self.context, llvm_fun);
+        set_all_fn_attributes(&self.context, llvm_fun);
 
         Ok(llvm_fun)
     }
@@ -423,14 +421,14 @@ impl Translator {
         &mut self,
         fun_name: &str,
         parameter_list: &[AstNamedVariable],
-        _return_type: &AstType,
+        return_ty: &AstType,
         variables: &HashMap<VariableId, AstNamedVariable>,
         definition: Definition,
     ) -> PResult<()> {
         let llvm_fun = self.module.get_function(&fun_name).unwrap();
 
         if let Definition::Block(definition) = definition {
-            set_gc(&self.context, llvm_fun);
+            set_cheshire_fn_attributes(&self.context, llvm_fun);
 
             let param_values: HashMap<_, _> =
                 ZipExact::zip_exact(parameter_list, &llvm_fun.get_params(), "params")?
@@ -556,6 +554,102 @@ impl Translator {
                 .unwrap();
 
             first_builder.build_return(Some(&size));
+        } else if let Definition::CursedTransmute = definition {
+            let to_type = self.get_type(return_ty)?;
+
+            let block = llvm_fun.append_basic_block("pre");
+            let first_builder = Builder::create();
+            first_builder.position_at_end(&block);
+
+            let casted = first_builder.build_pointer_cast(
+                llvm_fun.get_params()[0].into_pointer_value(),
+                to_type.into_pointer_type(),
+                &temp_name(),
+            );
+            first_builder.build_return(Some(&casted));
+        } else if let Definition::CallFn = definition {
+            // This is not a leaf fn. Therefore, for GC to work, I need to decorate this fn with
+            // with gc, and hopefully we can inline here too.
+            set_cheshire_fn_attributes(&self.context, llvm_fun);
+
+            let block = llvm_fun.append_basic_block("pre");
+            let first_builder = Builder::create();
+            first_builder.position_at_end(&block);
+
+            let args_tuple = llvm_fun.get_params()[1].into_struct_value();
+            let mut args = Vec::new();
+
+            for idx in 0..args_tuple.get_type().count_fields() {
+                args.push(
+                    first_builder
+                        .build_extract_value(args_tuple, idx, &temp_name())
+                        .unwrap(),
+                );
+            }
+
+            // This is... somewhat (read: very) clowny.
+            let arg_tys: Vec<_> = args.iter().map(|t| t.get_type()).collect();
+            let ret_ty = llvm_fun.get_type().get_return_type().unwrap();
+
+            let function_ptr_type = fun_type(ret_ty, &arg_tys).ptr_type(GLOBAL);
+            let function_ptr = first_builder.build_pointer_cast(
+                llvm_fun.get_params()[0].into_pointer_value(),
+                function_ptr_type,
+                &temp_name(),
+            );
+
+            // Get the tuple at param1, unpack args.
+            // Call, then ret. No flattening needed I don't think..?
+            let ret = unwrap_callsite(first_builder.build_call(function_ptr, &args, &temp_name()));
+            first_builder.build_return(Some(&ret));
+        } else if let Definition::CallClosure = definition {
+            // This is not a leaf fn. Therefore, for GC to work, I need to decorate this fn with
+            // with gc, and hopefully we can inline here too.
+            set_cheshire_fn_attributes(&self.context, llvm_fun);
+
+            let block = llvm_fun.append_basic_block("pre");
+            let first_builder = Builder::create();
+            first_builder.position_at_end(&block);
+
+            // Get the first argument.
+            let env_arg = llvm_fun.get_params()[0].into_pointer_value();
+
+            // Get the first member from that struct argument, which is a fn.
+            let fn_ptr_ptr = unsafe { first_builder.build_struct_gep(env_arg, 0, &temp_name()) };
+            let fn_ptr = first_builder
+                .build_load(fn_ptr_ptr, &temp_name())
+                .into_pointer_value();
+
+            // Unpack arguments...
+            let args_tuple = llvm_fun.get_params()[1].into_struct_value();
+            let mut args = Vec::new();
+
+            for idx in 0..args_tuple.get_type().count_fields() {
+                args.push(
+                    first_builder
+                        .build_extract_value(args_tuple, idx, &temp_name())
+                        .unwrap(),
+                );
+            }
+
+            // Cast environment back to some opaque type ({}*) so we can pass to our function.
+            // Then put it in as the first argument.
+            let env_casted =
+                first_builder.build_pointer_cast(env_arg, opaque_env_type(), &temp_name());
+            args.insert(0, env_casted.into());
+
+            let arg_tys: Vec<_> = args.iter().map(|t| t.get_type()).collect();
+            let ret_ty = llvm_fun.get_type().get_return_type().unwrap();
+
+            let fn_ptr_casted = first_builder.build_pointer_cast(
+                fn_ptr,
+                fun_type(ret_ty, &arg_tys).ptr_type(GLOBAL),
+                &temp_name(),
+            );
+
+            // Call FIRST ARG (as i8* or smth) + all the args.
+            let ret = unwrap_callsite(first_builder.build_call(fn_ptr_casted, &args, &temp_name()));
+            first_builder.build_return(Some(&ret));
         }
 
         Ok(())
@@ -643,7 +737,33 @@ impl Translator {
         let value: Vec<BasicValueEnum> = match &expression.data {
             AstExpressionData::SelfRef => unreachable!(),
             AstExpressionData::Unimplemented => unreachable!(),
-            AstExpressionData::ExprCall { .. } => unimplemented!(),
+            AstExpressionData::ExprCall { .. } => unreachable!(),
+
+            c @ AstExpressionData::Closure { .. } => {
+                let env = self.translate_closure_capture_environment(c)?;
+                let fun = self.translate_closure_body(&env, c)?;
+                let c = self.translate_closure_construction(builder, fun, &env, c)?;
+
+                // Cast this to the expected |...| type.
+                let opaque_closure = builder.build_pointer_cast(
+                    c,
+                    self.get_type(&expression.ty)?.into_pointer_type(),
+                    &temp_name(),
+                );
+                vec![opaque_closure.into()]
+            }
+
+            AstExpressionData::GlobalFn { name } => {
+                let name = decorate_fn(name, &[])?;
+
+                vec![self
+                    .module
+                    .get_function(&name)
+                    .unwrap()
+                    .as_global_value()
+                    .as_pointer_value()
+                    .into()]
+            }
 
             AstExpressionData::True => vec![self.context.bool_type().const_int(1, false).into()],
             AstExpressionData::False => vec![self.context.bool_type().const_int(0, false).into()],
@@ -755,6 +875,39 @@ impl Translator {
                     let e = self.bundle_vals(builder, e, &element_ast_ty)?;
                     builder.build_store(loc, e);
                 }
+
+                vec![ptr.into()]
+            }
+
+            AstExpressionData::AllocateArray { object, size } => {
+                let num_elements = self.translate_expression(builder, &size)?;
+                assert_eq!(num_elements.len(), 1);
+                let num_elements = num_elements[0];
+
+                let element_ast_ty = AstType::get_element(&expression.ty)?;
+                let element_ty = self.get_type(&element_ast_ty)?;
+                let array_ty = self.get_type(&expression.ty)?;
+                let ty_size = type_size(element_ty)?;
+
+                let ty_id = self.type_ids[&expression.ty];
+                let ptr = builder.build_call(
+                    self.alloc_array,
+                    &[
+                        ty_size.into(),
+                        num_elements.into(),
+                        self.context
+                            .i16_type()
+                            .const_int(ty_id as u64, false)
+                            .into(),
+                    ],
+                    &temp_name(),
+                );
+
+                let ptr = builder.build_pointer_cast(
+                    unwrap_callsite(ptr).into_pointer_value(),
+                    array_ty.into_pointer_type(),
+                    &temp_name(),
+                );
 
                 vec![ptr.into()]
             }
@@ -952,8 +1105,9 @@ impl Translator {
             } => {
                 let object = self.translate_expression(builder, &object)?;
                 assert_eq!(object.len(), 1);
-                let object = object[0];
+                let object = object[0].into_pointer_value();
 
+                /* TODO: This is a bit cursed. Causes our GC not to recognize...
                 let object = builder.build_address_space_cast(
                     object.into_pointer_value(),
                     ptr_type(
@@ -967,7 +1121,7 @@ impl Translator {
                     )
                     .into_pointer_type(),
                     &temp_name(),
-                );
+                );*/
 
                 let member = unsafe {
                     builder.build_struct_gep(object, mem_idx.unwrap() as u32, &temp_name())
@@ -992,6 +1146,182 @@ impl Translator {
                 .map(|e| e.as_pointer_value())
                 .collect()),
             _ => unreachable!(),
+        }
+    }
+
+    fn translate_closure_capture_environment(
+        &mut self,
+        c: &AstExpressionData,
+    ) -> PResult<TrClosureCaptureEnvironment> {
+        if let AstExpressionData::Closure { captured, .. } = c {
+            let id = new_type_id();
+            let mut captured_ids = Vec::new();
+            let mut indices = HashMap::new();
+            let mut ast_tys = HashMap::new();
+            let mut tys = HashMap::new();
+
+            for (idx, (_, c)) in captured.as_ref().unwrap().iter().enumerate() {
+                captured_ids.push(c.id);
+                indices.insert(c.id, idx + 1); // First argument is saved for the fn itself.
+                ast_tys.insert(c.id, c.ty.clone());
+                tys.insert(c.id, self.get_type(&c.ty)?);
+            }
+
+            let env = TrClosureCaptureEnvironment {
+                id,
+                captured: captured_ids,
+                indices,
+                ast_tys,
+                tys,
+            };
+
+            self.closure_object_ids.insert(id, env.clone());
+            Ok(env)
+        } else {
+            unreachable!()
+        }
+    }
+
+    fn translate_closure_body(
+        &mut self,
+        env: &TrClosureCaptureEnvironment,
+        c: &AstExpressionData,
+    ) -> PResult<FunctionValue> {
+        if let AstExpressionData::Closure {
+            params,
+            expr,
+            variables,
+            ..
+        } = c
+        {
+            let ret_ty = self.get_type(&expr.ty)?;
+            let mut param_tys: Vec<_> = params
+                .iter()
+                .map(|p| self.get_type(&p.ty))
+                .collect::<PResult<_>>()?;
+            param_tys.insert(0, opaque_env_type().into());
+
+            let llvm_fun =
+                self.module
+                    .add_function(&temp_name(), fun_type(ret_ty, &param_tys), None);
+            set_cheshire_fn_attributes(&self.context, llvm_fun);
+
+            let param_values: HashMap<_, _> =
+                ZipExact::zip_exact(params, &llvm_fun.get_params()[1..], "params")?
+                    .map(|(p, v)| (p.id, v.clone()))
+                    .collect();
+
+            let block = llvm_fun.append_basic_block("pre");
+            let first_builder = Builder::create();
+            first_builder.position_at_end(&block);
+
+            // Cast that 0th parameter to the right, actual capture struct type.
+            let opaque_env_ptr = llvm_fun.get_params()[0].into_pointer_value();
+            let env_ptr = first_builder.build_pointer_cast(
+                opaque_env_ptr,
+                env.into_struct_type(),
+                &temp_name(),
+            );
+            let env_struct = first_builder
+                .build_load(env_ptr, &temp_name())
+                .into_struct_value();
+            let capture_values = unpack_capture_values(env, &first_builder, env_struct)?;
+
+            for (id, var) in variables {
+                let ty = self.get_type(&var.ty)?;
+                let val = if let Some(..) = param_values.get(id) {
+                    param_values[id]
+                } else if let Some(..) = capture_values.get(id) {
+                    capture_values[id]
+                } else {
+                    type_zero(ty)?
+                };
+
+                let ptrs = self.flatten_alloca(&first_builder, val, &var.ty)?;
+                self.variables.insert(*id, ptrs);
+            }
+
+            let start_block = llvm_fun.append_basic_block("start");
+            first_builder.build_unconditional_branch(&start_block);
+
+            let start_builder = Builder::create();
+            start_builder.position_at_end(&start_block);
+
+            let ret = self.translate_expression(&start_builder, &expr)?;
+            let ret = self.bundle_vals(&start_builder, &ret, &expr.ty)?;
+
+            start_builder.build_return(Some(&ret));
+
+            Ok(llvm_fun)
+        } else {
+            unreachable!()
+        }
+    }
+
+    fn translate_closure_construction(
+        &self,
+        builder: &Builder,
+        fun: FunctionValue,
+        env: &TrClosureCaptureEnvironment,
+        c: &AstExpressionData,
+    ) -> PResult<PointerValue> {
+        if let AstExpressionData::Closure {
+            params,
+            expr,
+            captured,
+            variables,
+        } = c
+        {
+            let env_ty = env.into_struct_type();
+            let size = env_ty
+                .get_element_type()
+                .into_struct_type()
+                .size_of()
+                .unwrap();
+            let ty_id = env.id;
+
+            let ptr = unwrap_callsite(
+                builder.build_call(
+                    self.alloc_object,
+                    &[
+                        size.into(),
+                        self.context
+                            .i16_type()
+                            .const_int(ty_id as u64, false)
+                            .into(),
+                    ],
+                    &temp_name(),
+                ),
+            )
+            .into_pointer_value();
+
+            let env_ptr = builder.build_pointer_cast(ptr, env_ty, &temp_name());
+
+            // Store the fn (casted to the opaque fn type) in the 0th member.
+            let fn_dest = unsafe { builder.build_struct_gep(env_ptr, 0, &temp_name()) };
+            let opaque_fn = builder.build_pointer_cast(
+                fun.as_global_value().as_pointer_value(),
+                opaque_fn_type(),
+                &temp_name(),
+            );
+            builder.build_store(fn_dest, opaque_fn);
+
+            // Then, for each capture, bundle, then store where it needs to go.
+            for (c, new) in captured.as_ref().unwrap() {
+                let loaded: Vec<_> = self.variables[&c.id]
+                    .iter()
+                    .map(|p| builder.build_load(*p, &temp_name()))
+                    .collect();
+                let bundle = self.bundle_vals(builder, &loaded, &c.ty)?;
+
+                let idx = env.indices[&new.id];
+                let dest = unsafe { builder.build_struct_gep(env_ptr, idx as u32, &temp_name()) };
+                builder.build_store(dest, bundle);
+            }
+
+            Ok(env_ptr)
+        } else {
+            unreachable!()
         }
     }
 
@@ -1033,6 +1363,15 @@ impl Translator {
             None,
         );
 
+        let gc_visit_closure = self.module.add_function(
+            "gc_visit_closure",
+            self.context.void_type().fn_type(
+                &[callback_value_type.into(), gc_callback_type.into()],
+                false,
+            ),
+            None,
+        );
+
         let ptr_param = gc_visit.get_params()[0].into_pointer_value();
         let id_param = gc_visit.get_params()[1].into_int_value();
         let callback_param = gc_visit.get_params()[2].into_pointer_value();
@@ -1050,7 +1389,7 @@ impl Translator {
             let (block, builder) = self.get_new_block(&builder)?;
 
             match t {
-                AstType::Int | AstType::Char | AstType::Bool => {
+                AstType::Int | AstType::Char | AstType::Bool | AstType::FnPointerType { .. } => {
                     // Do nothing.
                 }
 
@@ -1176,11 +1515,77 @@ impl Translator {
                     }
                 }
 
+                AstType::ClosureType { .. } => {
+                    // Change the i8* into an closure addrspace(1)**
+                    let closure_ptr =
+                        builder.build_pointer_cast(ptr_param, callback_value_type, &temp_name());
+
+                    builder.build_call(
+                        gc_visit_closure,
+                        &[closure_ptr.into(), callback_param.into()],
+                        &temp_name(),
+                    );
+                }
+
                 _ => unreachable!(),
             }
 
             builder.build_unconditional_branch(&end_block);
             switch.push((id, block));
+        }
+
+        for (id, env) in &self.closure_object_ids {
+            println!("GC_VISIT: closure capture environment => {}", id);
+            let (block, builder) = self.get_new_block(&builder)?;
+
+            // Change the i8* into an i8 addrspace(1)**
+            let callback_value =
+                builder.build_pointer_cast(ptr_param, callback_value_type, &temp_name());
+            let marked = unwrap_callsite(builder.build_call(
+                callback_param,
+                &[callback_value.into()],
+                &temp_name(),
+            ));
+            let (next_block, _) = self.get_new_block(&builder)?;
+            builder.build_conditional_branch(marked.into_int_value(), &next_block, &end_block);
+            builder.position_at_end(&next_block);
+
+            // _MUST_ read the object after calling the callback. We might remap it in the callback!
+            // Change the i8* into an object addrspace(1)**
+            let object_ptr = builder.build_pointer_cast(
+                ptr_param,
+                ptr_type(env.into_struct_type().into(), GLOBAL).into_pointer_type(),
+                &temp_name(),
+            );
+            let object = builder.build_load(object_ptr, &temp_name());
+
+            for (member, idx) in &env.indices {
+                let mem_type_id = self.type_ids[&env.ast_tys[member]];
+
+                let mem_ptr = unsafe {
+                    builder.build_struct_gep(object.into_pointer_value(), *idx as u32, &temp_name())
+                };
+                let mem_ptr = builder.build_pointer_cast(
+                    mem_ptr,
+                    self.context.i8_type().ptr_type(GLOBAL),
+                    &temp_name(),
+                );
+                builder.build_call(
+                    gc_visit,
+                    &[
+                        mem_ptr.into(),
+                        self.context
+                            .i16_type()
+                            .const_int(mem_type_id as u64, false)
+                            .into(),
+                        callback_param.into(),
+                    ],
+                    &temp_name(),
+                );
+            }
+
+            builder.build_unconditional_branch(&end_block);
+            switch.push((*id, block));
         }
 
         let switch: Vec<_> = switch
@@ -1256,6 +1661,23 @@ impl Translator {
                     .map(|t| self.get_type(t))
                     .collect::<PResult<Vec<BasicTypeEnum>>>()?;
                 self.context.struct_type(&types, false).into()
+            }
+
+            AstType::FnPointerType { args, ret_ty } => {
+                let types = args
+                    .iter()
+                    .map(|t| self.get_type(t))
+                    .collect::<PResult<Vec<BasicTypeEnum>>>()?;
+
+                fun_type(self.get_type(ret_ty)?, &types)
+                    .ptr_type(GLOBAL)
+                    .into()
+            }
+
+            AstType::ClosureType { .. } => {
+                StructType::struct_type(&[opaque_fn_type().into()], false)
+                    .ptr_type(GC)
+                    .into()
             }
 
             _ => unreachable!(),
@@ -1372,7 +1794,7 @@ impl Translator {
         if let AstType::Tuple { types } = t {
             let mut ret = Vec::new();
 
-            for (i, subty) in types.into_iter().enumerate() {
+            for subty in types.into_iter() {
                 ret.extend(self.flatten_globals(subty)?);
             }
 
@@ -1386,31 +1808,57 @@ impl Translator {
     }
 }
 
-fn set_fn_attrs(context: &Context, fun: FunctionValue) {
+fn set_all_fn_attributes(context: &Context, fun: FunctionValue) {
     fun.add_attribute(
         AttributeLoc::Function,
         context.create_enum_attribute(Attribute::get_named_enum_kind_id("nounwind"), 1),
     );
 }
 
-fn set_gc(context: &Context, fun: FunctionValue) {
+fn set_cheshire_fn_attributes(context: &Context, fun: FunctionValue) {
     fun.set_gc("statepoint-example");
+
+    fun.add_attribute(
+        AttributeLoc::Function,
+        context.create_enum_attribute(Attribute::get_named_enum_kind_id("inlinehint"), 1),
+    );
 }
 
-fn is_array_deref(sig: &InstFunctionSignature) -> PResult<bool> {
-    return Ok(&sig.0.full_name()? == "std::internal::operators::deref_array");
+fn map_definition(mod_name: &str, block: Option<AstBlock>) -> Definition {
+    let def = match mod_name {
+        "std::internal::operators::deref_array" => Some(Definition::ArrayAccess),
+        "std::internal::operators::deref_array_assign" => Some(Definition::ArrayAssign),
+        "std::internal::operators::array_len" => Some(Definition::ArrayLen),
+        "std::internal::cursed::cursed_transmute" => Some(Definition::CursedTransmute),
+        "std::internal::operators::call_fn" => Some(Definition::CallFn),
+        "std::internal::operators::call_closure" => Some(Definition::CallClosure),
+        _ => None,
+    };
+
+    def.or_else(|| block.map(Definition::Block))
+        .unwrap_or_else(|| Definition::None)
 }
 
-fn is_array_deref_assign(sig: &InstFunctionSignature) -> PResult<bool> {
-    return Ok(&sig.0.full_name()? == "std::internal::operators::deref_array_assign");
-}
+pub fn unpack_capture_values(
+    env: &TrClosureCaptureEnvironment,
+    builder: &Builder,
+    env_struct: StructValue,
+) -> PResult<HashMap<VariableId, BasicValueEnum>> {
+    let mut values = HashMap::new();
 
-fn is_array_len(sig: &InstFunctionSignature) -> PResult<bool> {
-    return Ok(&sig.0.full_name()? == "std::internal::operators::array_len");
+    for (id, idx) in &env.indices {
+        let v = builder
+            .build_extract_value(env_struct, *idx as u32, &temp_name())
+            .unwrap();
+        values.insert(*id, v);
+    }
+
+    Ok(values)
 }
 
 lazy_static! {
     static ref TEMP_NAME_COUNTER: RwLock<usize> = RwLock::new(1);
+    static ref TYPE_ID_COUNTER: RwLock<usize> = RwLock::new(0);
 }
 
 fn temp_name() -> String {
@@ -1419,4 +1867,10 @@ fn temp_name() -> String {
     let id: usize = *id_ref;
 
     format!("temp_{}", id)
+}
+
+fn new_type_id() -> usize {
+    let mut id_ref = TYPE_ID_COUNTER.write().unwrap();
+    *id_ref += 1;
+    *id_ref
 }

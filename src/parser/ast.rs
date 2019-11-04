@@ -216,6 +216,10 @@ pub enum AstType {
         args: Vec<AstType>,
         ret_ty: Box<AstType>,
     },
+    FnPointerType {
+        args: Vec<AstType>,
+        ret_ty: Box<AstType>,
+    },
 
     AssociatedType {
         obj_ty: Box<AstType>,
@@ -288,6 +292,13 @@ impl AstType {
         }
     }
 
+    pub fn fn_ptr_type(args: Vec<AstType>, ret_ty: AstType) -> AstType {
+        AstType::FnPointerType {
+            args,
+            ret_ty: Box::new(ret_ty),
+        }
+    }
+
     pub fn generic(generic: String) -> AstType {
         AstType::Generic(generic)
     }
@@ -313,14 +324,12 @@ impl AstType {
 pub struct AstBlock {
     pub statements: Vec<AstStatement>,
     pub expression: Box<AstExpression>,
-    pub locals: Vec<VariableId>,
 }
 
 impl AstBlock {
     pub fn new(statements: Vec<AstStatement>, expr: AstExpression) -> AstBlock {
         AstBlock {
             statements,
-            locals: Vec::new(),
             expression: Box::new(expr),
         }
     }
@@ -328,7 +337,6 @@ impl AstBlock {
     pub fn empty(span: Span) -> AstBlock {
         AstBlock {
             statements: Vec::new(),
-            locals: Vec::new(),
             expression: Box::new(AstExpression::nothing(span)),
         }
     }
@@ -455,11 +463,21 @@ pub enum AstExpressionData {
     GlobalVariable {
         name: ModuleRef,
     },
+    GlobalFn {
+        name: ModuleRef,
+    },
     Tuple {
         values: Vec<AstExpression>,
     },
     ArrayLiteral {
         elements: Vec<AstExpression>,
+    },
+    Closure {
+        params: Vec<AstNamedVariable>,
+        expr: SubExpression,
+
+        captured: Option<Vec<(AstNamedVariable, AstNamedVariable)>>,
+        variables: HashMap<VariableId, AstNamedVariable>,
     },
 
     /// A regular function call
@@ -511,10 +529,10 @@ pub enum AstExpressionData {
         object: AstType,
     },
 
-    /*AllocateArray {
+    AllocateArray {
         object: AstType,
         size: SubExpression,
-    },*/
+    },
     Not(SubExpression),
     Negate(SubExpression),
 
@@ -628,6 +646,14 @@ impl AstExpression {
         }
     }
 
+    pub fn global_fn(span: Span, name: ModuleRef) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::GlobalFn { name },
+            ty: AstType::infer(),
+        }
+    }
+
     pub fn tuple_literal(span: Span, values: Vec<AstExpression>) -> AstExpression {
         AstExpression {
             span,
@@ -650,6 +676,23 @@ impl AstExpression {
         AstExpression {
             span,
             data: AstExpressionData::ArrayLiteral { elements },
+            ty: AstType::infer(),
+        }
+    }
+
+    pub fn closure(
+        span: Span,
+        params: Vec<AstNamedVariable>,
+        expr: AstExpression,
+    ) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::Closure {
+                params,
+                expr: Box::new(expr),
+                captured: None,
+                variables: HashMap::new(),
+            },
             ty: AstType::infer(),
         }
     }
@@ -768,6 +811,17 @@ impl AstExpression {
         AstExpression {
             span,
             data: AstExpressionData::AllocateObject { object },
+            ty: AstType::infer(),
+        }
+    }
+
+    pub fn allocate_array(span: Span, object: AstType, size: AstExpression) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::AllocateArray {
+                object,
+                size: Box::new(size),
+            },
             ty: AstType::infer(),
         }
     }

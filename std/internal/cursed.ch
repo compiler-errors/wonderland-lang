@@ -1,0 +1,1 @@
+export fn cursed_transmute<_S, _T>(s: _S) -> _T.

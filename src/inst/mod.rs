@@ -315,6 +315,9 @@ impl AstAdapter for InstantiationAdapter {
 
                 self.instantiate_object_function(call_type, trt, impl_sig, fn_name, fn_generics)?;
             }
+            AstExpressionData::GlobalFn { name } => {
+                self.instantiate_function(name, &[])?;
+            }
             _ => { /* Do nothing. */ }
         }
 

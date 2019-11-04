@@ -1,6 +1,6 @@
 use crate::ana::represent::AnalyzedProgram;
 use crate::ana::represent_visitor::PureAnalysisPass;
-use crate::parser::ast::{AstExpression, AstExpressionData, AstTraitType, AstType};
+use crate::parser::ast::{AstTraitType, AstType};
 use crate::parser::ast_visitor::AstAdapter;
 use crate::util::{IntoError, PResult};
 
@@ -33,33 +33,5 @@ impl AstAdapter for AnalyzeNames {
         }
 
         Ok(t)
-    }
-
-    fn enter_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
-        match &e.data {
-            AstExpressionData::FnCall { fn_name, .. } => {
-                if !self.0.analyzed_functions.contains_key(fn_name) {
-                    return PResult::error_at(
-                        e.span,
-                        format!("No such function named `{}`.", fn_name.full_name()?),
-                    );
-                }
-            }
-            AstExpressionData::GlobalVariable { name } => {
-                if self.0.analyzed_globals.contains_key(name) {
-                    // Okay. Do nothing.
-                } else if self.0.analyzed_functions.contains_key(name) {
-                    // Okay. Do nothing either.
-                } else {
-                    return PResult::error_at(
-                        e.span,
-                        format!("No such global variable named `{}`.", name.full_name()?),
-                    );
-                }
-            }
-            _ => {}
-        }
-
-        Ok(e)
     }
 }

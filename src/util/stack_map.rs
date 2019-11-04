@@ -1,14 +1,14 @@
 use std::borrow::Borrow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::hash::Hash;
 
 #[derive(Debug)]
-pub struct StackMap<K: Eq + Hash + Debug, V: Debug> {
+pub struct StackMap<K: Eq + Hash, V: Debug> {
     stack: Vec<HashMap<K, V>>,
 }
 
-impl<K: Eq + Hash + Debug, V: Clone + Debug> StackMap<K, V> {
+impl<K: Eq + Hash + Debug + Clone, V: Clone + Debug> StackMap<K, V> {
     pub fn new() -> StackMap<K, V> {
         StackMap { stack: Vec::new() }
     }
@@ -46,5 +46,15 @@ impl<K: Eq + Hash + Debug, V: Clone + Debug> StackMap<K, V> {
     pub fn add(&mut self, key: K, value: V) {
         let map = self.stack.last_mut().unwrap();
         map.insert(key, value);
+    }
+
+    pub fn keys(&mut self) -> HashSet<K> {
+        let mut keys = HashSet::new();
+
+        for map in self.stack.iter() {
+            keys.extend(map.keys().cloned());
+        }
+
+        keys
     }
 }

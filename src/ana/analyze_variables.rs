@@ -3,12 +3,13 @@ use crate::ana::represent_visitor::PureAnalysisPass;
 use crate::parser::ast::*;
 use crate::parser::ast_visitor::AstAdapter;
 use crate::util::{Expect, FileId, IntoError, PResult, StackMap, Visit};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub struct AnalyzeVariables {
     analyzed_program: AnalyzedProgram,
-    fn_variables: HashMap<VariableId, AstNamedVariable>,
+    all_variables: StackMap<VariableId, AstNamedVariable>,
     scope: StackMap<String, VariableId>,
+
     global_variables: HashMap<String, FileId>,
 }
 
@@ -16,7 +17,7 @@ impl PureAnalysisPass for AnalyzeVariables {
     fn new(analyzed_program: AnalyzedProgram) -> PResult<AnalyzeVariables> {
         Ok(AnalyzeVariables {
             analyzed_program,
-            fn_variables: HashMap::new(),
+            all_variables: StackMap::new(),
             scope: StackMap::new(),
             global_variables: HashMap::new(),
         })
@@ -39,9 +40,7 @@ impl AnalyzeVariables {
             .get_top(name)
             .is_not_expected(*span, "variable", &name)?;
 
-        self.fn_variables
-            .insert(*id, a.clone())
-            .is_not_expected(*span, "variable", &name)?;
+        self.all_variables.add(*id, a.clone());
         self.scope.add(name.clone(), *id);
 
         Ok(())
@@ -64,7 +63,7 @@ impl<'a> AstAdapter for AnalyzeVariables {
 
     fn enter_function(&mut self, f: AstFunction) -> PResult<AstFunction> {
         self.scope.push();
-        self.fn_variables.clear();
+        self.all_variables.push();
 
         if !f.variables.is_empty() {
             return PResult::error_at(
@@ -129,6 +128,47 @@ impl<'a> AstAdapter for AnalyzeVariables {
                     return PResult::error(format!("Cannot find variable by name: `{}`", name));
                 }
             }
+            AstExpressionData::Closure {
+                params,
+                expr,
+                captured: None,
+                variables,
+            } => {
+                let names = self.scope.keys();
+                let mut i = CaptureIdentifier::new(names);
+
+                for p in &params {
+                    i.ignore(&p.name);
+                }
+
+                let expr = expr.visit(&mut i)?;
+                let mut captured = Vec::new();
+
+                self.scope.push();
+                self.all_variables.push();
+
+                for p in &params {
+                    self.assign_index(&p)?;
+                }
+
+                for c in i.captured {
+                    let old = self
+                        .all_variables
+                        .get(&self.scope.get(&c).unwrap())
+                        .unwrap();
+                    let new = AstNamedVariable::new(old.span, old.name.clone(), old.ty.clone());
+
+                    self.assign_index(&new)?;
+                    captured.push((old, new));
+                }
+
+                AstExpressionData::Closure {
+                    params,
+                    expr,
+                    captured: Some(captured),
+                    variables,
+                }
+            }
             AstExpressionData::SelfRef => {
                 let variable_id = Some(
                     self.scope
@@ -146,9 +186,35 @@ impl<'a> AstAdapter for AnalyzeVariables {
         Ok(AstExpression { data, ty, span })
     }
 
+    fn exit_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
+        let AstExpression { data, ty, span } = e;
+
+        let data = match data {
+            AstExpressionData::Closure {
+                params,
+                expr,
+                captured,
+                mut variables,
+            } => {
+                variables.extend(self.all_variables.pop());
+                self.scope.pop();
+
+                AstExpressionData::Closure {
+                    params,
+                    expr,
+                    captured,
+                    variables,
+                }
+            }
+            e => e,
+        };
+
+        Ok(AstExpression { data, ty, span })
+    }
+
     fn enter_object_function(&mut self, f: AstObjectFunction) -> PResult<AstObjectFunction> {
         self.scope.push();
-        self.fn_variables.clear();
+        self.all_variables.push();
 
         if !f.variables.is_empty() {
             return PResult::error_at(
@@ -170,29 +236,92 @@ impl<'a> AstAdapter for AnalyzeVariables {
     }
 
     fn exit_function(&mut self, f: AstFunction) -> PResult<AstFunction> {
-        let variables = self.fn_variables.clone();
-        self.analyzed_program
-            .variable_ids
-            .extend(self.fn_variables.drain());
-
+        let variables = self.all_variables.pop();
+        self.analyzed_program.variable_ids.extend(variables.clone());
         self.scope.pop();
+
         Ok(AstFunction { variables, ..f })
     }
 
-    fn exit_block(&mut self, mut b: AstBlock) -> PResult<AstBlock> {
-        let leaving = self.scope.pop();
-        b.locals.extend(leaving.values());
+    fn exit_block(&mut self, b: AstBlock) -> PResult<AstBlock> {
+        self.scope.pop();
 
         Ok(b)
     }
 
     fn exit_object_function(&mut self, o: AstObjectFunction) -> PResult<AstObjectFunction> {
-        let variables = self.fn_variables.clone();
-        self.analyzed_program
-            .variable_ids
-            .extend(self.fn_variables.drain());
+        let variables = self.all_variables.pop();
+        self.analyzed_program.variable_ids.extend(variables.clone());
 
         self.scope.pop();
         Ok(AstObjectFunction { variables, ..o })
+    }
+}
+
+struct CaptureIdentifier {
+    candidates: HashSet<String>,
+    captured: HashSet<String>,
+}
+
+impl CaptureIdentifier {
+    fn new(candidates: HashSet<String>) -> CaptureIdentifier {
+        CaptureIdentifier {
+            candidates,
+            captured: HashSet::new(),
+        }
+    }
+
+    fn ignore(&mut self, candidate: &str) {
+        self.candidates.remove(candidate);
+    }
+
+    fn try_capture(&mut self, candidate: &str) {
+        if self.candidates.contains(candidate) {
+            self.captured.insert(candidate.into());
+        }
+    }
+}
+
+impl AstAdapter for CaptureIdentifier {
+    fn enter_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
+        match &e.data {
+            AstExpressionData::Identifier {
+                name,
+                variable_id: None,
+            } => {
+                self.try_capture(&name);
+            }
+            AstExpressionData::Closure { params, .. } => {
+                for p in params {
+                    self.ignore(&p.name);
+                }
+            }
+            _ => {}
+        }
+
+        Ok(e)
+    }
+
+    fn enter_statement(&mut self, s: AstStatement) -> PResult<AstStatement> {
+        match s {
+            AstStatement::Let {
+                name_span,
+                var_name,
+                ty,
+                mut value,
+            } => {
+                // Still need to detect if we capture in the value, e.g. `let x = x.`
+                value = value.visit(self)?;
+                self.ignore(&var_name);
+
+                Ok(AstStatement::Let {
+                    name_span,
+                    var_name,
+                    ty,
+                    value,
+                })
+            }
+            s => Ok(s),
+        }
     }
 }

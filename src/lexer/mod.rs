@@ -111,6 +111,10 @@ impl Lexer {
                         return Ok(Token::Colon);
                     }
                 }
+                ';' => {
+                    self.bump(1);
+                    return Ok(Token::SemiColon);
+                }
                 '{' => {
                     self.bump(1);
                     return Ok(Token::LBrace);
@@ -373,7 +377,7 @@ impl Lexer {
             "Char" => Token::Char,
             "_" => Token::Infer,
             "Self" => Token::SelfType,
-            "Fn" => Token::FnType,
+            "Fn" => Token::FnTrait,
 
             _ => match string.chars().nth(0).unwrap() {
                 '_' => Token::GenericName(string[1..].into()),

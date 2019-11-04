@@ -13,7 +13,7 @@
 #define i8 uint8_t
 #define i1 bool
 
-#define DEBUG_PRINTF(...) if (false) { printf(__VA_ARGS__); }
+#define DEBUG_PRINTF(...) if (true) { printf(__VA_ARGS__); }
 #define NOINLINE __attribute__((noinline))
 
 struct array {
@@ -27,9 +27,11 @@ struct string {
   i8 payload[];
 };
 
+struct callback {};
+
 inline void _ensure_bounds_or_panic(const char* type, i64 size, i64 idx) {
   if (idx < 0 || idx >= size) {
-    fprintf(stderr, "PANIC: Tried to deref %s (size=%ld) at index %ld\n",
+    fprintf(stderr, "PANIC: Tried to deref %s (size=%"PRId64") at index %"PRId64"\n",
             type, size, idx);
     exit(1);
   }

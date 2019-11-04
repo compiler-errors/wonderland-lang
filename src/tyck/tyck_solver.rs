@@ -344,6 +344,41 @@ impl TyckSolver {
                 }
             }
 
+            (
+                AstType::ClosureType {
+                    args: a_args,
+                    ret_ty: a_ret,
+                },
+                AstType::ClosureType {
+                    args: b_args,
+                    ret_ty: b_ret,
+                },
+            ) => {
+                for (a_ty, b_ty) in ZipExact::zip_exact(a_args, b_args, "closure arguments")? {
+                    self.unify(a_ty, b_ty)?;
+                }
+
+                self.unify(a_ret, b_ret)?;
+                Ok(())
+            }
+            (
+                AstType::FnPointerType {
+                    args: a_args,
+                    ret_ty: a_ret,
+                },
+                AstType::FnPointerType {
+                    args: b_args,
+                    ret_ty: b_ret,
+                },
+            ) => {
+                for (a_ty, b_ty) in ZipExact::zip_exact(a_args, b_args, "closure arguments")? {
+                    self.unify(a_ty, b_ty)?;
+                }
+
+                self.unify(a_ret, b_ret)?;
+                Ok(())
+            }
+
             (a, b) => TyckSolver::error(&format!("Type non-union: {:?} and {:?}", a, b)),
         }
     }

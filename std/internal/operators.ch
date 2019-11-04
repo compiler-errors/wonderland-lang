@@ -12,6 +12,8 @@ export fn get_char(s: String, i: Int) -> Char.
 export fn deref_array<_T>(array: [_T], idx: Int) -> _T.
 export fn deref_array_assign<_T>(array: [_T], idx: Int, value: _T) -> _T.
 export fn array_len<_T>(array: [_T]) -> Int.
+export fn call_fn<_Args, _Ret>(f: fn(), args: _Args) -> _Ret.
+export fn call_closure<_Args, _Ret>(f: ||, args: _Args) -> _Ret.
 
 impl Add<Int> for Int {
     type AddResult = Int.

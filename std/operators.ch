@@ -80,8 +80,10 @@ trait Len {
     fn len(self) -> Int.
 }
 
-trait Call<_Args> {
-    type CallReturn.
+trait Call<_Args, _Ret> {
+    // TODO: associated bounds, e.g. Call<(Int, Int), CallReturn=Int>
+    // type CallReturn.
+    // fn call(self, args: _Args) -> <Self as Call<_Args>>::CallReturn.
 
-    fn call(self, args: _Args) -> <Self as Call<_Args>>::CallReturn.
+    fn call(self, args: _Args) -> _Ret.
 }

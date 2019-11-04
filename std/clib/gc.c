@@ -147,6 +147,17 @@ void gc_visit_array(struct array** array_ptr, i16 element_ty, GC_CALLBACK) {
   }
 }
 
+void gc_visit_closure(i8** callback_ptr, GC_CALLBACK) {
+    DEBUG_PRINTF("Visiting closure %p at %p\n", *callback_ptr, callback_ptr);
+
+    if (*callback_ptr == NULL) {
+        return;
+    }
+
+    i8* moved_callback = gc_remap_object(*callback_ptr);
+    gc_visit((i8*) callback_ptr, gc_get_type(moved_callback), callback);
+}
+
 // ----- ----- ----- ----- ----- ----- GC allocation shit ----- ----- ----- ----- ----- ----- //
 
 i8* GC_BEGIN = NULL;
@@ -241,7 +252,7 @@ void gc_verify_trivial_derive(i8* cheshire_stack_root, pointer_slot_t* slots, po
     }
 }
 
-void gc_walk(i8* cheshire_stack_root, bool verify_derives, GC_CALLBACK) {
+void gc_walk(i8* cheshire_stack_root, i1 verify_derives, GC_CALLBACK) {
     cheshire_stack_root += sizeof(void*);
     int64_t ret = *(int64_t*) cheshire_stack_root;
     cheshire_stack_root += sizeof(void*);
@@ -291,6 +302,8 @@ void gc_walk(i8* cheshire_stack_root, bool verify_derives, GC_CALLBACK) {
 }
 
 NOINLINE void gc(i8* cheshire_stack_root) {
+    gc_remap_free();
+
     // Mark
     DEBUG_PRINTF(" -- MARK --\n");
     gc_walk(cheshire_stack_root, true, gc_mark);

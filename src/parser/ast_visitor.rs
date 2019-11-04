@@ -251,7 +251,6 @@ impl<T: AstAdapter> Visit<T> for AstBlock {
         let AstBlock {
             statements,
             expression,
-            locals,
         } = adapter.enter_block(self)?;
 
         let statements = statements.visit(adapter)?;
@@ -259,7 +258,6 @@ impl<T: AstAdapter> Visit<T> for AstBlock {
         let i = AstBlock {
             statements,
             expression: expression.visit(adapter)?,
-            locals,
         };
 
         adapter.exit_block(i)
@@ -348,6 +346,20 @@ impl<T: AstAdapter> Visit<T> for AstExpression {
             AstExpressionData::ArrayLiteral { elements } => AstExpressionData::ArrayLiteral {
                 elements: elements.visit(adapter)?,
             },
+            AstExpressionData::GlobalFn { name } => AstExpressionData::GlobalFn {
+                name: name.visit(adapter)?,
+            },
+            AstExpressionData::Closure {
+                params,
+                expr,
+                captured,
+                variables,
+            } => AstExpressionData::Closure {
+                params: params.visit(adapter)?,
+                expr: expr.visit(adapter)?,
+                captured: captured.visit(adapter)?,
+                variables: variables.visit(adapter)?,
+            },
             AstExpressionData::FnCall {
                 fn_name,
                 generics,
@@ -407,6 +419,10 @@ impl<T: AstAdapter> Visit<T> for AstExpression {
             AstExpressionData::AllocateObject { object } => AstExpressionData::AllocateObject {
                 object: object.visit(adapter)?,
             },
+            AstExpressionData::AllocateArray { object, size } => AstExpressionData::AllocateArray {
+                object: object.visit(adapter)?,
+                size: size.visit(adapter)?,
+            },
             AstExpressionData::Not(expr) => AstExpressionData::Not(expr.visit(adapter)?),
             AstExpressionData::Negate(expr) => AstExpressionData::Negate(expr.visit(adapter)?),
             AstExpressionData::BinOp { kind, lhs, rhs } => AstExpressionData::BinOp {
@@ -449,6 +465,10 @@ impl<T: AstAdapter> Visit<T> for AstType {
                 AstType::Object(name.visit(adapter)?, types.visit(adapter)?)
             }
             AstType::ClosureType { args, ret_ty } => AstType::ClosureType {
+                args: args.visit(adapter)?,
+                ret_ty: ret_ty.visit(adapter)?,
+            },
+            AstType::FnPointerType { args, ret_ty } => AstType::FnPointerType {
                 args: args.visit(adapter)?,
                 ret_ty: ret_ty.visit(adapter)?,
             },

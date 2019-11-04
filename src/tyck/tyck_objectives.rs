@@ -156,6 +156,10 @@ impl<'a> AstAdapter for TyckObjectiveAdapter {
 
                 self.solver.unify(&AstType::array(elem_ty), &ty)?;
             }
+            AstExpressionData::AllocateArray { object, size } => {
+                self.solver.unify(&AstType::array(object.clone()), &ty)?;
+                self.solver.unify(&AstType::Int, &size.ty)?;
+            }
 
             // A regular function call
             AstExpressionData::FnCall {
@@ -165,7 +169,7 @@ impl<'a> AstAdapter for TyckObjectiveAdapter {
             } => {
                 let (param_tys, return_ty, objectives) =
                     GenericsInstantiator::instantiate_fn_signature(
-                        &*self.analyzed_program,
+                        &self.analyzed_program,
                         fn_name,
                         generics,
                     )?;
@@ -237,6 +241,29 @@ impl<'a> AstAdapter for TyckObjectiveAdapter {
                 let rhs_ty = &rhs.ty;
                 self.solver.unify(lhs_ty, rhs_ty)?;
                 self.solver.unify(lhs_ty, &ty)?;
+            }
+
+            AstExpressionData::GlobalFn { name } => {
+                let fn_data = &self.analyzed_program.analyzed_functions[name];
+                self.solver.unify(
+                    &ty,
+                    &AstType::fn_ptr_type(fn_data.parameters.clone(), fn_data.return_type.clone()),
+                )?;
+            }
+
+            AstExpressionData::Closure {
+                params,
+                expr,
+                variables,
+                ..
+            } => {
+                self.variables
+                    .extend(variables.iter().map(|(&k, v)| (k, v.ty.clone())));
+
+                let ret_ty = expr.ty.clone();
+                let param_tys = params.iter().map(|p| p.ty.clone()).collect();
+                self.solver
+                    .unify(&ty, &AstType::closure_type(param_tys, ret_ty))?;
             }
 
             AstExpressionData::BinOp { .. } => unreachable!(),

@@ -5,11 +5,10 @@ pub mod ast_visitor;
 use self::ast::*;
 use crate::lexer::*;
 use crate::util::*;
-
 use crate::util::{FileId, FileRegistry, Span};
 use std::collections::HashMap;
-
 use std::str::FromStr;
+use std::sync::RwLock;
 
 pub struct Parser {
     file: FileId,
@@ -242,9 +241,13 @@ impl Parser {
                     .insert(trt.name.clone(), trt)
                     .is_not_expected(span, "trait", &name)?;
             } else if self.check(Token::Impl) {
-                let imp = self.parse_impl()?;
+                let (imp, trt) = self.parse_impl()?;
 
                 impls.insert(imp.impl_id, imp);
+
+                if let Some(trt) = trt {
+                    traits.insert(trt.name.clone(), trt);
+                }
             } else if self.check(Token::Let) {
                 let global = self.parse_global()?;
                 let name = global.name.clone();
@@ -332,7 +335,7 @@ impl Parser {
         let restrictions = self.try_parse_restrictions()?;
 
         let definition = if has_body {
-            let (block, _) = self.parse_block()?;
+            let (block, _) = self.parse_block_or_equals()?;
 
             Some(block)
         } else {
@@ -480,10 +483,9 @@ impl Parser {
                 self.bump()?;
                 (AstType::SelfType, self.next_span)
             }
-            Token::FnType => {
-                self.bump()?;
+            Token::Pipe => {
                 let mut span = self.next_span;
-                let (args, s) = self.parse_fn_type_args()?;
+                let (args, s) = self.parse_fn_type_args(Token::Pipe, Token::Pipe)?;
                 span = span.unite(s);
                 let ret_ty = if self.check_consume(Token::RArrow)? {
                     let (t, s) = self.parse_type()?;
@@ -493,6 +495,20 @@ impl Parser {
                     AstType::none()
                 };
                 (AstType::closure_type(args, ret_ty), span)
+            }
+            Token::Fn => {
+                let mut span = self.next_span;
+                self.bump()?;
+                let (args, s) = self.parse_fn_type_args(Token::LParen, Token::RParen)?;
+                span = span.unite(s);
+                let ret_ty = if self.check_consume(Token::RArrow)? {
+                    let (t, s) = self.parse_type()?;
+                    span = span.unite(s);
+                    t
+                } else {
+                    AstType::none()
+                };
+                (AstType::fn_ptr_type(args, ret_ty), span)
             }
             Token::LSqBracket => self.parse_array_type()?,
             Token::LParen => self.parse_tuple_type()?,
@@ -608,6 +624,10 @@ impl Parser {
         let mut span = self.next_span;
         let mut path = Vec::new();
 
+        if self.check(Token::FnTrait) {
+            return self.parse_fn_trait_type();
+        }
+
         loop {
             if self.check_typename() {
                 path.push(self.expect_consume_typename()?);
@@ -616,7 +636,11 @@ impl Parser {
                 path.push(self.expect_consume_identifier()?);
                 self.expect_consume(Token::ColonColon)?;
             } else {
-                unimplemented!("Error! Typename or identifier.");
+                return self.error_here(format!(
+                    "Expected typename or identifier, found \
+                     `{}`",
+                    self.next_token
+                ));
             }
         }
 
@@ -632,33 +656,67 @@ impl Parser {
         Ok((AstTraitType(obj, generics), span))
     }
 
+    fn parse_fn_trait_type(&mut self) -> PResult<(AstTraitType, Span)> {
+        // TODO: I'm not super happy that this is happening here when I do
+        // other desugaring in analyze_operators itself.
+
+        // She'll get analyzed properly later.
+        let call_trait =
+            ModuleRef::Denormalized(vec!["std".into(), "operators".into(), "Call".into()]);
+
+        let mut span = self.next_span;
+        self.expect_consume(Token::FnTrait)?;
+        let (args, s) = self.parse_fn_type_args(Token::LParen, Token::RParen)?;
+        let args = AstType::tuple(args);
+        span = span.unite(s);
+        let ret_ty = if self.check_consume(Token::RArrow)? {
+            let (t, s) = self.parse_type()?;
+            span = span.unite(s);
+            t
+        } else {
+            AstType::none()
+        };
+
+        Ok((AstTraitType(call_trait, vec![args, ret_ty]), span))
+    }
+
     fn parse_generic_type(&mut self) -> PResult<(AstType, Span)> {
         let span = self.next_span;
         let generic = self.expect_consume_generic()?;
         Ok((AstType::generic(generic), span))
     }
 
-    fn parse_fn_type_args(&mut self) -> PResult<(Vec<AstType>, Span)> {
+    fn parse_fn_type_args(&mut self, left: Token, right: Token) -> PResult<(Vec<AstType>, Span)> {
         let mut span = self.next_span;
-        self.expect_consume(Token::LParen)?;
+        self.expect_consume(left)?;
 
         span = span.unite(self.next_span);
-        if self.check_consume(Token::RParen)? {
-            Ok((vec![], span))
-        } else {
-            let mut types = Vec::new();
+        let mut types = Vec::new();
 
-            while !self.check_consume(Token::RParen)? {
-                if types.len() != 0 {
-                    self.expect_consume(Token::Comma)?;
-                }
-
-                let (subty, _) = self.parse_type()?;
-                types.push(subty);
-                span = span.unite(self.next_span);
+        while !self.check_consume(right.clone())? {
+            if types.len() > 0 {
+                self.expect_consume(Token::Comma)?;
             }
 
-            Ok((types, span))
+            let (subty, _) = self.parse_type()?;
+            types.push(subty);
+            span = span.unite(self.next_span);
+        }
+
+        Ok((types, span))
+    }
+
+    fn parse_block_or_equals(&mut self) -> PResult<(AstBlock, Span)> {
+        let mut span = self.next_span;
+
+        if self.check_consume(Token::Equals)? {
+            let expr = self.parse_expression()?;
+            span = span.unite(self.next_span);
+            self.expect_consume(Token::Dot)?;
+
+            Ok((AstBlock::new(Vec::new(), expr), span))
+        } else {
+            self.parse_block()
         }
     }
 
@@ -924,6 +982,7 @@ impl Parser {
         let mut span = self.next_span;
 
         match &self.next_token {
+            Token::Pipe => self.parse_closure_expr(),
             Token::LBrace => {
                 let (block, span) = self.parse_block()?;
                 Ok(AstExpression::block(span, block))
@@ -1143,20 +1202,47 @@ impl Parser {
         }
     }
 
+    fn parse_closure_expr(&mut self) -> PResult<AstExpression> {
+        let mut span = self.next_span;
+        self.expect_consume(Token::Pipe)?;
+        let mut args = Vec::new();
+
+        while !self.check_consume(Token::Pipe)? {
+            if args.len() > 0 {
+                self.expect_consume(Token::Comma)?;
+            }
+
+            let name_span = self.next_span;
+            let var_name = self.expect_consume_identifier()?;
+
+            let ty = if self.check_consume_colon()? {
+                self.parse_type()?.0
+            } else {
+                AstType::infer()
+            };
+
+            args.push(AstNamedVariable::new(name_span, var_name, ty));
+        }
+
+        let expr = self.parse_expression()?;
+        span = span.unite(expr.span);
+
+        Ok(AstExpression::closure(span, args, expr))
+    }
+
     fn parse_allocate_expr(&mut self) -> PResult<AstExpression> {
         let mut span = self.next_span;
         self.expect_consume(Token::Allocate)?;
 
         if self.check_consume(Token::LSqBracket)? {
-            let (_ty, _ty_span) = self.parse_type()?;
-            // self.expect_consume(Token::SemiColon)?;
-            let _expr = self.parse_expression()?;
+            let (ty, _) = self.parse_type()?;
+            self.expect_consume(Token::SemiColon)?;
+            let expr = self.parse_expression()?;
 
-            //span = span.unite(self.next_span);
+            span = span.unite(self.next_span);
             self.expect_consume(Token::RSqBracket)?;
 
-            // Ok(AstExpression::allocate_array(span, ty, expr))
-            unimplemented!("TODO implement [T; 10]");
+            Ok(AstExpression::allocate_array(span, ty, expr))
         } else {
             let (ty, ty_span) = self.parse_object_type()?;
             span = span.unite(ty_span);
@@ -1365,7 +1451,7 @@ impl Parser {
         let restrictions = self.try_parse_restrictions()?;
 
         let definition = if has_body {
-            let (block, _) = self.parse_block()?;
+            let (block, _) = self.parse_block_or_equals()?;
 
             Some(block)
         } else {
@@ -1457,43 +1543,113 @@ impl Parser {
         Ok((name.clone(), AstAssociatedType { name, restrictions }))
     }
 
-    fn parse_impl(&mut self) -> PResult<AstImpl> {
+    fn parse_impl(&mut self) -> PResult<(AstImpl, Option<AstTrait>)> {
         let name_span = self.next_span;
         self.expect_consume(Token::Impl)?;
         let impl_generics = self.try_parse_decl_generics()?;
-        let (trait_ty, _) = self.parse_trait_type()?;
-        self.expect_consume(Token::For)?;
-        let (impl_ty, _) = self.parse_type()?;
-        let restrictions = self.try_parse_restrictions()?;
-        self.expect_consume(Token::LBrace)?;
 
-        let mut fns = HashMap::new();
-        let mut tys = HashMap::new();
+        if self.check_consume(Token::For)? {
+            let (impl_ty, _) = self.parse_type()?;
+            let restrictions = self.try_parse_restrictions()?;
+            self.expect_consume(Token::LBrace)?;
 
-        while !self.check_consume(Token::RBrace)? {
-            if self.check(Token::Fn) {
-                let obj_fn = self.parse_object_function(true)?;
-                fns.insert(obj_fn.name.clone(), obj_fn);
-            } else if self.check(Token::Type) {
-                let (name, ty) = self.parse_impl_associated_ty()?;
-                tys.insert(name, ty);
-            } else {
-                self.error_here(format!(
-                    "Expected `fn` or `type`, found `{}`",
-                    self.next_token
-                ))?;
+            let mut fns = HashMap::new();
+
+            while !self.check_consume(Token::RBrace)? {
+                if self.check(Token::Fn) {
+                    let obj_fn = self.parse_object_function(true)?;
+                    fns.insert(obj_fn.name.clone(), obj_fn);
+                } else {
+                    self.error_here(format!(
+                        "Expected `fn` or `type`, found `{}`",
+                        self.next_token
+                    ))?;
+                }
             }
-        }
 
-        Ok(AstImpl::new(
-            name_span,
-            impl_generics,
-            trait_ty,
-            impl_ty,
-            fns,
-            restrictions,
-            tys,
-        ))
+            let fn_sigs = fns
+                .iter()
+                .map(|(k, v)| (k.clone(), self.into_sig(v)))
+                .collect();
+
+            let trait_name = temp_name();
+            let trait_ty = AstTraitType(
+                ModuleRef::Normalized(self.file, trait_name.clone()),
+                impl_generics.iter().map(|t| t.clone().into()).collect(),
+            );
+
+            Ok((
+                AstImpl::new(
+                    name_span,
+                    impl_generics.clone(),
+                    trait_ty,
+                    impl_ty,
+                    fns,
+                    restrictions.clone(),
+                    HashMap::new(),
+                ),
+                Some(AstTrait::new(
+                    self.file,
+                    name_span,
+                    trait_name,
+                    impl_generics,
+                    fn_sigs,
+                    restrictions,
+                    HashMap::new(),
+                )),
+            ))
+        } else {
+            let (trait_ty, _) = self.parse_trait_type()?;
+            self.expect_consume(Token::For)?;
+            let (impl_ty, _) = self.parse_type()?;
+            let restrictions = self.try_parse_restrictions()?;
+            self.expect_consume(Token::LBrace)?;
+
+            let mut fns = HashMap::new();
+            let mut tys = HashMap::new();
+
+            while !self.check_consume(Token::RBrace)? {
+                if self.check(Token::Fn) {
+                    let obj_fn = self.parse_object_function(true)?;
+                    fns.insert(obj_fn.name.clone(), obj_fn);
+                } else if self.check(Token::Type) {
+                    let (name, ty) = self.parse_impl_associated_ty()?;
+                    tys.insert(name, ty);
+                } else {
+                    self.error_here(format!(
+                        "Expected `fn` or `type`, found `{}`",
+                        self.next_token
+                    ))?;
+                }
+            }
+
+            Ok((
+                AstImpl::new(
+                    name_span,
+                    impl_generics,
+                    trait_ty,
+                    impl_ty,
+                    fns,
+                    restrictions,
+                    tys,
+                ),
+                None,
+            ))
+        }
+    }
+
+    fn into_sig(&mut self, o: &AstObjectFunction) -> AstObjectFunction {
+        AstObjectFunction {
+            name_span: o.name_span,
+            has_self: o.has_self,
+            definition: None,
+            name: o.name.clone(),
+            generics: o.generics.clone(),
+            restrictions: o.restrictions.clone(),
+            parameter_list: o.parameter_list.clone(),
+            return_type: o.return_type.clone(),
+            variables: o.variables.clone(),
+        }
     }
 
     fn parse_impl_associated_ty(&mut self) -> PResult<(String, AstType)> {
@@ -1537,4 +1693,16 @@ fn get_kind(t: Token) -> BinOpKind {
         Token::Pipe => BinOpKind::Or,
         _ => unreachable!(),
     }
+}
+
+lazy_static! {
+    static ref TEMP_NAME_COUNTER: RwLock<usize> = RwLock::new(1);
+}
+
+fn temp_name() -> String {
+    let mut id_ref = TEMP_NAME_COUNTER.write().unwrap();
+    *id_ref += 1;
+    let id: usize = *id_ref;
+
+    format!("${}", id)
 }

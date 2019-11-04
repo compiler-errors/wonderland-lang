@@ -39,3 +39,11 @@ impl<T, K: Eq + Hash, V: Visit<T>> Visit<T> for HashMap<K, V> {
         Ok(out)
     }
 }
+
+impl<T, A: Visit<T>, B: Visit<T>> Visit<T> for (A, B) {
+    fn visit(self, adapter: &mut T) -> PResult<(A, B)> {
+        let (a, b) = self;
+
+        Ok((a.visit(adapter)?, b.visit(adapter)?))
+    }
+}
