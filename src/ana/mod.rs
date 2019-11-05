@@ -126,7 +126,7 @@ pub fn analyze(p: AstProgram) -> PResult<(AnalyzedProgram, AstProgram)> {
     ];
 
     for (name, pass) in passes {
-        let (a_new, p_new) = pass(a, p).with_comment(format!("In analysis pass: {}", name))?;
+        let (a_new, p_new) = pass(a, p).with_comment(|| format!("In analysis pass: {}", name))?;
 
         a = a_new;
         p = p_new;

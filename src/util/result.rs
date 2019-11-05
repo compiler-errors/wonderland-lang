@@ -44,12 +44,12 @@ impl PError {
     }
 }
 
-pub trait Comment {
-    fn add_comment(&mut self, comment: String);
-    fn with_comment(self, comment: String) -> Self;
+pub trait Comment<S> {
+    fn add_comment(&mut self, comment: S);
+    fn with_comment(self, comment: S) -> Self;
 }
 
-impl Comment for PError {
+impl Comment<String> for PError {
     fn add_comment(&mut self, comment: String) {
         self.comments.push(comment);
     }
@@ -61,15 +61,19 @@ impl Comment for PError {
     }
 }
 
-impl<T, S: Comment> Comment for Result<T, S> {
-    fn add_comment(&mut self, comment: String) {
+impl<T, S, F> Comment<F> for Result<T, S>
+where
+    S: Comment<String>,
+    F: (FnOnce() -> String),
+{
+    fn add_comment(&mut self, comment: F) {
         if let Some(e) = self.as_mut().err() {
-            e.add_comment(comment);
+            e.add_comment(comment());
         }
     }
 
-    fn with_comment(self, comment: String) -> Result<T, S> {
-        self.map_err(|e| e.with_comment(comment))
+    fn with_comment(self, comment: F) -> Result<T, S> {
+        self.map_err(|e| e.with_comment(comment()))
     }
 }
 

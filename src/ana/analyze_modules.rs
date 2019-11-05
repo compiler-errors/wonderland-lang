@@ -375,9 +375,11 @@ impl<'a> AstAdapter for AnalyzeUses<'a> {
                 let module_ref = get_module(self.current_mod.as_ref().unwrap(), mod_path)?;
                 let module = (*module_ref).borrow();
 
-                if let ModuleItem::Symbol(file) = module.get_child(item, mod_path).with_comment(
-                    format!("In module: `{}`", self.current_mod_name.as_ref().unwrap()),
-                )? {
+                if let ModuleItem::Symbol(file) =
+                    module.get_child(item, mod_path).with_comment(|| {
+                        format!("In module: `{}`", self.current_mod_name.as_ref().unwrap())
+                    })?
+                {
                     Ok(ModuleRef::Normalized(file, path.last().unwrap().clone()))
                 } else {
                     PResult::error(format!("Reference {} is not a symbol!", path.join("::")))

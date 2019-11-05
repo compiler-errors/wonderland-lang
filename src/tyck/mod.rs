@@ -40,7 +40,7 @@ pub fn typecheck(analyzed_program: &AnalyzedProgram, parsed_program: &AstProgram
     for m in parsed_program.modules {
         let module_name = FileRegistry::mod_path(m.id)?.join("::");
         typecheck_module(&analyzed_program, &base_solver, m, &module_name)
-            .with_comment(format!("In module: {}", module_name))?;
+            .with_comment(|| format!("In module: {}", module_name))?;
     }
 
     Ok(())
@@ -62,34 +62,31 @@ pub fn typecheck_module(
     } = module;
 
     for (name, fun) in functions {
-        typecheck_simple(analyzed_program.clone(), &base_solver, fun).with_comment(format!(
-            "In function `{}` in module `{}`",
-            name, module_name
-        ))?;
+        typecheck_simple(analyzed_program.clone(), &base_solver, fun)
+            .with_comment(|| format!("In function `{}` in module `{}`", name, module_name))?;
     }
 
     for (name, obj) in objects {
         typecheck_simple(analyzed_program.clone(), &base_solver, obj)
-            .with_comment(format!("In object `{}` in module `{}`", name, module_name))?;
+            .with_comment(|| format!("In object `{}` in module `{}`", name, module_name))?;
     }
 
     for (name, trt) in traits {
         typecheck_simple(analyzed_program.clone(), &base_solver, trt)
-            .with_comment(format!("In trait `{}` in module `{}`", name, module_name))?;
+            .with_comment(|| format!("In trait `{}` in module `{}`", name, module_name))?;
     }
 
     for (name, global) in globals {
         typecheck_simple(analyzed_program.clone(), &base_solver, global)
-            .with_comment(format!("In global `{}` in module `{}`", name, module_name))?;
+            .with_comment(|| format!("In global `{}` in module `{}`", name, module_name))?;
     }
 
     for (_, imp) in impls {
         let trait_ty = imp.trait_ty.clone();
         let impl_ty = imp.impl_ty.clone();
 
-        let (imp, _) = typecheck_impl(analyzed_program.clone(), &base_solver, imp).with_comment(
-            format!("In an impl `{}` for `{}`", trait_ty, impl_ty),
-        )?;
+        let (imp, _) = typecheck_impl(analyzed_program.clone(), &base_solver, imp)
+            .with_comment(|| format!("In an impl `{}` for `{}`", trait_ty, impl_ty))?;
 
         // Try to detect contradictions..!
         for (other_id, other_impl) in &analyzed_program.analyzed_impls {
@@ -109,6 +106,9 @@ pub fn typecheck_module(
             }
         }
 
+        let trait_ty = &imp.trait_ty;
+        let impl_ty = &imp.impl_ty;
+
         // We want to type check these functions generically...
         for (name, fun) in imp.fns {
             let fn_generics = Dummifier::from_generics(&fun.generics)?;
@@ -121,10 +121,12 @@ pub fn typecheck_module(
                 &imp.trait_ty,
                 &fn_generics,
             )
-            .with_comment(format!(
-                "In method `{}` in `impl {} for {}`",
-                name, imp.trait_ty, imp.impl_ty
-            ))?;
+            .with_comment(|| {
+                format!(
+                    "In method `{}` in `impl {} for {}`",
+                    name, trait_ty, impl_ty,
+                )
+            })?;
         }
     }
 

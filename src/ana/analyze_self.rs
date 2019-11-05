@@ -32,7 +32,7 @@ impl AstAdapter for AnalyzeSelf {
         let name = f.name.clone();
 
         f.visit(&mut DenySelf)
-            .with_comment(format!("In function: {}", name))
+            .with_comment(|| format!("In function: {}", name))
     }
 
     fn enter_object(&mut self, o: AstObject) -> PResult<AstObject> {
