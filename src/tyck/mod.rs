@@ -68,20 +68,28 @@ pub fn typecheck_module(
         ))?;
     }
 
-    for (_name, obj) in objects {
-        typecheck_simple(analyzed_program.clone(), &base_solver, obj)?;
+    for (name, obj) in objects {
+        typecheck_simple(analyzed_program.clone(), &base_solver, obj)
+            .with_comment(format!("In object `{}` in module `{}`", name, module_name))?;
     }
 
-    for (_name, trt) in traits {
-        typecheck_simple(analyzed_program.clone(), &base_solver, trt)?;
+    for (name, trt) in traits {
+        typecheck_simple(analyzed_program.clone(), &base_solver, trt)
+            .with_comment(format!("In trait `{}` in module `{}`", name, module_name))?;
     }
 
-    for (_name, global) in globals {
-        typecheck_simple(analyzed_program.clone(), &base_solver, global)?;
+    for (name, global) in globals {
+        typecheck_simple(analyzed_program.clone(), &base_solver, global)
+            .with_comment(format!("In global `{}` in module `{}`", name, module_name))?;
     }
 
     for (_, imp) in impls {
-        let (imp, _) = typecheck_impl(analyzed_program.clone(), &base_solver, imp)?;
+        let trait_ty = imp.trait_ty.clone();
+        let impl_ty = imp.impl_ty.clone();
+
+        let (imp, _) = typecheck_impl(analyzed_program.clone(), &base_solver, imp).with_comment(
+            format!("In an impl `{}` for `{}`", trait_ty, impl_ty),
+        )?;
 
         // Try to detect contradictions..!
         for (other_id, other_impl) in &analyzed_program.analyzed_impls {
@@ -94,15 +102,15 @@ pub fn typecheck_module(
                 return PResult::error_at(
                     imp.name_span,
                     format!(
-                        "This impl overlaps with another: impl {:?} for {:?}",
-                        other_impl.trait_ty, other_impl.impl_ty
+                        "This `impl {} for {}` conflicts with `impl {} for {}`",
+                        imp.trait_ty, imp.impl_ty, other_impl.trait_ty, other_impl.impl_ty,
                     ),
                 );
             }
         }
 
         // We want to type check these functions generically...
-        for (_, fun) in imp.fns {
+        for (name, fun) in imp.fns {
             let fn_generics = Dummifier::from_generics(&fun.generics)?;
 
             typecheck_impl_fn(
@@ -112,7 +120,11 @@ pub fn typecheck_module(
                 &imp.impl_ty,
                 &imp.trait_ty,
                 &fn_generics,
-            )?;
+            )
+            .with_comment(format!(
+                "In method `{}` in `impl {} for {}`",
+                name, imp.trait_ty, imp.impl_ty
+            ))?;
         }
     }
 
@@ -163,7 +175,6 @@ where
     let mut objective_adapter = TyckObjectiveAdapter::new(base_solver.clone(), program);
 
     let t = t.visit(&mut objective_adapter)?;
-    println!("Solving...\n{:#?}", t);
 
     let solution = objective_adapter.solver.solve()?;
 

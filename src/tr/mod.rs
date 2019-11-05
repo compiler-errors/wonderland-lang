@@ -884,8 +884,7 @@ impl Translator {
                 assert_eq!(num_elements.len(), 1);
                 let num_elements = num_elements[0];
 
-                let element_ast_ty = AstType::get_element(&expression.ty)?;
-                let element_ty = self.get_type(&element_ast_ty)?;
+                let element_ty = self.get_type(object)?;
                 let array_ty = self.get_type(&expression.ty)?;
                 let ty_size = type_size(element_ty)?;
 
@@ -1266,10 +1265,8 @@ impl Translator {
         c: &AstExpressionData,
     ) -> PResult<PointerValue> {
         if let AstExpressionData::Closure {
-            params,
-            expr,
-            captured,
-            variables,
+            captured: Some(captured),
+            ..
         } = c
         {
             let env_ty = env.into_struct_type();
@@ -1307,7 +1304,7 @@ impl Translator {
             builder.build_store(fn_dest, opaque_fn);
 
             // Then, for each capture, bundle, then store where it needs to go.
-            for (c, new) in captured.as_ref().unwrap() {
+            for (c, new) in captured {
                 let loaded: Vec<_> = self.variables[&c.id]
                     .iter()
                     .map(|p| builder.build_load(*p, &temp_name()))

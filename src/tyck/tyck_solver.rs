@@ -10,10 +10,13 @@ use std::rc::Rc;
 #[derive(Debug, Clone)]
 pub struct TyckSolver {
     solution: TyckSolution,
+
+    /// Objectives that are used to explore the type space.
     objectives: VecDeque<TyckObjective>,
 
     /// Objectives which may only be solved after further inference or normalization.
     delayed_objectives: Vec<TyckDelayedObjective>,
+
     /// Type-space, so we make sure that every encountered type is normalized...
     types: HashSet<AstType>,
 
