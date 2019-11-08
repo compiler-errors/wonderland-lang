@@ -6,12 +6,24 @@ extern crate lazy_static;
 extern crate getopts;
 extern crate inkwell;
 
+#[cfg(feature = "ana")]
 use crate::ana::analyze;
+
+#[cfg(feature = "inst")]
 use crate::inst::instantiate;
+
+#[cfg(feature = "lex")]
 use crate::lexer::{Lexer, Token};
+
+#[cfg(feature = "parse")]
 use crate::parser::parse_program;
+
+#[cfg(feature = "tr")]
 use crate::tr::translate;
+
+#[cfg(feature = "tyck")]
 use crate::tyck::typecheck;
+
 use crate::util::{report_err, FileId, FileRegistry, PError, PResult};
 use getopts::{Matches, Options};
 
@@ -21,12 +33,24 @@ use std::path::Path;
 use std::process::exit;
 use tempfile::NamedTempFile;
 
+#[cfg(feature = "ana")]
 mod ana;
+
+#[cfg(feature = "inst")]
 mod inst;
+
+#[cfg(feature = "lex")]
 mod lexer;
+
+#[cfg(feature = "parse")]
 mod parser;
+
+#[cfg(feature = "tr")]
 mod tr;
+
+#[cfg(feature = "tyck")]
 mod tyck;
+
 mod util;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -49,12 +73,24 @@ fn main() {
     opts.optflag("h", "help", "print this help menu");
     opts.optopt("o", "output", "set output file name", "FILE");
 
-    opts.optflag("l", "lex", "Tokenize file(s)");
-    opts.optflag("p", "parse", "Parse file(s)");
-    opts.optflag("a", "analyze", "Analyze file(s)");
-    opts.optflag("t", "tyck", "Typecheck file(s)");
-    opts.optflag("i", "inst", "Instantiate generics and typecheck file(s)");
-    opts.optflag("c", "tr", "Compile, a.k.a. translate, file(s)");
+    if cfg!(feature = "lex") {
+        opts.optflag("l", "lex", "Tokenize file(s)");
+    }
+    if cfg!(feature = "parse") {
+        opts.optflag("p", "parse", "Parse file(s)");
+    }
+    if cfg!(feature = "ana") {
+        opts.optflag("a", "analyze", "Analyze file(s)");
+    }
+    if cfg!(feature = "tyck") {
+        opts.optflag("t", "tyck", "Typecheck file(s)");
+    }
+    if cfg!(feature = "inst") {
+        opts.optflag("i", "inst", "Instantiate generics and typecheck file(s)");
+    }
+    if cfg!(feature = "tr") {
+        opts.optflag("c", "tr", "Compile, a.k.a. translate, file(s)");
+    }
 
     opts.optflag("L", "llvm-ir", "Compile file(s) to LLVM IR");
     opts.optopt("O", "output", "output file", "FILE");
@@ -86,18 +122,9 @@ fn main() {
         .map(|s| OsString::from(s))
         .collect();
 
-    match mode {
-        Mode::Help => help(false),
-        Mode::Lex => try_lex(files),
-        Mode::Parse => try_parse(files),
-        Mode::Analyze => try_analyze(files),
-        Mode::Typecheck => try_typecheck(files),
-        Mode::Instantiate => try_instantiate(files),
-        Mode::Translate => try_translate(files, llvm_ir, &output_file, included_files),
-    }
-    .unwrap_or_else(|e| report_err(e));
-
-    println!("; Okay!");
+    println!("Mode: {:#?}", mode);
+    match_mode(mode, files, llvm_ir, &output_file, included_files)
+        .unwrap_or_else(|e| report_err(e));
 }
 
 fn get_files(mode: Mode, matches: &[String]) -> PResult<Vec<FileId>> {
@@ -139,7 +166,7 @@ fn select_mode(matches: &Matches) -> Result<Mode, ()> {
     ];
 
     for (flag, mode) in &options {
-        if matches.opt_present(flag) {
+        if matches.opt_defined(flag) && matches.opt_present(flag) {
             if chosen_mode.is_some() {
                 return Err(());
             }
@@ -149,6 +176,31 @@ fn select_mode(matches: &Matches) -> Result<Mode, ()> {
     }
 
     Ok(chosen_mode.unwrap_or(DEFAULT_MODE))
+}
+
+fn match_mode(
+    mode: Mode,
+    files: Vec<FileId>,
+    llvm_ir: bool,
+    output_file: &str,
+    included_files: Vec<OsString>,
+) -> PResult<()> {
+    match mode {
+        Mode::Help => help(false),
+        #[cfg(feature = "lex")]
+        Mode::Lex => try_lex(files),
+        #[cfg(feature = "parse")]
+        Mode::Parse => try_parse(files),
+        #[cfg(feature = "ana")]
+        Mode::Analyze => try_analyze(files),
+        #[cfg(feature = "tyck")]
+        Mode::Typecheck => try_typecheck(files),
+        #[cfg(feature = "inst")]
+        Mode::Instantiate => try_instantiate(files),
+        #[cfg(feature = "tr")]
+        Mode::Translate => try_translate(files, llvm_ir, &output_file, included_files),
+        _ => help(true),
+    }
 }
 
 fn read_stdin() -> PResult<FileId> {
@@ -217,6 +269,7 @@ cheshire (-c | --compile) [--llvm-ir] FILE... [-O OUTPUT]
     exit(if fail { 1 } else { 0 });
 }
 
+#[cfg(feature = "lex")]
 fn try_lex(files: Vec<FileId>) -> PResult<()> {
     let lexers = files
         .into_iter()
@@ -231,10 +284,12 @@ fn try_lex(files: Vec<FileId>) -> PResult<()> {
     Ok(())
 }
 
+#[cfg(feature = "parse")]
 fn try_parse(files: Vec<FileId>) -> PResult<()> {
     parse_program(files).and(Ok(()))
 }
 
+#[cfg(feature = "ana")]
 fn try_analyze(files: Vec<FileId>) -> PResult<()> {
     let program = parse_program(files)?;
     analyze(program)?;
@@ -242,6 +297,7 @@ fn try_analyze(files: Vec<FileId>) -> PResult<()> {
     Ok(())
 }
 
+#[cfg(feature = "tyck")]
 fn try_typecheck(files: Vec<FileId>) -> PResult<()> {
     let program = parse_program(files)?;
     let (a, p) = analyze(program)?;
@@ -252,6 +308,7 @@ fn try_typecheck(files: Vec<FileId>) -> PResult<()> {
     Ok(())
 }
 
+#[cfg(feature = "inst")]
 fn try_instantiate(files: Vec<FileId>) -> PResult<()> {
     let program = parse_program(files)?;
     let (a, p) = analyze(program)?;
@@ -262,6 +319,7 @@ fn try_instantiate(files: Vec<FileId>) -> PResult<()> {
     Ok(())
 }
 
+#[cfg(feature = "tr")]
 fn try_translate(
     files: Vec<FileId>,
     llvm_ir: bool,
