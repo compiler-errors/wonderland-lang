@@ -6,7 +6,7 @@ pub use crate::tyck::tyck_objectives::TyckObjectiveAdapter;
 pub use crate::tyck::tyck_solver::{TyckSolution, TyckSolver};
 use crate::util::{Comment, FileRegistry, IntoError, PResult, Visit, ZipExact};
 use std::collections::HashSet;
-use std::fmt::Debug;
+use std::fmt;
 use std::rc::Rc;
 
 mod tyck_constraints;
@@ -20,6 +20,12 @@ mod tyck_solver;
 pub struct TyckObjective {
     pub obj_ty: AstType,
     pub trait_ty: AstTraitType,
+}
+
+impl fmt::Display for TyckObjective {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "impl {} for {}", self.trait_ty, self.obj_ty)
+    }
 }
 
 pub fn typecheck(analyzed_program: &AnalyzedProgram, parsed_program: &AstProgram) -> PResult<()> {
@@ -172,7 +178,6 @@ pub fn typecheck_simple<T>(
 ) -> PResult<(T, TyckSolution)>
 where
     T: Visit<TyckObjectiveAdapter>,
-    T: Debug,
 {
     let mut objective_adapter = TyckObjectiveAdapter::new(base_solver.clone(), program);
 
@@ -257,11 +262,23 @@ pub fn typecheck_impl(
 
     // If it's not a dummy impl, functions and types should all be matched to one in the trait. (<=>).
     if imp.associated_types.len() != trait_data.associated_tys.len() {
-        return PResult::error_at(imp.name_span, format!("The impl has a different number of provided associated types than its corresponding trait."));
+        return PResult::error_at(
+            imp.name_span,
+            format!(
+                "The impl has a different number of provided \
+                 associated types than its corresponding trait."
+            ),
+        );
     }
 
     if imp.fns.len() != trait_data.methods.len() {
-        return PResult::error_at(imp.name_span, format!("The impl has a different number of implemented methods than its corresponding trait."));
+        return PResult::error_at(
+            imp.name_span,
+            format!(
+                "The impl has a different number of implemented \
+                 methods than its corresponding trait."
+            ),
+        );
     }
 
     Ok((imp, solution))

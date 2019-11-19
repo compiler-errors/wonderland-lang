@@ -3,7 +3,7 @@ use crate::parser::ast::*;
 use crate::parser::ast_visitor::AstAdapter;
 use crate::tyck::tyck_instantiate::GenericsInstantiator;
 use crate::tyck::TyckObjective;
-use crate::util::{IntoError, PResult, Span, Visit, ZipExact};
+use crate::util::{Comment, IntoError, PError, PResult, Span, Visit, ZipExact};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::rc::Rc;
 
@@ -59,7 +59,7 @@ static MAX_ITERATIONS: usize = 1_000_000_usize;
 
 impl TyckSolver {
     fn error<T>(why: &str) -> PResult<T> {
-        PResult::error(format!("Problem during type checker! {}.", why))
+        PResult::error(why.to_string())
     }
 
     fn is_solved(&self) -> bool {
@@ -70,10 +70,18 @@ impl TyckSolver {
         self.objectives.is_empty()
     }
 
-    pub fn solve(mut self) -> PResult<TyckSolution> {
+    pub fn solve(self) -> PResult<TyckSolution> {
         let mut multiverse = VecDeque::new();
-        self.normalize()?;
-        multiverse.push_back(self.clone());
+
+        let mut universe = self;
+        universe.normalize()?;
+
+        while !universe.objectives.is_empty() && universe.next_objective_candidate_heuristic() <= 1
+        {
+            universe = universe.elaborate_one()?;
+        }
+
+        multiverse.push_back(universe);
 
         let iterations = 0usize;
         while let Some(universe) = multiverse.pop_front() {
@@ -207,13 +215,13 @@ impl TyckSolver {
 
         if self.solution.impl_signatures.contains_key(&objective) {
             self.normalize()?;
-            return Ok(vec![self.clone()]);
+            return Ok(vec![self]);
         }
 
         let mut new_universes = Vec::new();
 
-        for i in self.get_impls(&objective.trait_ty)? {
-            if let Ok(new_universe) = self.clone().elaborate(i, &objective) {
+        for i in self.get_impls(&objective.trait_ty) {
+            if let Ok(new_universe) = self.clone().elaborate_impl(i, &objective) {
                 new_universes.push(new_universe);
             }
         }
@@ -221,7 +229,42 @@ impl TyckSolver {
         Ok(new_universes)
     }
 
-    fn elaborate(mut self, impl_id: ImplId, objective: &TyckObjective) -> PResult<TyckSolver> {
+    fn elaborate_one(mut self) -> PResult<TyckSolver> {
+        let objective = self.objectives.pop_front().unwrap();
+
+        if self.solution.impl_signatures.contains_key(&objective) {
+            self.normalize()?;
+            return Ok(self);
+        }
+
+        let mut ret_universe = None;
+        let mut why_fail = None;
+
+        for i in self.get_impls(&objective.trait_ty) {
+            match self.clone().elaborate_impl(i, &objective) {
+                Ok(new_universe) => {
+                    if ret_universe.is_some() {
+                        panic!("ICE: Unification predicted 1 passing universe... but we got 2?");
+                    }
+
+                    ret_universe = Some(new_universe);
+                }
+
+                Err(e) => why_fail = Some(e),
+            }
+        }
+
+        let mut ret = ret_universe
+            .ok_or_else(|| PError::new(format!("Failed to solve objective `{}`", objective)));
+
+        if ret.is_err() && why_fail.is_some() {
+            ret.add_comment(|| format!("Perhaps due to: {}", why_fail.unwrap().why()));
+        }
+
+        ret
+    }
+
+    fn elaborate_impl(mut self, impl_id: ImplId, objective: &TyckObjective) -> PResult<TyckSolver> {
         let program = self.analyzed_program.clone();
         let impl_data = &program.analyzed_impls[&impl_id];
         let generics = impl_data
@@ -258,7 +301,7 @@ impl TyckSolver {
         Ok(self)
     }
 
-    fn get_impls(&self, objective: &AstTraitType) -> PResult<Vec<ImplId>> {
+    fn get_impls(&self, objective: &AstTraitType) -> Vec<ImplId> {
         let mut impls = Vec::new();
 
         for (id, i) in &self.analyzed_program.analyzed_impls {
@@ -267,7 +310,152 @@ impl TyckSolver {
             }
         }
 
-        Ok(impls)
+        impls
+    }
+
+    fn next_objective_candidate_heuristic(&self) -> usize {
+        let objective = self.objectives.front().unwrap();
+        let mut heuristic = 0usize;
+
+        for i in self.get_impls(&objective.trait_ty) {
+            if self.elaborate_heuristic(i, &objective).is_ok() {
+                heuristic += 1;
+            }
+        }
+
+        heuristic
+    }
+
+    fn elaborate_heuristic(&self, impl_id: ImplId, objective: &TyckObjective) -> PResult<()> {
+        let program = self.analyzed_program.clone();
+        let impl_data = &program.analyzed_impls[&impl_id];
+        let generics = impl_data
+            .generics
+            .iter()
+            .map(|_| AstType::infer())
+            .collect();
+        let impl_signature = AstImplSignature { impl_id, generics };
+        let instantiate =
+            &mut GenericsInstantiator::from_signature(&*self.analyzed_program, &impl_signature)?;
+
+        let obj_ty = impl_data.impl_ty.clone().visit(instantiate)?;
+        let trait_ty = impl_data.trait_ty.clone().visit(instantiate)?;
+
+        self.unify_heuristic(&objective.obj_ty, &obj_ty)?;
+        self.unify_traits_heuristic(&objective.trait_ty, &trait_ty)?;
+
+        Ok(())
+    }
+
+    /// This heuristic will return `Err` if it is guaranteed to never unify, `Ok` if it will
+    /// unify or if it is unclear (not enough inference information).
+    pub fn unify_heuristic(&self, lhs: &AstType, rhs: &AstType) -> PResult<()> {
+        let lhs = self.normalize_ty(lhs)?;
+        let rhs = self.normalize_ty(rhs)?;
+
+        match (&lhs, &rhs) {
+            /* Generics should have been repl'ed out. */
+            (AstType::Generic(..), _)
+            | (_, AstType::Generic(..))
+            | (AstType::GenericPlaceholder(..), _)
+            | (_, AstType::GenericPlaceholder(..)) => unreachable!(),
+
+            (AstType::AssociatedType { .. }, _) | (_, AstType::AssociatedType { .. }) => Ok(()),
+
+            (AstType::Infer(_), _) | (_, AstType::Infer(_)) => Ok(()),
+
+            (AstType::Int, AstType::Int)
+            | (AstType::Char, AstType::Char)
+            | (AstType::Bool, AstType::Bool)
+            | (AstType::String, AstType::String) => Ok(()),
+
+            (_, AstType::SelfType) | (AstType::SelfType, _) => unreachable!(
+                "Self is not allowed as a non-instantiated type. Attempted to unify {:?} and {:?}",
+                lhs, rhs
+            ),
+
+            (AstType::DummyGeneric(a, ..), AstType::DummyGeneric(b, ..)) if a == b => Ok(()),
+            (AstType::Dummy(a), AstType::Dummy(b)) if a == b => Ok(()),
+
+            (AstType::Array { ty: a_ty }, AstType::Array { ty: b_ty }) => {
+                self.unify_heuristic(&a_ty, &b_ty)
+            }
+            (AstType::Tuple { types: a_tys }, AstType::Tuple { types: b_tys }) => {
+                for (a_ty, b_ty) in ZipExact::zip_exact(a_tys, b_tys, "tuple types")? {
+                    self.unify_heuristic(a_ty, b_ty)?;
+                }
+
+                Ok(())
+            }
+            (AstType::Object(a_name, a_tys), AstType::Object(b_name, b_tys)) => {
+                if a_name != b_name {
+                    TyckSolver::error(&format!(
+                        "Object names won't unify: {} and {}",
+                        a_name.full_name()?,
+                        b_name.full_name()?
+                    ))
+                } else {
+                    for (a_ty, b_ty) in ZipExact::zip_exact(a_tys, b_tys, "object generics")? {
+                        self.unify_heuristic(a_ty, b_ty)?;
+                    }
+
+                    Ok(())
+                }
+            }
+
+            (
+                AstType::ClosureType {
+                    args: a_args,
+                    ret_ty: a_ret,
+                },
+                AstType::ClosureType {
+                    args: b_args,
+                    ret_ty: b_ret,
+                },
+            ) => {
+                for (a_ty, b_ty) in ZipExact::zip_exact(a_args, b_args, "closure arguments")? {
+                    self.unify_heuristic(a_ty, b_ty)?;
+                }
+
+                self.unify_heuristic(a_ret, b_ret)?;
+                Ok(())
+            }
+            (
+                AstType::FnPointerType {
+                    args: a_args,
+                    ret_ty: a_ret,
+                },
+                AstType::FnPointerType {
+                    args: b_args,
+                    ret_ty: b_ret,
+                },
+            ) => {
+                for (a_ty, b_ty) in ZipExact::zip_exact(a_args, b_args, "closure arguments")? {
+                    self.unify_heuristic(a_ty, b_ty)?;
+                }
+
+                self.unify_heuristic(a_ret, b_ret)?;
+                Ok(())
+            }
+
+            (a, b) => TyckSolver::error(&format!("Type non-union: {:?} and {:?}", a, b)),
+        }
+    }
+
+    pub fn unify_traits_heuristic(&self, lhs: &AstTraitType, rhs: &AstTraitType) -> PResult<()> {
+        if lhs.0 == rhs.0 {
+            for (l, r) in ZipExact::zip_exact(&lhs.1, &rhs.1, "trait generics")? {
+                self.unify_heuristic(l, r)?;
+            }
+
+            Ok(())
+        } else {
+            TyckSolver::error(&format!(
+                "Trait types won't unify: {} and {}",
+                lhs.0.full_name()?,
+                rhs.0.full_name()?
+            ))
+        }
     }
 
     pub fn unify(&mut self, lhs: &AstType, rhs: &AstType) -> PResult<()> {
@@ -382,7 +570,7 @@ impl TyckSolver {
                 Ok(())
             }
 
-            (a, b) => TyckSolver::error(&format!("Type non-union: {:?} and {:?}", a, b)),
+            (a, b) => TyckSolver::error(&format!("Type non-union, {:?} and {:?}", a, b)),
         }
     }
 

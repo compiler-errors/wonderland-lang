@@ -42,6 +42,10 @@ impl PError {
             comments: Vec::new(),
         }
     }
+
+    pub fn why(self) -> String {
+        self.error_string
+    }
 }
 
 pub trait Comment<S> {

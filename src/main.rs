@@ -186,7 +186,6 @@ fn match_mode(
     included_files: Vec<OsString>,
 ) -> PResult<()> {
     match mode {
-        Mode::Help => help(false),
         #[cfg(feature = "lex")]
         Mode::Lex => try_lex(files),
         #[cfg(feature = "parse")]
@@ -199,7 +198,7 @@ fn match_mode(
         Mode::Instantiate => try_instantiate(files),
         #[cfg(feature = "tr")]
         Mode::Translate => try_translate(files, llvm_ir, &output_file, included_files),
-        _ => help(true),
+        m => help(m != Mode::Help),
     }
 }
 

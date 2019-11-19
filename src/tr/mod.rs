@@ -73,7 +73,9 @@ pub fn translate(
     let module = tr.module;
 
     if let Result::Err(why) = module.verify() {
-        println!("{}", module.print_to_string().to_string());
+        if output_file != "-" {
+            println!("{}", module.print_to_string().to_string());
+        }
 
         PError::new(format!("LLVM: {}", why.to_string()));
     }
@@ -1193,6 +1195,8 @@ impl Translator {
             ..
         } = c
         {
+            let variables = variables.as_ref().unwrap();
+
             let ret_ty = self.get_type(&expr.ty)?;
             let mut param_tys: Vec<_> = params
                 .iter()
@@ -1532,7 +1536,6 @@ impl Translator {
         }
 
         for (id, env) in &self.closure_object_ids {
-            println!("GC_VISIT: closure capture environment => {}", id);
             let (block, builder) = self.get_new_block(&builder)?;
 
             // Change the i8* into an i8 addrspace(1)**

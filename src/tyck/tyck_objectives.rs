@@ -257,8 +257,13 @@ impl<'a> AstAdapter for TyckObjectiveAdapter {
                 variables,
                 ..
             } => {
-                self.variables
-                    .extend(variables.iter().map(|(&k, v)| (k, v.ty.clone())));
+                self.variables.extend(
+                    variables
+                        .as_ref()
+                        .unwrap()
+                        .iter()
+                        .map(|(&k, v)| (k, v.ty.clone())),
+                );
 
                 let ret_ty = expr.ty.clone();
                 let param_tys = params.iter().map(|p| p.ty.clone()).collect();

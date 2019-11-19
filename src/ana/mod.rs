@@ -18,6 +18,7 @@ use crate::ana::analyze_impls::AnalyzeImpls;
 use crate::ana::analyze_names::AnalyzeNames;
 use crate::ana::analyze_object_functions::AnalyzeObjectFunctions;
 use crate::ana::analyze_operators::AnalyzeOperators;
+use crate::ana::analyze_returns::AnalyzeReturns;
 use crate::ana::analyze_self::AnalyzeSelf;
 use crate::ana::analyze_variables::AnalyzeVariables;
 use crate::parser::ast::AstProgram;
@@ -40,6 +41,7 @@ mod analyze_modules;
 mod analyze_names;
 mod analyze_object_functions;
 mod analyze_operators;
+mod analyze_returns;
 mod analyze_self;
 mod analyze_variables;
 pub mod represent;
@@ -123,6 +125,7 @@ pub fn analyze(p: AstProgram) -> PResult<(AnalyzedProgram, AstProgram)> {
             "analyze_illegal_globals",
             Box::new(AnalyzeIllegalGlobals::analyze),
         ),
+        ("analyze_returns", Box::new(AnalyzeReturns::analyze)),
     ];
 
     for (name, pass) in passes {

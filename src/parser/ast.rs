@@ -477,7 +477,7 @@ pub enum AstExpressionData {
         expr: SubExpression,
 
         captured: Option<Vec<(AstNamedVariable, AstNamedVariable)>>,
-        variables: HashMap<VariableId, AstNamedVariable>,
+        variables: Option<HashMap<VariableId, AstNamedVariable>>,
     },
 
     /// A regular function call
@@ -691,7 +691,7 @@ impl AstExpression {
                 params,
                 expr: Box::new(expr),
                 captured: None,
-                variables: HashMap::new(),
+                variables: None,
             },
             ty: AstType::infer(),
         }

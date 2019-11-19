@@ -132,7 +132,7 @@ impl<'a> AstAdapter for AnalyzeVariables {
                 params,
                 expr,
                 captured: None,
-                variables,
+                variables: None,
             } => {
                 let names = self.scope.keys();
                 let mut i = CaptureIdentifier::new(names);
@@ -166,7 +166,7 @@ impl<'a> AstAdapter for AnalyzeVariables {
                     params,
                     expr,
                     captured: Some(captured),
-                    variables,
+                    variables: None,
                 }
             }
             AstExpressionData::SelfRef => {
@@ -194,9 +194,9 @@ impl<'a> AstAdapter for AnalyzeVariables {
                 params,
                 expr,
                 captured,
-                mut variables,
+                variables: None,
             } => {
-                variables.extend(self.all_variables.pop());
+                let variables = Some(self.all_variables.pop());
                 self.scope.pop();
 
                 AstExpressionData::Closure {
