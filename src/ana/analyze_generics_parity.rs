@@ -2,7 +2,7 @@ use crate::ana::represent::AnalyzedProgram;
 use crate::ana::represent_visitor::{AnAdapter, DirtyAnalysisPass};
 use crate::parser::ast::*;
 use crate::parser::ast_visitor::AstAdapter;
-use crate::util::IntoError;
+use crate::util::{IntoError, PError};
 use crate::util::PResult;
 use std::collections::HashMap;
 
@@ -41,6 +41,11 @@ impl DirtyAnalysisPass for AnalyzeGenericsParity {
                     .map(|(r, i)| (r.clone(), i.generics.len())),
             )
             .chain(
+                a.analyzed_enums
+                    .iter()
+                    .map(|(r, i)| (r.clone(), i.generics.len())),
+            )
+            .chain(
                 a.analyzed_traits
                     .iter()
                     .map(|(r, i)| (r.clone(), i.generics.len())),
@@ -58,6 +63,10 @@ impl AstAdapter for AnalyzeGenericsParity {
             AstType::Object(object, generics) => {
                 let generics = self.check_generics(&object, generics)?;
                 Ok(AstType::Object(object, generics))
+            }
+            AstType::Enum(enumerable, generics) => {
+                let generics = self.check_generics(&enumerable, generics)?;
+                Ok(AstType::Enum(enumerable, generics))
             }
             t => Ok(t),
         }
@@ -84,9 +93,67 @@ impl AstAdapter for AnalyzeGenericsParity {
                     generics,
                 }
             }
+            AstExpressionData::PlainEnum { enumerable, generics, variant } => {
+                let generics = self.check_generics(&enumerable, generics)?;
+                AstExpressionData::PlainEnum {
+                    enumerable,
+                    generics,
+                    variant
+                }
+            }
+            AstExpressionData::PositionalEnum { enumerable, generics, variant, children } => {
+                let generics = self.check_generics(&enumerable, generics)?;
+                AstExpressionData::PositionalEnum {
+                    enumerable,
+                    generics,
+                    variant,
+                    children
+                }
+            }
+            AstExpressionData::NamedEnum { enumerable, generics, variant, children } => {
+                let generics = self.check_generics(&enumerable, generics)?;
+                AstExpressionData::NamedEnum {
+                    enumerable,
+                    generics,
+                    variant,
+                    children
+                }
+            }
             d => d,
         };
 
         Ok(AstExpression { data, ty, span })
+    }
+
+    fn enter_pattern(&mut self, p: AstMatchPattern) -> Result<AstMatchPattern, PError> {
+        match p {
+            AstMatchPattern::PlainEnum { enumerable, generics, variant } => {
+                let generics = self.check_generics(&enumerable, generics)?;
+                Ok(AstMatchPattern::PlainEnum {
+                    enumerable,
+                    generics,
+                    variant
+                })
+            }
+            AstMatchPattern::PositionalEnum { enumerable, generics, variant, children, ignore_rest } => {
+                let generics = self.check_generics(&enumerable, generics)?;
+                Ok(AstMatchPattern::PositionalEnum {
+                    enumerable,
+                    generics,
+                    variant,
+                    children,ignore_rest
+                })
+            }
+            AstMatchPattern::NamedEnum { enumerable, generics, variant, children,ignore_rest } => {
+                let generics = self.check_generics(&enumerable, generics)?;
+                Ok(AstMatchPattern::NamedEnum {
+                    enumerable,
+                    generics,
+                    variant,
+                    children,ignore_rest
+                })
+            }
+            p => Ok(p),
+        }
     }
 }

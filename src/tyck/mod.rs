@@ -61,6 +61,7 @@ pub fn typecheck_module(
     let AstModule {
         functions,
         objects,
+        enums,
         traits,
         impls,
         globals,
@@ -75,6 +76,11 @@ pub fn typecheck_module(
     for (name, obj) in objects {
         typecheck_simple(analyzed_program.clone(), &base_solver, obj)
             .with_comment(|| format!("In object `{}` in module `{}`", name, module_name))?;
+    }
+
+    for (name, en) in enums {
+        typecheck_simple(analyzed_program.clone(), &base_solver, en)
+            .with_comment(|| format!("In enum `{}` in module `{}`", name, module_name))?;
     }
 
     for (name, trt) in traits {

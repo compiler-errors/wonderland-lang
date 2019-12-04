@@ -86,25 +86,24 @@ impl<'a> AstAdapter for AnalyzeVariables {
 
     fn enter_statement(&mut self, s: AstStatement) -> PResult<AstStatement> {
         match s {
-            AstStatement::Let {
-                name_span,
-                var_name,
-                ty,
-                value,
-            } => {
-                let var = AstNamedVariable::new(name_span, var_name, ty);
+            AstStatement::Let { pattern, value } => {
                 let value = value.visit(self)?;
-                self.assign_index(&var)?;
-                let id = AstExpression::identifier(name_span, var.name).visit(self)?;
 
-                Ok(AstStatement::expression_statement(AstExpression::assign(
-                    name_span.unite(value.span), /* Sum of LHS and RHS spans... */
-                    id,
-                    value,
-                )))
+                Ok(AstStatement::Let { pattern, value })
             }
             s => Ok(s),
         }
+    }
+
+    fn enter_pattern(&mut self, p: AstMatchPattern) -> PResult<AstMatchPattern> {
+        match &p {
+            AstMatchPattern::Identifier(name, ..) => {
+                self.assign_index(name)?;
+            }
+            _ => {}
+        }
+
+        Ok(p)
     }
 
     fn enter_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
@@ -256,6 +255,16 @@ impl<'a> AstAdapter for AnalyzeVariables {
         self.scope.pop();
         Ok(AstObjectFunction { variables, ..o })
     }
+
+    fn enter_match_branch(&mut self, b: AstMatchBranch) -> PResult<AstMatchBranch> {
+        self.scope.push();
+        Ok(b)
+    }
+
+    fn exit_match_branch(&mut self, b: AstMatchBranch) -> PResult<AstMatchBranch> {
+        self.scope.pop();
+        Ok(b)
+    }
 }
 
 struct CaptureIdentifier {
@@ -304,24 +313,25 @@ impl AstAdapter for CaptureIdentifier {
 
     fn enter_statement(&mut self, s: AstStatement) -> PResult<AstStatement> {
         match s {
-            AstStatement::Let {
-                name_span,
-                var_name,
-                ty,
-                mut value,
-            } => {
+            AstStatement::Let { pattern, value } => {
                 // Still need to detect if we capture in the value, e.g. `let x = x.`
-                value = value.visit(self)?;
-                self.ignore(&var_name);
+                // This will ensure we do this before visiting the match pattern.
+                let value = value.visit(self)?;
 
-                Ok(AstStatement::Let {
-                    name_span,
-                    var_name,
-                    ty,
-                    value,
-                })
+                Ok(AstStatement::Let { pattern, value })
             }
             s => Ok(s),
         }
+    }
+
+    fn enter_pattern(&mut self, p: AstMatchPattern) -> PResult<AstMatchPattern> {
+        match &p {
+            AstMatchPattern::Identifier(name, ..) => {
+                self.ignore(&name.name);
+            }
+            _ => {}
+        }
+
+        Ok(p)
     }
 }

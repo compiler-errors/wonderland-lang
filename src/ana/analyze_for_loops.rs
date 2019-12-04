@@ -1,5 +1,5 @@
 use crate::ana::represent_visitor::AstAnalysisPass;
-use crate::parser::ast::{AstBlock, AstExpression, AstStatement, AstType};
+use crate::parser::ast::{AstBlock, AstExpression, AstMatchPattern, AstStatement, AstType};
 use crate::parser::ast_visitor::AstAdapter;
 use crate::util::PResult;
 
@@ -25,9 +25,7 @@ impl AstAdapter for AnalyzeForLoops {
                 block.statements.insert(
                     0,
                     AstStatement::let_statement(
-                        span,
-                        identifier,
-                        AstType::infer(),
+                        AstMatchPattern::identifier(span, identifier, AstType::infer()),
                         AstExpression::object_call(
                             span,
                             iter_object.clone(),
@@ -43,9 +41,11 @@ impl AstAdapter for AnalyzeForLoops {
                     AstBlock::new(
                         vec![
                             AstStatement::let_statement(
-                                span,
-                                iter_name.clone(),
-                                AstType::infer(),
+                                AstMatchPattern::identifier(
+                                    span,
+                                    iter_name.clone(),
+                                    AstType::infer(),
+                                ),
                                 AstExpression::object_call(
                                     span,
                                     iterable,

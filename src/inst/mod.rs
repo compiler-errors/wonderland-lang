@@ -18,6 +18,7 @@ struct InstantiationAdapter {
 
     fns: HashMap<ModuleRef, AstFunction>,
     objects: HashMap<ModuleRef, AstObject>,
+    enums: HashMap<ModuleRef, AstEnum>,
     impls: HashMap<ImplId, AstImpl>,
     obj_fns: HashMap<(ImplId, String), AstObjectFunction>,
 
@@ -25,6 +26,7 @@ struct InstantiationAdapter {
     instantiated_object_fns: HashMap<InstObjectFunctionSignature, Option<AstObjectFunction>>,
     instantiated_impls: HashMap<InstImplSignature, Option<AstImpl>>,
     instantiated_objects: HashMap<InstObjectSignature, Option<AstObject>>,
+    instantiated_enums: HashMap<InstEnumSignature, Option<AstEnum>>,
     instantiated_types: HashSet<AstType>,
 
     solved_impls: HashMap<TyckObjective, InstImplSignature>,
@@ -50,6 +52,7 @@ pub fn instantiate(
 
     let mut fns = HashMap::new();
     let mut objects = HashMap::new();
+    let mut enums = HashMap::new();
     let mut impls = HashMap::new();
     let mut obj_fns = HashMap::new();
     let mut globals = HashMap::new();
@@ -61,6 +64,10 @@ pub fn instantiate(
 
         for (_, f) in m.objects {
             objects.insert(f.module_ref.clone(), f);
+        }
+
+        for (_, e) in m.enums {
+            enums.insert(e.module_ref.clone(), e);
         }
 
         for (id, i) in m.impls {
@@ -84,6 +91,7 @@ pub fn instantiate(
 
         fns,
         objects,
+        enums,
         impls,
         obj_fns,
 
@@ -91,6 +99,7 @@ pub fn instantiate(
         instantiated_object_fns: HashMap::new(),
         instantiated_impls: HashMap::new(),
         instantiated_objects: HashMap::new(),
+        instantiated_enums: HashMap::new(),
         solved_impls: HashMap::new(),
         instantiated_types: HashSet::new(),
     };
@@ -152,6 +161,24 @@ impl InstantiationAdapter {
         let o = self.process_simple(self.objects[name].clone(), ids, generics)?;
 
         self.instantiated_objects.insert(sig, Some(o));
+
+        Ok(())
+    }
+
+    fn instantiate_enum(&mut self, name: &ModuleRef, generics: &[AstType]) -> PResult<()> {
+        let sig = InstEnumSignature(name.clone(), generics.to_vec());
+
+        if self.instantiated_enums.contains_key(&sig) {
+            return Ok(());
+        }
+
+        // Insert so we don't recurse infinitely.
+        self.instantiated_enums.insert(sig.clone(), None);
+
+        let ids = &self.analyzed_program.clone().analyzed_enums[name].generics;
+        let o = self.process_simple(self.enums[name].clone(), ids, generics)?;
+
+        self.instantiated_enums.insert(sig, Some(o));
 
         Ok(())
     }
@@ -286,6 +313,9 @@ impl AstAdapter for InstantiationAdapter {
         match &t {
             AstType::Object(name, generics) => {
                 self.instantiate_object(name, generics)?;
+            }
+            AstType::Enum(name, generics) => {
+                self.instantiate_enum(name, generics)?;
             }
             _ => { /* Do nothing. */ }
         }

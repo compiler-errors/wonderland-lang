@@ -120,6 +120,10 @@ impl Parser {
         }
     }
 
+    fn check_colon(&self) -> bool {
+        self.check(Token::ColonLt) || self.check(Token::Colon)
+    }
+
     fn check_consume_colon(&mut self) -> PResult<bool> {
         if self.check(Token::ColonLt) {
             self.next_token = Token::Lt;
@@ -196,6 +200,7 @@ impl Parser {
         let mut objects = HashMap::new();
         let mut traits = HashMap::new();
         let mut impls = HashMap::new();
+        let mut enums = HashMap::new();
         let mut globals = HashMap::new();
 
         while self.check_consume(Token::Use)? {
@@ -256,6 +261,14 @@ impl Parser {
                 globals
                     .insert(global.name.clone(), global)
                     .is_not_expected(span, "global", &name)?;
+            } else if self.check(Token::Enum) {
+                let en = self.parse_enum()?;
+                let name = en.name.clone();
+                let span = en.name_span;
+
+                enums
+                    .insert(en.name.clone(), en)
+                    .is_not_expected(span, "enum", &name)?;
             } else {
                 // TODO: wonky
                 return self.error_here(format!(
@@ -273,6 +286,7 @@ impl Parser {
             functions,
             objects,
             traits,
+            enums,
             impls,
             globals,
         ))
@@ -475,7 +489,7 @@ impl Parser {
                 self.bump()?;
                 (AstType::String, self.next_span)
             }
-            Token::Infer => {
+            Token::Underscore => {
                 self.bump()?;
                 (AstType::infer(), self.next_span)
             }
@@ -512,7 +526,7 @@ impl Parser {
             }
             Token::LSqBracket => self.parse_array_type()?,
             Token::LParen => self.parse_tuple_type()?,
-            Token::TypeName(..) | Token::Identifier(..) => self.parse_object_type()?,
+            Token::TypeName(..) | Token::Identifier(..) => self.parse_objectenum_type()?,
             Token::GenericName(..) => self.parse_generic_type()?,
             _ => self.error_here(format!(
                 "Expected built-in type, `identifier` or `(`, found `{}`",
@@ -587,7 +601,7 @@ impl Parser {
         }
     }
 
-    fn parse_object_type(&mut self) -> PResult<(AstType, Span)> {
+    fn parse_objectenum_type(&mut self) -> PResult<(AstType, Span)> {
         let mut span = self.next_span;
         let mut path = Vec::new();
 
@@ -617,7 +631,7 @@ impl Parser {
         };
 
         let obj = ModuleRef::Denormalized(path);
-        Ok((AstType::object(obj, generics), span))
+        Ok((AstType::ObjectEnum(obj, generics), span))
     }
 
     fn parse_trait_type(&mut self) -> PResult<(AstTraitType, Span)> {
@@ -784,20 +798,170 @@ impl Parser {
         //let mut span = self.next_span;
 
         self.expect_consume(Token::Let)?;
-        let name_span = self.next_span;
-        let var_name = self.expect_consume_identifier()?;
-
-        let ty = if self.check_consume_colon()? {
-            self.parse_type()?.0
-        } else {
-            AstType::infer()
-        };
+        let match_pattern = self.parse_match_pattern()?;
 
         self.expect_consume(Token::Equals)?;
 
         let value = self.parse_expression()?;
 
-        Ok(AstStatement::let_statement(name_span, var_name, ty, value))
+        Ok(AstStatement::let_statement(match_pattern, value))
+    }
+
+    fn parse_match_pattern(&mut self) -> PResult<AstMatchPattern> {
+        if self.check_consume(Token::Underscore)? {
+            Ok(AstMatchPattern::Underscore)
+        } else if self.check_consume(Token::LParen)? {
+            let first = self.parse_match_pattern()?;
+
+            if self.check_consume(Token::RParen)? {
+                Ok(first)
+            } else if self.check_consume(Token::Comma)? {
+                let mut elements = vec![first];
+                let mut first = true;
+
+                while !self.check_consume(Token::RParen)? {
+                    if !first {
+                        self.expect_consume(Token::Comma)?;
+                    }
+
+                    elements.push(self.parse_match_pattern()?);
+                    first = false;
+                }
+
+                Ok(AstMatchPattern::tuple(elements))
+            } else {
+                // Expected ) , or ..
+                self.error_here(format!("Expected `)` or `,`, found `{}`", self.next_token))
+            }
+        } else if self.check_identifier() {
+            let name_span = self.next_span;
+            let name = self.expect_consume_identifier()?;
+
+            if self.check_consume(Token::ColonColon)? {
+                let mut path = vec![name];
+
+                while self.check_identifier() {
+                    path.push(self.expect_consume_identifier()?);
+                    self.expect_consume(Token::ColonColon)?;
+                }
+
+                path.push(self.expect_consume_typename()?);
+                let full_name = ModuleRef::Denormalized(path);
+
+                self.parse_variant_match_pattern(full_name)
+            } else {
+                let ty = if self.check_consume_colon()? {
+                    self.parse_type()?.0
+                } else {
+                    AstType::infer()
+                };
+
+                let var = AstNamedVariable::new(name_span, name, ty.clone());
+                Ok(AstMatchPattern::Identifier(var, ty))
+            }
+        } else if self.check_typename() {
+            let full_name = ModuleRef::Denormalized(vec![self.expect_consume_typename()?]);
+            self.parse_variant_match_pattern(full_name)
+        } else if let Ok(lit) = self.parse_literal_expression() {
+            Ok(AstMatchPattern::literal(lit))
+        } else {
+            return self.error_here(format!(
+                "Expected match pattern: `_`, identifier, Typename or `(`, found `{}`",
+                self.next_token
+            ));
+        }
+    }
+
+    fn parse_variant_match_pattern(&mut self, enumerable: ModuleRef) -> PResult<AstMatchPattern> {
+        let generics = if self.check(Token::Lt) {
+            let (generics, _) = self.parse_expr_generics()?;
+            generics
+        } else {
+            Vec::new()
+        };
+
+        self.expect_consume(Token::Bang)?;
+        let v_span = self.next_span;
+        let variant = self.expect_consume_typename()?;
+
+        if self.check_consume(Token::LBrace)? {
+            let mut ignore_rest = false;
+            let mut children = HashMap::new();
+
+            while !self.check_consume(Token::RBrace)? {
+                if !children.is_empty() {
+                    self.expect_consume(Token::Comma)?;
+                }
+
+                if self.check_consume(Token::Ellipsis)? {
+                    self.expect_consume(Token::RBrace)?;
+                    ignore_rest = true;
+                    break;
+                }
+
+                let name_span = self.next_span;
+                let name = self.expect_consume_identifier()?;
+
+                if self.check_consume_colon()? {
+                    let child = self.parse_match_pattern()?;
+                    children.insert(name, child);
+                } else {
+                    children.insert(
+                        name.clone(),
+                        AstMatchPattern::identifier(name_span, name, AstType::infer()),
+                    );
+                }
+            }
+
+            if children.is_empty() && !ignore_rest {
+                return self.error_at(
+                    v_span,
+                    format!("Expected variant `{}` to have > 0 fields.", variant),
+                );
+            }
+
+            Ok(AstMatchPattern::named_enum(
+                enumerable,
+                generics,
+                variant,
+                children,
+                ignore_rest,
+            ))
+        } else if self.check_consume(Token::LParen)? {
+            let mut ignore_rest = false;
+            let mut children = Vec::new();
+
+            while !self.check_consume(Token::RParen)? {
+                if !children.is_empty() {
+                    self.expect_consume(Token::Comma)?;
+                }
+
+                if self.check_consume(Token::Ellipsis)? {
+                    self.expect_consume(Token::RParen)?;
+                    ignore_rest = true;
+                    break;
+                }
+
+                children.push(self.parse_match_pattern()?);
+            }
+
+            if children.is_empty() && !ignore_rest {
+                return self.error_at(
+                    v_span,
+                    format!("Expected variant `{}` to have > 0 fields.", variant),
+                );
+            }
+
+            Ok(AstMatchPattern::positional_enum(
+                enumerable,
+                generics,
+                variant,
+                children,
+                ignore_rest,
+            ))
+        } else {
+            Ok(AstMatchPattern::plain_enum(enumerable, generics, variant))
+        }
     }
 
     fn parse_while_loop(&mut self) -> PResult<AstStatement> {
@@ -988,11 +1152,12 @@ impl Parser {
                 Ok(AstExpression::block(span, block))
             }
             Token::If => self.parse_if_statement(),
+            Token::Match => self.parse_match_statement(),
             Token::Commalipses => {
                 self.bump()?;
                 Ok(AstExpression::unimplemented(span))
             }
-            Token::Not => {
+            Token::Bang => {
                 self.bump()?;
                 let e = self.parse_expr(9)?;
                 span = span.unite(e.span);
@@ -1008,41 +1173,22 @@ impl Parser {
             Token::LParen => self.parse_paren_expr(),
             Token::LSqBracket => self.parse_array_literal(),
             Token::Identifier(_) | Token::TypeName(_) => self.parse_path_expr(),
-            Token::GenericName(_) | Token::Infer | Token::SelfType | Token::Lt => {
+            Token::GenericName(_) | Token::Underscore | Token::SelfType | Token::Lt => {
                 let (ty, _) = self.parse_type()?;
                 self.parse_static_call(ty)
-            }
-            Token::True => {
-                self.bump()?;
-                Ok(AstExpression::true_lit(span))
-            }
-            Token::False => {
-                self.bump()?;
-                Ok(AstExpression::false_lit(span))
-            }
-            Token::Null => {
-                self.bump()?;
-                Ok(AstExpression::null_lit(span))
             }
             Token::SelfRef => {
                 self.bump()?;
                 Ok(AstExpression::self_ref(span))
             }
-            Token::String(string, len) => {
-                let string = string.clone();
-                let len = *len;
-                self.bump()?;
-                Ok(AstExpression::string_literal(span, string, len))
-            }
-            Token::IntLiteral(num) => {
-                let num = num.clone();
-                self.bump()?;
-                Ok(AstExpression::int_literal(span, num))
-            }
-            Token::CharLiteral(ch) => {
-                let ch = *ch;
-                self.bump()?;
-                Ok(AstExpression::char_literal(span, ch))
+            Token::True
+            | Token::False
+            | Token::Null
+            | Token::String(..)
+            | Token::IntLiteral(..)
+            | Token::CharLiteral(..) => {
+                let lit = self.parse_literal_expression()?;
+                Ok(AstExpression::literal(span, lit))
             }
             _ => self.error_here(format!(
                 "Expected literal, identifier, `new` or `(`, found \
@@ -1050,6 +1196,76 @@ impl Parser {
                 self.next_token
             )),
         }
+    }
+
+    fn parse_literal_expression(&mut self) -> PResult<AstLiteral> {
+        match &self.next_token {
+            Token::True => {
+                self.bump()?;
+                Ok(AstLiteral::True)
+            }
+            Token::False => {
+                self.bump()?;
+                Ok(AstLiteral::False)
+            }
+            Token::Null => {
+                self.bump()?;
+                Ok(AstLiteral::Null)
+            }
+            Token::String(string, len) => {
+                let string = string.clone();
+                let len = *len;
+                self.bump()?;
+                Ok(AstLiteral::String { string, len })
+            }
+            Token::IntLiteral(num) => {
+                let num = num.clone();
+                self.bump()?;
+                Ok(AstLiteral::Int(num))
+            }
+            Token::CharLiteral(ch) => {
+                let ch = *ch;
+                self.bump()?;
+                Ok(AstLiteral::Char(ch))
+            }
+            _ => self.error_here(format!("Expected a literal")),
+        }
+    }
+
+    fn parse_match_statement(&mut self) -> PResult<AstExpression> {
+        let mut span = self.next_span;
+        self.expect_consume(Token::Match)?;
+        let match_expression = self.parse_expression()?;
+        self.expect_consume(Token::LBrace)?;
+        let mut branches = Vec::new();
+
+        while !self.check_consume(Token::RBrace)? {
+            let pattern = self.parse_match_pattern()?;
+            self.expect_consume(Token::RArrow)?;
+            let expression = self.parse_expression()?;
+
+            if let AstExpressionData::Block { .. } = &expression.data {
+                // TRY to consume a comma, but we don't need it either, so w/e.
+                self.check_consume(Token::Comma)?;
+            } else if self.check(Token::RBrace) {
+                // TRY to consume a comma, but we don't need it either, so w/e.
+                self.check_consume(Token::Comma)?;
+            } else {
+                self.expect_consume(Token::Comma)?;
+            }
+
+            branches.push(AstMatchBranch {
+                pattern,
+                expression,
+            });
+            span = span.unite(self.next_span);
+        }
+
+        Ok(AstExpression::match_statement(
+            span,
+            match_expression,
+            branches,
+        ))
     }
 
     fn parse_if_statement(&mut self) -> PResult<AstExpression> {
@@ -1094,8 +1310,12 @@ impl Parser {
                     Vec::new()
                 };
 
-                let ty = AstType::object(ModuleRef::Denormalized(path), generics);
-                return self.parse_static_call(ty);
+                if self.check_colon() {
+                    let ty = AstType::object(ModuleRef::Denormalized(path), generics);
+                    return self.parse_static_call(ty);
+                } else if self.check(Token::Bang) {
+                    return self.parse_enum_constructor(ModuleRef::Denormalized(path), generics);
+                }
             } else if self.check_identifier() {
                 span = span.unite(self.next_span);
                 path.push(self.expect_consume_identifier()?);
@@ -1132,6 +1352,80 @@ impl Parser {
             Ok(AstExpression::identifier(span, identifier))
         } else {
             Ok(AstExpression::global_variable(span, path))
+        }
+    }
+
+    fn parse_enum_constructor(
+        &mut self,
+        enumerable: ModuleRef,
+        generics: Vec<AstType>,
+    ) -> PResult<AstExpression> {
+        let mut span = self.next_span;
+        self.expect_consume(Token::Bang)?;
+        let v_span = self.next_span;
+        let variant = self.expect_consume_typename()?;
+
+        if self.check_consume(Token::LBrace)? {
+            let mut children = HashMap::new();
+
+            while !self.check_consume(Token::RBrace)? {
+                if !children.is_empty() {
+                    self.expect_consume(Token::Comma)?;
+                }
+
+                let name_span = self.next_span;
+                let name = self.expect_consume_identifier()?;
+
+                self.expect_consume_colon()?;
+                let child = self.parse_expression()?;
+                children.insert(name, child);
+                span = span.unite(self.next_span);
+            }
+
+            if children.is_empty() {
+                return self.error_at(
+                    v_span,
+                    format!(
+                        "Expected variant `{}!{}` to have > 0 fields.",
+                        enumerable.full_name()?,
+                        variant
+                    ),
+                );
+            }
+
+            Ok(AstExpression::named_enum_constructor(
+                span, enumerable, generics, variant, children,
+            ))
+        } else if self.check_consume(Token::LParen)? {
+            let mut children = Vec::new();
+
+            while !self.check_consume(Token::RParen)? {
+                if !children.is_empty() {
+                    self.expect_consume(Token::Comma)?;
+                }
+
+                children.push(self.parse_expression()?);
+                span = span.unite(self.next_span);
+            }
+
+            if children.is_empty() {
+                return self.error_at(
+                    v_span,
+                    format!(
+                        "Expected variant `{}!{}` to have > 0 fields.",
+                        enumerable.full_name()?,
+                        variant
+                    ),
+                );
+            }
+
+            Ok(AstExpression::positional_enum_constructor(
+                span, enumerable, generics, variant, children,
+            ))
+        } else {
+            Ok(AstExpression::plain_enum_constructor(
+                span, enumerable, generics, variant,
+            ))
         }
     }
 
@@ -1244,7 +1538,7 @@ impl Parser {
 
             Ok(AstExpression::allocate_array(span, ty, expr))
         } else {
-            let (ty, ty_span) = self.parse_object_type()?;
+            let (ty, ty_span) = self.parse_objectenum_type()?;
             span = span.unite(ty_span);
 
             Ok(AstExpression::allocate_object(span, ty))
@@ -1673,6 +1967,105 @@ impl Parser {
         self.expect_consume(Token::Dot)?;
 
         Ok(AstGlobalVariable::new(self.file, name_span, name, ty, init))
+    }
+
+    fn parse_enum(&mut self) -> PResult<AstEnum> {
+        self.expect_consume(Token::Enum)?;
+        let name_span = self.next_span;
+        let name = self.expect_consume_typename()?;
+        let generics = self.try_parse_decl_generics()?;
+        let restrictions = self.try_parse_restrictions()?;
+        self.expect_consume(Token::LBrace)?;
+        let mut variants = HashMap::new();
+
+        while !self.check_consume(Token::RBrace)? {
+            let var = self.parse_enum_variant()?;
+            let span = var.name_span;
+
+            variants
+                .insert(var.name.clone(), var)
+                .is_not_expected(span, "variant", &name)?;
+        }
+
+        Ok(AstEnum::new(
+            self.file,
+            name_span,
+            name,
+            generics,
+            restrictions,
+            variants,
+        ))
+    }
+
+    fn parse_enum_variant(&mut self) -> PResult<AstEnumVariant> {
+        let name_span = self.next_span;
+        let name = self.expect_consume_typename()?;
+
+        let variant = if self.check_consume(Token::LBrace)? {
+            let mut fields = Vec::new();
+            let mut field_names = HashMap::new();
+
+            while !self.check_consume(Token::RBrace)? {
+                if !fields.is_empty() {
+                    self.expect_consume(Token::Comma)?;
+                }
+
+                let field_name = self.expect_consume_identifier()?;
+                self.expect_consume_colon()?;
+                let ty = self.parse_type()?.0;
+
+                field_names.insert(field_name, fields.len());
+                fields.push(ty);
+            }
+
+            if fields.is_empty() {
+                return self.error_at(
+                    name_span,
+                    format!("Expected variant `{}` to have > 0 fields.", name),
+                );
+            }
+
+            AstEnumVariant {
+                name_span,
+                name,
+                fields,
+                field_names: Some(field_names),
+            }
+        } else if self.check_consume(Token::LParen)? {
+            let mut fields = Vec::new();
+
+            while !self.check_consume(Token::RParen)? {
+                if !fields.is_empty() {
+                    self.expect_consume(Token::Comma)?;
+                }
+
+                fields.push(self.parse_type()?.0);
+            }
+
+            if fields.is_empty() {
+                return self.error_at(
+                    name_span,
+                    format!("Expected variant `{}` to have > 0 fields.", name),
+                );
+            }
+
+            AstEnumVariant {
+                name_span,
+                name,
+                fields,
+                field_names: None,
+            }
+        } else {
+            AstEnumVariant {
+                name_span,
+                name,
+                fields: Vec::new(),
+                field_names: None,
+            }
+        };
+
+        self.expect_consume(Token::Dot)?;
+        Ok(variant)
     }
 }
 

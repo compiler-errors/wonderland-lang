@@ -168,6 +168,7 @@ impl<'a> AstAdapter for AnalyzeModules<'a> {
             .chain(m.traits.keys())
             .chain(m.objects.keys())
             .chain(m.globals.keys())
+            .chain(m.enums.keys())
             .collect();
 
         let path = FileRegistry::mod_path(m.id)?;

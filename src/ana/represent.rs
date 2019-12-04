@@ -8,6 +8,7 @@ pub struct AnalyzedProgram {
     pub variable_ids: HashMap<VariableId, AstNamedVariable>,
     pub analyzed_functions: HashMap<ModuleRef, AnFunctionData>,
     pub analyzed_traits: HashMap<ModuleRef, AnTraitData>,
+    pub analyzed_enums: HashMap<ModuleRef, AnEnumData>,
     pub analyzed_objects: HashMap<ModuleRef, AnObjectData>,
     pub analyzed_impls: HashMap<ImplId, AnImplData>,
     pub analyzed_modules: HashMap<FileId, SharedModule>,
@@ -22,6 +23,22 @@ pub struct AnObjectData {
     pub member_tys: HashMap<String, AstType>,
     pub member_indices: HashMap<String, usize>,
     pub restrictions: Vec<AstTypeRestriction>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AnEnumData {
+    pub name: ModuleRef,
+    pub self_type: AstType,
+    pub generics: Vec<AstGeneric>,
+    pub variants: HashMap<String, AnEnumVariantData>,
+    pub restrictions: Vec<AstTypeRestriction>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AnEnumVariantData {
+    pub name: String,
+    pub fields: Vec<AstType>,
+    pub field_names: Option<HashMap<String, usize>>,
 }
 
 #[derive(Debug, Clone)]

@@ -3,7 +3,7 @@ use crate::parser::ast::*;
 use crate::parser::ast_visitor::AstAdapter;
 use crate::tyck::tyck_instantiate::GenericsInstantiator;
 use crate::tyck::tyck_solver::TyckSolver;
-use crate::util::PResult;
+use crate::util::{PResult, ZipExact};
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -23,6 +23,56 @@ impl TyckObjectiveAdapter {
             return_type: None,
         }
     }
+
+    fn unify_pattern_type(&mut self, pattern: &AstMatchPattern, other_ty: &AstType) -> PResult<()> {
+        match pattern {
+            AstMatchPattern::Underscore => {}
+            AstMatchPattern::Identifier(_, ty) => self.solver.unify(ty, other_ty)?,
+            AstMatchPattern::Tuple(children) => {
+                let mut children_tys = Vec::new();
+
+                for child in children {
+                    let child_ty = AstType::infer();
+                    self.unify_pattern_type(child, &child_ty)?;
+                    children_tys.push(child_ty);
+                }
+
+                self.solver.unify(&AstType::tuple(children_tys), other_ty)?;
+            }
+            AstMatchPattern::Literal(lit) => match lit {
+                AstLiteral::True | AstLiteral::False => {
+                    self.solver.unify(&AstType::Bool, other_ty)?
+                }
+                AstLiteral::Null => self.solver.add_delayed_nullable_goal(other_ty)?,
+                AstLiteral::Int(..) => self.solver.unify(&AstType::Int, other_ty)?,
+                AstLiteral::Char(..) => self.solver.unify(&AstType::Char, other_ty)?,
+                AstLiteral::String { .. } => self.solver.unify(&AstType::String, other_ty)?,
+            },
+            AstMatchPattern::PositionalEnum {
+                enumerable,
+                generics,
+                variant,
+                children,
+                ..
+            } => {
+                let expected_tys = GenericsInstantiator::instantiate_enum_pattern(
+                    &self.analyzed_program,
+                    enumerable,
+                    &generics,
+                    &variant,
+                )?;
+
+                for (child, ty) in
+                    ZipExact::zip_exact(children, expected_tys, "positional elements")?
+                {
+                    self.unify_pattern_type(child, &ty)?;
+                }
+            }
+            AstMatchPattern::PlainEnum { .. } | AstMatchPattern::NamedEnum { .. } => unreachable!(),
+        }
+
+        Ok(())
+    }
 }
 
 impl<'a> AstAdapter for TyckObjectiveAdapter {
@@ -41,6 +91,12 @@ impl<'a> AstAdapter for TyckObjectiveAdapter {
 
         // Nothing special here to do.
         Ok(o)
+    }
+
+    fn enter_enum(&mut self, e: AstEnum) -> PResult<AstEnum> {
+        self.solver.add_objectives(&e.restrictions)?;
+
+        Ok(e)
     }
 
     fn enter_function(&mut self, f: AstFunction) -> PResult<AstFunction> {
@@ -81,10 +137,12 @@ impl<'a> AstAdapter for TyckObjectiveAdapter {
     fn enter_statement(&mut self, s: AstStatement) -> PResult<AstStatement> {
         match &s {
             // Removed in earlier stages
-            AstStatement::Let { .. } => unreachable!(),
             AstStatement::For { .. } => unreachable!(),
 
             AstStatement::Expression { .. } | AstStatement::Break | AstStatement::Continue => {}
+            AstStatement::Let { pattern, value } => {
+                self.unify_pattern_type(pattern, &value.ty)?;
+            }
             AstStatement::While { condition, .. } => {
                 self.solver.unify(&condition.ty, &AstType::Bool)?;
             }
@@ -120,20 +178,37 @@ impl<'a> AstAdapter for TyckObjectiveAdapter {
                 self.solver
                     .unify(&block.expression.ty, &else_block.expression.ty)?;
             }
-            AstExpressionData::True | AstExpressionData::False => {
-                self.solver.unify(&ty, &AstType::Bool)?;
-            }
-            AstExpressionData::Null => {
-                self.solver.add_delayed_nullable_goal(&ty)?;
+            AstExpressionData::Match {
+                expression,
+                branches,
+            } => {
+                let match_expr_ty = &expression.ty;
+
+                for AstMatchBranch {
+                    pattern,
+                    expression,
+                } in branches
+                {
+                    self.unify_pattern_type(pattern, match_expr_ty)?;
+                    self.solver.unify(&expression.ty, &ty)?;
+                }
             }
             AstExpressionData::SelfRef => unreachable!(),
-            AstExpressionData::String { .. } => self.solver.unify(&ty, &AstType::String)?,
-            AstExpressionData::Int(..) => {
-                self.solver.unify(&ty, &AstType::Int)?;
-            }
-            AstExpressionData::Char(..) => {
-                self.solver.unify(&ty, &AstType::Char)?;
-            }
+            AstExpressionData::Literal(lit) => match lit {
+                AstLiteral::True | AstLiteral::False => {
+                    self.solver.unify(&ty, &AstType::Bool)?;
+                }
+                AstLiteral::Null => {
+                    self.solver.add_delayed_nullable_goal(&ty)?;
+                }
+                AstLiteral::String { .. } => self.solver.unify(&ty, &AstType::String)?,
+                AstLiteral::Int(..) => {
+                    self.solver.unify(&ty, &AstType::Int)?;
+                }
+                AstLiteral::Char(..) => {
+                    self.solver.unify(&ty, &AstType::Char)?;
+                }
+            },
             AstExpressionData::Identifier { variable_id, .. } => {
                 let variable_id = variable_id.as_ref().unwrap();
                 self.solver.unify(&ty, &self.variables[variable_id])?;
@@ -271,7 +346,34 @@ impl<'a> AstAdapter for TyckObjectiveAdapter {
                     .unify(&ty, &AstType::closure_type(param_tys, ret_ty))?;
             }
 
-            AstExpressionData::BinOp { .. } => unreachable!(),
+            AstExpressionData::PositionalEnum {
+                enumerable,
+                generics,
+                variant,
+                children,
+            } => {
+                self.solver.unify(
+                    &ty,
+                    &AstType::enumerable(enumerable.clone(), generics.clone()),
+                )?;
+
+                let expected_tys = GenericsInstantiator::instantiate_enum_pattern(
+                    &self.analyzed_program,
+                    enumerable,
+                    &generics,
+                    &variant,
+                )?;
+
+                for (child, ty) in
+                    ZipExact::zip_exact(children, expected_tys, "positional elements")?
+                {
+                    self.solver.unify(&child.ty, &ty)?;
+                }
+            }
+
+            AstExpressionData::NamedEnum { .. }
+            | AstExpressionData::PlainEnum { .. }
+            | AstExpressionData::BinOp { .. } => unreachable!(),
         }
 
         Ok(AstExpression { data, ty, span })
@@ -280,7 +382,10 @@ impl<'a> AstAdapter for TyckObjectiveAdapter {
     fn enter_type(&mut self, t: AstType) -> PResult<AstType> {
         match &t {
             AstType::Object(name, args) => {
-                self.solver.add_objective_well_formed(name, args)?;
+                self.solver.add_objective_object_well_formed(name, args)?;
+            }
+            AstType::Enum(name, args) => {
+                self.solver.add_objective_enum_well_formed(name, args)?;
             }
             AstType::AssociatedType {
                 obj_ty, trait_ty, ..
@@ -301,6 +406,12 @@ impl<'a> AstAdapter for TyckObjectiveAdapter {
         self.solver.unify(&g.ty, &g.init.ty)?;
 
         Ok(g)
+    }
+
+    fn enter_pattern(&mut self, p: AstMatchPattern) -> PResult<AstMatchPattern> {
+        self.unify_pattern_type(&p, &AstType::infer())?;
+
+        Ok(p)
     }
 }
 

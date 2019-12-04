@@ -34,8 +34,7 @@ pub trait DirtyAnalysisPass: AnAdapter + Sized {
     fn new(a: &AnalyzedProgram) -> PResult<Self>;
 
     fn analyze(a: AnalyzedProgram, p: AstProgram) -> PResult<(AnalyzedProgram, AstProgram)> {
-        let a_copy = a.clone();
-        let mut pass = Self::new(&a_copy)?;
+        let mut pass = Self::new(&a)?;
         let a = a.visit(&mut pass)?;
         let p = p.visit(&mut pass)?;
 
@@ -60,6 +59,14 @@ pub trait AnAdapter: AstAdapter {
         Ok(o)
     }
 
+    fn enter_analyzed_enum(&mut self, e: AnEnumData) -> PResult<AnEnumData> {
+        Ok(e)
+    }
+
+    fn enter_analyzed_enum_variant(&mut self, e: AnEnumVariantData) -> PResult<AnEnumVariantData> {
+        Ok(e)
+    }
+
     fn enter_analyzed_impl(&mut self, i: AnImplData) -> PResult<AnImplData> {
         Ok(i)
     }
@@ -80,6 +87,14 @@ pub trait AnAdapter: AstAdapter {
         Ok(o)
     }
 
+    fn exit_analyzed_enum(&mut self, e: AnEnumData) -> PResult<AnEnumData> {
+        Ok(e)
+    }
+
+    fn exit_analyzed_enum_variant(&mut self, e: AnEnumVariantData) -> PResult<AnEnumVariantData> {
+        Ok(e)
+    }
+
     fn exit_analyzed_impl(&mut self, i: AnImplData) -> PResult<AnImplData> {
         Ok(i)
     }
@@ -92,6 +107,7 @@ impl<T: AnAdapter> Visit<T> for AnalyzedProgram {
             analyzed_functions,
             analyzed_traits,
             analyzed_objects,
+            analyzed_enums,
             analyzed_impls,
             analyzed_modules,
             analyzed_globals,
@@ -102,6 +118,7 @@ impl<T: AnAdapter> Visit<T> for AnalyzedProgram {
             analyzed_functions: analyzed_functions.visit(adapter)?,
             analyzed_traits: analyzed_traits.visit(adapter)?,
             analyzed_objects: analyzed_objects.visit(adapter)?,
+            analyzed_enums: analyzed_enums.visit(adapter)?,
             analyzed_impls: analyzed_impls.visit(adapter)?,
             analyzed_globals: analyzed_globals.visit(adapter)?,
             analyzed_modules,
@@ -154,6 +171,46 @@ impl<T: AnAdapter> Visit<T> for AnObjectData {
         };
 
         adapter.exit_analyzed_object(i)
+    }
+}
+
+impl<T: AnAdapter> Visit<T> for AnEnumData {
+    fn visit(self, adapter: &mut T) -> PResult<AnEnumData> {
+        let AnEnumData {
+            name,
+            self_type,
+            generics,
+            variants,
+            restrictions,
+        } = adapter.enter_analyzed_enum(self)?;
+
+        let i = AnEnumData {
+            name,
+            self_type: self_type.visit(adapter)?,
+            generics,
+            variants: variants.visit(adapter)?,
+            restrictions: restrictions.visit(adapter)?,
+        };
+
+        adapter.exit_analyzed_enum(i)
+    }
+}
+
+impl<T: AnAdapter> Visit<T> for AnEnumVariantData {
+    fn visit(self, adapter: &mut T) -> PResult<AnEnumVariantData> {
+        let AnEnumVariantData {
+            name,
+            fields,
+            field_names,
+        } = adapter.enter_analyzed_enum_variant(self)?;
+
+        let i = AnEnumVariantData {
+            name,
+            fields: fields.visit(adapter)?,
+            field_names,
+        };
+
+        adapter.exit_analyzed_enum_variant(i)
     }
 }
 

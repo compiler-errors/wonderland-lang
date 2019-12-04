@@ -49,6 +49,12 @@ impl AnAdapter for AnalyzeGenerics {
         Ok(o)
     }
 
+    fn enter_analyzed_enum(&mut self, e: AnEnumData) -> PResult<AnEnumData> {
+        self.scope.push();
+        self.add_generics(&e.generics)?;
+        Ok(e)
+    }
+
     fn enter_analyzed_impl(&mut self, i: AnImplData) -> PResult<AnImplData> {
         self.scope.push();
         self.add_generics(&i.generics)?;
@@ -68,6 +74,11 @@ impl AnAdapter for AnalyzeGenerics {
     fn exit_analyzed_object(&mut self, o: AnObjectData) -> PResult<AnObjectData> {
         self.scope.pop();
         Ok(o)
+    }
+
+    fn exit_analyzed_enum(&mut self, e: AnEnumData) -> PResult<AnEnumData> {
+        self.scope.pop();
+        Ok(e)
     }
 
     fn exit_analyzed_impl(&mut self, i: AnImplData) -> PResult<AnImplData> {
@@ -113,6 +124,12 @@ impl AstAdapter for AnalyzeGenerics {
         Ok(o)
     }
 
+    fn enter_enum(&mut self, e: AstEnum) -> PResult<AstEnum> {
+        self.scope.push();
+        self.add_generics(&e.generics)?;
+        Ok(e)
+    }
+
     fn enter_impl(&mut self, i: AstImpl) -> PResult<AstImpl> {
         self.scope.push();
         self.add_generics(&i.generics)?;
@@ -137,6 +154,11 @@ impl AstAdapter for AnalyzeGenerics {
     fn exit_object(&mut self, o: AstObject) -> PResult<AstObject> {
         self.scope.pop();
         Ok(o)
+    }
+
+    fn exit_enum(&mut self, e: AstEnum) -> PResult<AstEnum> {
+        self.scope.pop();
+        Ok(e)
     }
 
     fn exit_impl(&mut self, i: AstImpl) -> PResult<AstImpl> {

@@ -4,6 +4,7 @@ use std::fmt::{Display, Formatter, Result};
 pub enum Token {
     // Language symbols
     Dot,         //    .
+    Ellipsis,    //    ...
     Comma,       //    ,
     Commalipses, //    ,,,
     Colon,       //    :
@@ -19,6 +20,7 @@ pub enum Token {
     LParen,      //    (
     RParen,      //    )
     RArrow,      //    ->
+    Underscore,  //    _
 
     // Mathematical operators (excluding LSquare, RSquare)
     LessEqual,    //    <=
@@ -28,7 +30,7 @@ pub enum Token {
     And,          //    &
     Pipe,         //    |
     Equals,       //    =
-    Not,          //    !
+    Bang,         //    !
     Plus,         //    +
     Minus,        //    -
     Star,         //    *
@@ -62,13 +64,14 @@ pub enum Token {
     Type,
     SelfRef,
     Allocate,
+    Enum,
+    Match,
 
     // Privileged Types
     Int,
     Bool,
     StringType,
     Char,
-    Infer,
     SelfType,
     FnTrait,
 
@@ -91,6 +94,7 @@ impl Display for Token {
     fn fmt(&self, f: &mut Formatter) -> Result {
         match self {
             Token::Dot => write!(f, "."),
+            Token::Ellipsis => write!(f, "..."),
             Token::Comma => write!(f, ","),
             Token::Commalipses => write!(f, ",,,"),
             Token::Colon => write!(f, ":"),
@@ -106,6 +110,7 @@ impl Display for Token {
             Token::LParen => write!(f, "("),
             Token::RParen => write!(f, ")"),
             Token::RArrow => write!(f, "->"),
+            Token::Underscore => write!(f, "_"),
             Token::LessEqual => write!(f, "<="),
             Token::GreaterEqual => write!(f, ">="),
             Token::EqualsEquals => write!(f, "=="),
@@ -113,7 +118,7 @@ impl Display for Token {
             Token::And => write!(f, "&"),
             Token::Pipe => write!(f, "|"),
             Token::Equals => write!(f, "="),
-            Token::Not => write!(f, "!"),
+            Token::Bang => write!(f, "!"),
             Token::Plus => write!(f, "+"),
             Token::Minus => write!(f, "-"),
             Token::Star => write!(f, "*"),
@@ -145,11 +150,12 @@ impl Display for Token {
             Token::Type => write!(f, "type"),
             Token::SelfRef => write!(f, "self"),
             Token::Allocate => write!(f, "allocate"),
+            Token::Enum => write!(f, "enum"),
+            Token::Match => write!(f, "match"),
             Token::Int => write!(f, "Type (Int)"),
             Token::Bool => write!(f, "Type (Bool)"),
             Token::Char => write!(f, "Type (Char)"),
             Token::StringType => write!(f, "Type (String)"),
-            Token::Infer => write!(f, "Type (_)"),
             Token::SelfType => write!(f, "Type (Self)"),
             Token::FnTrait => write!(f, "Fn"),
             Token::String(..) => write!(f, "String"),

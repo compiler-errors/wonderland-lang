@@ -45,6 +45,7 @@ pub struct AstModule {
     pub functions: HashMap<String, AstFunction>,
     pub objects: HashMap<String, AstObject>,
     pub traits: HashMap<String, AstTrait>,
+    pub enums: HashMap<String, AstEnum>,
     pub impls: HashMap<ImplId, AstImpl>,
     pub globals: HashMap<String, AstGlobalVariable>,
 }
@@ -58,6 +59,7 @@ impl AstModule {
         functions: HashMap<String, AstFunction>,
         objects: HashMap<String, AstObject>,
         traits: HashMap<String, AstTrait>,
+        enums: HashMap<String, AstEnum>,
         impls: HashMap<ImplId, AstImpl>,
         globals: HashMap<String, AstGlobalVariable>,
     ) -> AstModule {
@@ -69,6 +71,7 @@ impl AstModule {
             functions,
             objects,
             traits,
+            enums,
             impls,
             globals,
         }
@@ -161,7 +164,6 @@ pub struct AstNamedVariable {
     pub name: String,
     pub ty: AstType,
 
-    /// Used in analyzer. Not populated before this.
     pub id: VariableId,
 }
 
@@ -210,7 +212,10 @@ pub enum AstType {
     Tuple {
         types: Vec<AstType>,
     },
+
+    ObjectEnum(ModuleRef, Vec<AstType>),
     Object(ModuleRef, Vec<AstType>),
+    Enum(ModuleRef, Vec<AstType>),
 
     ClosureType {
         args: Vec<AstType>,
@@ -285,6 +290,10 @@ impl AstType {
         AstType::Object(object, generics)
     }
 
+    pub fn enumerable(enumerable: ModuleRef, generics: Vec<AstType>) -> AstType {
+        AstType::Enum(enumerable, generics)
+    }
+
     pub fn closure_type(args: Vec<AstType>, ret_ty: AstType) -> AstType {
         AstType::ClosureType {
             args,
@@ -345,9 +354,7 @@ impl AstBlock {
 #[derive(Debug, Clone)]
 pub enum AstStatement {
     Let {
-        name_span: Span,
-        var_name: String,
-        ty: AstType,
+        pattern: AstMatchPattern,
         value: AstExpression,
     },
     While {
@@ -374,18 +381,8 @@ pub enum AstStatement {
 }
 
 impl AstStatement {
-    pub fn let_statement(
-        name_span: Span,
-        var_name: String,
-        ty: AstType,
-        value: AstExpression,
-    ) -> AstStatement {
-        AstStatement::Let {
-            name_span,
-            var_name,
-            ty,
-            value,
-        }
+    pub fn let_statement(pattern: AstMatchPattern, value: AstExpression) -> AstStatement {
+        AstStatement::Let { pattern, value }
     }
 
     pub fn while_loop(condition: AstExpression, block: AstBlock) -> AstStatement {
@@ -445,17 +442,8 @@ type SubExpression = Box<AstExpression>;
 #[derive(Debug, Clone)]
 pub enum AstExpressionData {
     Unimplemented,
-
-    True,
-    False,
-    Null,
     SelfRef,
-    String {
-        string: String,
-        len: usize,
-    },
-    Int(String),
-    Char(char),
+    Literal(AstLiteral),
     Identifier {
         name: String,
         variable_id: Option<VariableId>,
@@ -555,24 +543,27 @@ pub enum AstExpressionData {
         block: AstBlock,
         else_block: AstBlock,
     },
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-/// The kind of binary operation
-pub enum BinOpKind {
-    Multiply,
-    Divide,
-    Modulo,
-    Add,
-    Subtract,
-    Greater,
-    Less,
-    GreaterEqual,
-    LessEqual,
-    EqualsEquals,
-    NotEqual,
-    And,
-    Or,
+    Match {
+        expression: SubExpression,
+        branches: Vec<AstMatchBranch>,
+    },
+    PositionalEnum {
+        enumerable: ModuleRef,
+        generics: Vec<AstType>,
+        variant: String,
+        children: Vec<AstExpression>,
+    },
+    NamedEnum {
+        enumerable: ModuleRef,
+        generics: Vec<AstType>,
+        variant: String,
+        children: HashMap<String, AstExpression>,
+    },
+    PlainEnum {
+        enumerable: ModuleRef,
+        generics: Vec<AstType>,
+        variant: String,
+    },
 }
 
 impl AstExpression {
@@ -601,26 +592,80 @@ impl AstExpression {
         }
     }
 
-    pub fn string_literal(span: Span, string: String, len: usize) -> AstExpression {
+    pub fn match_statement(
+        span: Span,
+        expression: AstExpression,
+        branches: Vec<AstMatchBranch>,
+    ) -> AstExpression {
         AstExpression {
             span,
-            data: AstExpressionData::String { string, len },
+            data: AstExpressionData::Match {
+                expression: Box::new(expression),
+                branches,
+            },
             ty: AstType::infer(),
         }
     }
 
-    pub fn char_literal(span: Span, ch: char) -> AstExpression {
+    pub fn positional_enum_constructor(
+        span: Span,
+        enumerable: ModuleRef,
+        generics: Vec<AstType>,
+        variant: String,
+        children: Vec<AstExpression>,
+    ) -> AstExpression {
         AstExpression {
             span,
-            data: AstExpressionData::Char(ch),
+            data: AstExpressionData::PositionalEnum {
+                enumerable,
+                generics,
+                variant,
+                children,
+            },
             ty: AstType::infer(),
         }
     }
 
-    pub fn int_literal(span: Span, num: String) -> AstExpression {
+    pub fn named_enum_constructor(
+        span: Span,
+        enumerable: ModuleRef,
+        generics: Vec<AstType>,
+        variant: String,
+        children: HashMap<String, AstExpression>,
+    ) -> AstExpression {
         AstExpression {
             span,
-            data: AstExpressionData::Int(num),
+            data: AstExpressionData::NamedEnum {
+                enumerable,
+                generics,
+                variant,
+                children,
+            },
+            ty: AstType::infer(),
+        }
+    }
+
+    pub fn plain_enum_constructor(
+        span: Span,
+        enumerable: ModuleRef,
+        generics: Vec<AstType>,
+        variant: String,
+    ) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::PlainEnum {
+                enumerable,
+                generics,
+                variant,
+            },
+            ty: AstType::infer(),
+        }
+    }
+
+    pub fn literal(span: Span, lit: AstLiteral) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::Literal(lit),
             ty: AstType::infer(),
         }
     }
@@ -878,30 +923,6 @@ impl AstExpression {
         }
     }
 
-    pub fn true_lit(span: Span) -> AstExpression {
-        AstExpression {
-            span,
-            data: AstExpressionData::True,
-            ty: AstType::infer(),
-        }
-    }
-
-    pub fn false_lit(span: Span) -> AstExpression {
-        AstExpression {
-            span,
-            data: AstExpressionData::False,
-            ty: AstType::infer(),
-        }
-    }
-
-    pub fn null_lit(span: Span) -> AstExpression {
-        AstExpression {
-            span,
-            data: AstExpressionData::Null,
-            ty: AstType::infer(),
-        }
-    }
-
     pub fn self_ref(span: Span) -> AstExpression {
         AstExpression {
             span,
@@ -909,6 +930,125 @@ impl AstExpression {
             ty: AstType::infer(),
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct AstMatchBranch {
+    pub pattern: AstMatchPattern,
+    pub expression: AstExpression,
+}
+
+#[derive(Debug, Clone)]
+pub enum AstMatchPattern {
+    Underscore,
+    Identifier(AstNamedVariable, AstType),
+    PositionalEnum {
+        enumerable: ModuleRef,
+        generics: Vec<AstType>,
+        variant: String,
+        children: Vec<AstMatchPattern>,
+        ignore_rest: bool,
+    },
+    NamedEnum {
+        enumerable: ModuleRef,
+        generics: Vec<AstType>,
+        variant: String,
+        children: HashMap<String, AstMatchPattern>,
+        ignore_rest: bool,
+    },
+    PlainEnum {
+        enumerable: ModuleRef,
+        generics: Vec<AstType>,
+        variant: String,
+    },
+    Tuple(Vec<AstMatchPattern>),
+    Literal(AstLiteral),
+}
+
+impl AstMatchPattern {
+    pub fn identifier(name_span: Span, name: String, ty: AstType) -> AstMatchPattern {
+        AstMatchPattern::Identifier(AstNamedVariable::new(name_span, name, ty.clone()), ty)
+    }
+
+    pub fn positional_enum(
+        enumerable: ModuleRef,
+        generics: Vec<AstType>,
+        variant: String,
+        children: Vec<AstMatchPattern>,
+        ignore_rest: bool,
+    ) -> AstMatchPattern {
+        AstMatchPattern::PositionalEnum {
+            enumerable,
+            generics,
+            variant,
+            children,
+            ignore_rest,
+        }
+    }
+
+    pub fn named_enum(
+        enumerable: ModuleRef,
+        generics: Vec<AstType>,
+        variant: String,
+        children: HashMap<String, AstMatchPattern>,
+        ignore_rest: bool,
+    ) -> AstMatchPattern {
+        AstMatchPattern::NamedEnum {
+            enumerable,
+            generics,
+            variant,
+            children,
+            ignore_rest,
+        }
+    }
+
+    pub fn plain_enum(
+        enumerable: ModuleRef,
+        generics: Vec<AstType>,
+        variant: String,
+    ) -> AstMatchPattern {
+        AstMatchPattern::PlainEnum {
+            enumerable,
+            generics,
+            variant,
+        }
+    }
+
+    pub fn tuple(children: Vec<AstMatchPattern>) -> AstMatchPattern {
+        AstMatchPattern::Tuple(children)
+    }
+
+    pub fn literal(lit: AstLiteral) -> AstMatchPattern {
+        AstMatchPattern::Literal(lit)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum AstLiteral {
+    True,
+    False,
+    Null,
+    String { string: String, len: usize },
+    Int(String),
+    Char(char),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// The kind of binary operation
+pub enum BinOpKind {
+    Multiply,
+    Divide,
+    Modulo,
+    Add,
+    Subtract,
+    Greater,
+    Less,
+    GreaterEqual,
+    LessEqual,
+    EqualsEquals,
+    NotEqual,
+    And,
+    Or,
 }
 
 #[derive(Debug, Clone)]
@@ -1149,6 +1289,50 @@ impl AstGlobalVariable {
             init,
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct AstEnum {
+    pub name_span: Span,
+
+    pub name: String,
+    pub module_ref: ModuleRef,
+
+    pub generics: Vec<AstGeneric>,
+    pub restrictions: Vec<AstTypeRestriction>,
+    pub variants: HashMap<String, AstEnumVariant>,
+}
+
+impl AstEnum {
+    pub fn new(
+        file_id: FileId,
+        name_span: Span,
+        name: String,
+        generics: Vec<AstGeneric>,
+        restrictions: Vec<AstTypeRestriction>,
+        variants: HashMap<String, AstEnumVariant>,
+    ) -> AstEnum {
+        AstEnum {
+            name_span,
+            module_ref: ModuleRef::Normalized(file_id, name.clone()),
+            name,
+            generics,
+            restrictions,
+            variants,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct AstEnumVariant {
+    pub name_span: Span,
+    pub name: String,
+
+    pub fields: Vec<AstType>,
+
+    /// If Some, then this enum is structural and this maps field names to positions.
+    /// If None, then this enum is positional, and we cannot use field names.
+    pub field_names: Option<HashMap<String, usize>>,
 }
 
 /// Used in tyck

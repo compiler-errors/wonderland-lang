@@ -24,7 +24,7 @@ impl TyckConstraintAssumptionAdapter {
     }
 
     pub fn assume(&mut self, ty: &AstType, trt: &AstTraitType) -> PResult<AnImplData> {
-        println!("; Assuming {:?} :- {:?}", ty, trt);
+        println!("Assuming {} :- {}", ty, trt);
 
         let trt_data = &self.analyzed_program.analyzed_traits[&trt.0];
         let impl_id = AstImpl::new_id();

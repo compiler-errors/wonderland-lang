@@ -81,13 +81,27 @@ impl Lexer {
             match c {
                 '.' => {
                     self.bump(1);
-                    return Ok(Token::Dot);
+
+                    if self.current_char() == '.' {
+                        self.bump(1);
+
+                        if self.current_char() != '.' {
+                            return self.error(format!("Expected a third dot for ellipsis..."));
+                        }
+
+                        self.bump(1);
+                        return Ok(Token::Ellipsis);
+                    } else {
+                        return Ok(Token::Dot);
+                    }
                 }
                 ',' => {
-                    if self.next_char() == ',' {
-                        self.bump(2);
+                    self.bump(1);
 
-                        if self.next_char() != ',' {
+                    if self.current_char() == ',' {
+                        self.bump(1);
+
+                        if self.current_char() != ',' {
                             return self
                                 .error(format!("Expected a third comma for commalipses,,,"));
                         }
@@ -95,7 +109,6 @@ impl Lexer {
                         self.bump(1);
                         return Ok(Token::Commalipses);
                     } else {
-                        self.bump(1);
                         return Ok(Token::Comma);
                     }
                 }
@@ -165,7 +178,7 @@ impl Lexer {
                         return Ok(Token::NotEquals);
                     } else {
                         self.bump(1);
-                        return Ok(Token::Not);
+                        return Ok(Token::Bang);
                     }
                 }
                 '&' => {
@@ -341,6 +354,8 @@ impl Lexer {
         }
 
         let token = match &*string {
+            "_" => Token::Underscore,
+
             "use" => Token::Use,
             "pub" => Token::Pub,
             "mod" => Token::Mod,
@@ -371,11 +386,13 @@ impl Lexer {
             "self" => Token::SelfRef,
             "allocate" => Token::Allocate,
 
+            "enum" => Token::Enum,
+            "match" => Token::Match,
+
             "Int" => Token::Int,
             "Bool" => Token::Bool,
             "String" => Token::StringType,
             "Char" => Token::Char,
-            "_" => Token::Infer,
             "Self" => Token::SelfType,
             "Fn" => Token::FnTrait,
 

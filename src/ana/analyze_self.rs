@@ -1,6 +1,6 @@
 use crate::ana::represent::*;
 use crate::ana::represent_visitor::{AnAdapter, DirtyAnalysisPass};
-use crate::parser::ast::{AstFunction, AstImpl, AstObject, AstType};
+use crate::parser::ast::{AstEnum, AstFunction, AstImpl, AstObject, AstType};
 use crate::parser::ast_visitor::AstAdapter;
 use crate::util::{Comment, IntoError, PResult, Visit};
 
@@ -42,6 +42,15 @@ impl AstAdapter for AnalyzeSelf {
         );
 
         o.visit(&mut ReplaceSelf(self_type))
+    }
+
+    fn enter_enum(&mut self, e: AstEnum) -> PResult<AstEnum> {
+        let self_type = AstType::Enum(
+            e.module_ref.clone(),
+            e.generics.iter().map(|g| g.clone().into()).collect(),
+        );
+
+        e.visit(&mut ReplaceSelf(self_type))
     }
 
     fn enter_impl(&mut self, i: AstImpl) -> PResult<AstImpl> {

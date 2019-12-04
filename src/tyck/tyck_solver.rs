@@ -132,7 +132,7 @@ impl TyckSolver {
         Ok(())
     }
 
-    pub fn add_objective_well_formed(
+    pub fn add_objective_object_well_formed(
         &mut self,
         obj_name: &ModuleRef,
         generics: &[AstType],
@@ -142,6 +142,22 @@ impl TyckSolver {
         let mut instantiate = GenericsInstantiator::from_generics(&obj_data.generics, &generics)?;
 
         for r in &obj_data.restrictions.clone().visit(&mut instantiate)? {
+            self.add_objective(&r.ty, &r.trt)?;
+        }
+
+        Ok(())
+    }
+
+    pub fn add_objective_enum_well_formed(
+        &mut self,
+        en_name: &ModuleRef,
+        generics: &[AstType],
+    ) -> PResult<()> {
+        let program = self.analyzed_program.clone();
+        let en_data = &program.analyzed_enums[en_name];
+        let mut instantiate = GenericsInstantiator::from_generics(&en_data.generics, &generics)?;
+
+        for r in &en_data.restrictions.clone().visit(&mut instantiate)? {
             self.add_objective(&r.ty, &r.trt)?;
         }
 
@@ -402,6 +418,21 @@ impl TyckSolver {
                     Ok(())
                 }
             }
+            (AstType::Enum(a_name, a_tys), AstType::Enum(b_name, b_tys)) => {
+                if a_name != b_name {
+                    TyckSolver::error(&format!(
+                        "Enum names won't unify: {} and {}",
+                        a_name.full_name()?,
+                        b_name.full_name()?
+                    ))
+                } else {
+                    for (a_ty, b_ty) in ZipExact::zip_exact(a_tys, b_tys, "enum generics")? {
+                        self.unify_heuristic(a_ty, b_ty)?;
+                    }
+
+                    Ok(())
+                }
+            }
 
             (
                 AstType::ClosureType {
@@ -469,7 +500,9 @@ impl TyckSolver {
             (AstType::Generic(..), _)
             | (_, AstType::Generic(..))
             | (AstType::GenericPlaceholder(..), _)
-            | (_, AstType::GenericPlaceholder(..)) => unreachable!(),
+            | (_, AstType::GenericPlaceholder(..))
+            | (AstType::ObjectEnum(..), _)
+            | (_, AstType::ObjectEnum(..)) => unreachable!(),
 
             (a @ AstType::AssociatedType { .. }, b) | (a, b @ AstType::AssociatedType { .. }) => {
                 self.add_delayed_unify(&a, &b)?;
@@ -534,6 +567,21 @@ impl TyckSolver {
                     Ok(())
                 }
             }
+            (AstType::Enum(a_name, a_tys), AstType::Enum(b_name, b_tys)) => {
+                if a_name != b_name {
+                    TyckSolver::error(&format!(
+                        "Enum names won't unify: {} and {}",
+                        a_name.full_name()?,
+                        b_name.full_name()?
+                    ))
+                } else {
+                    for (a_ty, b_ty) in ZipExact::zip_exact(a_tys, b_tys, "enum generics")? {
+                        self.unify(a_ty, b_ty)?;
+                    }
+
+                    Ok(())
+                }
+            }
 
             (
                 AstType::ClosureType {
@@ -570,7 +618,7 @@ impl TyckSolver {
                 Ok(())
             }
 
-            (a, b) => TyckSolver::error(&format!("Type non-union, {:?} and {:?}", a, b)),
+            (a, b) => TyckSolver::error(&format!("Type non-union, {} and {}", a, b)),
         }
     }
 
@@ -641,7 +689,7 @@ impl TyckSolver {
                     self.unify_all(&sig.generics, &other_sig.generics)?;
                 } else {
                     TyckSolver::error(&format!(
-                        "Impl objective {:?} provided by two impls: {:?} and {:?}",
+                        "Impl objective {} provided by two impls: {:?} and {:?}",
                         obj, sig, other_sig
                     ))?;
                 }

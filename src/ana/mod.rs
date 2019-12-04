@@ -7,6 +7,7 @@ use crate::ana::analyze_argument_parity::AnalyzeArgumentParity;
 use crate::ana::analyze_associated_types::AnalyzeAssociatedTypes;
 use crate::ana::analyze_control_flow::AnalyzeControlFlow;
 use crate::ana::analyze_elaborations::AnalyzeElaborations;
+use crate::ana::analyze_enum_constructors::AnalyzeEnumConstructors;
 use crate::ana::analyze_fn_calls::AnalyzeFnCalls;
 use crate::ana::analyze_for_loops::AnalyzeForLoops;
 use crate::ana::analyze_generics::AnalyzeGenerics;
@@ -15,9 +16,11 @@ use crate::ana::analyze_global_names::AnalyzeGlobalNames;
 use crate::ana::analyze_illegal_globals::AnalyzeIllegalGlobals;
 use crate::ana::analyze_illegal_infers::AnalyzeIllegalInfers;
 use crate::ana::analyze_impls::AnalyzeImpls;
+use crate::ana::analyze_infallible_enums::AnalyzeInfallibleEnums;
 use crate::ana::analyze_names::AnalyzeNames;
 use crate::ana::analyze_object_functions::AnalyzeObjectFunctions;
 use crate::ana::analyze_operators::AnalyzeOperators;
+use crate::ana::analyze_positional_enums::AnalyzePositionalEnums;
 use crate::ana::analyze_returns::AnalyzeReturns;
 use crate::ana::analyze_self::AnalyzeSelf;
 use crate::ana::analyze_variables::AnalyzeVariables;
@@ -28,6 +31,7 @@ mod analyze_argument_parity;
 mod analyze_associated_types;
 mod analyze_control_flow;
 mod analyze_elaborations;
+mod analyze_enum_constructors;
 mod analyze_fn_calls;
 mod analyze_for_loops;
 mod analyze_generics;
@@ -36,11 +40,13 @@ mod analyze_global_names;
 mod analyze_illegal_globals;
 mod analyze_illegal_infers;
 mod analyze_impls;
+mod analyze_infallible_enums;
 mod analyze_info;
 mod analyze_modules;
 mod analyze_names;
 mod analyze_object_functions;
 mod analyze_operators;
+mod analyze_positional_enums;
 mod analyze_returns;
 mod analyze_self;
 mod analyze_variables;
@@ -79,6 +85,7 @@ pub fn analyze(p: AstProgram) -> PResult<(AnalyzedProgram, AstProgram)> {
     a.analyzed_modules = analyze_uses.modules;
 
     let passes: Vec<(&str, AnalysisPassFn)> = vec![
+        ("analyze_names", Box::new(AnalyzeNames::analyze)),
         // All the syntactic sugar needs to go first.
         ("analyze_for_loops", Box::new(AnalyzeForLoops::analyze)),
         (
@@ -86,12 +93,23 @@ pub fn analyze(p: AstProgram) -> PResult<(AnalyzedProgram, AstProgram)> {
             Box::new(AnalyzeElaborations::analyze),
         ),
         // Then the rest.
-        ("analyze_names", Box::new(AnalyzeNames::analyze)),
+        (
+            "analyze_enum_constructors",
+            Box::new(AnalyzeEnumConstructors::analyze),
+        ),
+        (
+            "analyze_positional_enums",
+            Box::new(AnalyzePositionalEnums::analyze),
+        ),
         (
             "analyze_associated_types",
             Box::new(AnalyzeAssociatedTypes::analyze),
         ), // Before generics
         ("analyze_generics", Box::new(AnalyzeGenerics::analyze)),
+        (
+            "analyze_infallible_enums",
+            Box::new(AnalyzeInfallibleEnums::analyze),
+        ),
         ("analyze_variables", Box::new(AnalyzeVariables::analyze)),
         ("analyze_fn_calls", Box::new(AnalyzeFnCalls::analyze)),
         (

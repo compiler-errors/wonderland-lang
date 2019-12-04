@@ -64,7 +64,7 @@ enum Mode {
     Translate,
 }
 
-const DEFAULT_MODE: Mode = Mode::Translate;
+const DEFAULT_MODE: Mode = Mode::Instantiate;
 
 fn main() {
     let args: Vec<_> = std::env::args().collect();

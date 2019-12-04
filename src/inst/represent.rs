@@ -7,6 +7,9 @@ pub struct InstFunctionSignature(pub ModuleRef, pub Vec<AstType>);
 pub struct InstObjectSignature(pub ModuleRef, pub Vec<AstType>);
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct InstEnumSignature(pub ModuleRef, pub Vec<AstType>);
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct InstObjectFunctionSignature(pub AstType, pub AstTraitType, pub String, pub Vec<AstType>);
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]

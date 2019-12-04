@@ -124,6 +124,24 @@ impl GenericsInstantiator {
             .visit(&mut instantiate)
     }
 
+    pub fn instantiate_enum_pattern(
+        analyzed_program: &AnalyzedProgram,
+        en_name: &ModuleRef,
+        generics: &[AstType],
+        variant: &str,
+    ) -> PResult<Vec<AstType>> {
+        let en_data = &analyzed_program.analyzed_enums[en_name];
+        let mapping = ZipExact::zip_exact(&en_data.generics, generics, "enum generics")?
+            .map(|(id, t)| (id.0, t.clone()))
+            .collect();
+        let mut instantiate = GenericsInstantiator(mapping);
+
+        en_data.variants[variant]
+            .fields
+            .clone()
+            .visit(&mut instantiate)
+    }
+
     pub fn instantiate_restrictions(
         analyzed_program: &AnalyzedProgram,
         impl_ty: &AstType,

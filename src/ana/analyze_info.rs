@@ -1,10 +1,11 @@
 use crate::ana::represent::{
-    AnFunctionData, AnImplData, AnObjectData, AnTraitData, AnalyzedProgram,
+    AnEnumData, AnEnumVariantData, AnFunctionData, AnImplData, AnObjectData, AnTraitData,
+    AnalyzedProgram,
 };
 use crate::parser::ast::*;
 use crate::parser::ast_visitor::AstAdapter;
-use crate::util::{Expect, PResult};
-use std::collections::HashMap;
+use crate::util::{Expect, IntoError, PResult};
+use std::collections::{HashMap, HashSet};
 
 pub struct AnalyzeInfo {
     pub analyzed_program: AnalyzedProgram,
@@ -18,9 +19,10 @@ impl AnalyzeInfo {
                 analyzed_functions: HashMap::new(),
                 analyzed_traits: HashMap::new(),
                 analyzed_objects: HashMap::new(),
+                analyzed_enums: HashMap::new(),
                 analyzed_impls: HashMap::new(),
                 analyzed_modules: HashMap::new(),
-                analyzed_globals: Default::default(),
+                analyzed_globals: HashMap::new(),
             },
         }
     }
@@ -53,6 +55,17 @@ impl AstAdapter for AnalyzeInfo {
         }
 
         for obj in m.objects.values() {
+            let mut seen = HashSet::new();
+            for m in &obj.members {
+                if !seen.insert(m.name.clone()) {
+                    return PResult::error(format!(
+                        "Duplicated member `{}` in object `{}`",
+                        m.name,
+                        obj.module_ref.full_name()?
+                    ));
+                }
+            }
+
             let ana_obj = AnObjectData {
                 name: obj.module_ref.clone(),
                 self_type: AstType::Object(
@@ -77,6 +90,47 @@ impl AstAdapter for AnalyzeInfo {
             self.analyzed_program
                 .analyzed_objects
                 .insert(obj.module_ref.clone(), ana_obj);
+        }
+
+        for en in m.enums.values() {
+            let mut seen = HashSet::new();
+            for v in en.variants.keys() {
+                if !seen.insert(v.clone()) {
+                    return PResult::error(format!(
+                        "Duplicated variant `{}` in enum `{}`",
+                        v,
+                        en.module_ref.full_name()?
+                    ));
+                }
+            }
+
+            let ana_en = AnEnumData {
+                name: en.module_ref.clone(),
+                self_type: AstType::Enum(
+                    en.module_ref.clone(),
+                    en.generics.iter().map(|g| g.clone().into()).collect(),
+                ),
+                generics: en.generics.clone(),
+                variants: en
+                    .variants
+                    .values()
+                    .map(|v| {
+                        (
+                            v.name.clone(),
+                            AnEnumVariantData {
+                                name: v.name.clone(),
+                                fields: v.fields.clone(),
+                                field_names: v.field_names.clone(),
+                            },
+                        )
+                    })
+                    .collect(),
+                restrictions: en.restrictions.clone(),
+            };
+
+            self.analyzed_program
+                .analyzed_enums
+                .insert(en.module_ref.clone(), ana_en);
         }
 
         for trt in m.traits.values() {

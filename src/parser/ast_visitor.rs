@@ -43,6 +43,15 @@ pub trait AstAdapter {
     fn enter_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
         Ok(e)
     }
+    fn enter_literal(&mut self, e: AstLiteral) -> PResult<AstLiteral> {
+        Ok(e)
+    }
+    fn enter_match_branch(&mut self, b: AstMatchBranch) -> PResult<AstMatchBranch> {
+        Ok(b)
+    }
+    fn enter_pattern(&mut self, p: AstMatchPattern) -> PResult<AstMatchPattern> {
+        Ok(p)
+    }
     fn enter_object(&mut self, o: AstObject) -> PResult<AstObject> {
         Ok(o)
     }
@@ -54,6 +63,12 @@ pub trait AstAdapter {
     }
     fn enter_trait(&mut self, t: AstTrait) -> PResult<AstTrait> {
         Ok(t)
+    }
+    fn enter_enum(&mut self, e: AstEnum) -> PResult<AstEnum> {
+        Ok(e)
+    }
+    fn enter_enum_variant(&mut self, e: AstEnumVariant) -> PResult<AstEnumVariant> {
+        Ok(e)
     }
     fn enter_impl(&mut self, i: AstImpl) -> PResult<AstImpl> {
         Ok(i)
@@ -103,6 +118,15 @@ pub trait AstAdapter {
     fn exit_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
         Ok(e)
     }
+    fn exit_literal(&mut self, e: AstLiteral) -> PResult<AstLiteral> {
+        Ok(e)
+    }
+    fn exit_match_branch(&mut self, b: AstMatchBranch) -> PResult<AstMatchBranch> {
+        Ok(b)
+    }
+    fn exit_pattern(&mut self, p: AstMatchPattern) -> PResult<AstMatchPattern> {
+        Ok(p)
+    }
     fn exit_object(&mut self, o: AstObject) -> PResult<AstObject> {
         Ok(o)
     }
@@ -114,6 +138,12 @@ pub trait AstAdapter {
     }
     fn exit_trait(&mut self, t: AstTrait) -> PResult<AstTrait> {
         Ok(t)
+    }
+    fn exit_enum(&mut self, e: AstEnum) -> PResult<AstEnum> {
+        Ok(e)
+    }
+    fn exit_enum_variant(&mut self, e: AstEnumVariant) -> PResult<AstEnumVariant> {
+        Ok(e)
     }
     fn exit_impl(&mut self, i: AstImpl) -> PResult<AstImpl> {
         Ok(i)
@@ -151,6 +181,7 @@ impl<T: AstAdapter> Visit<T> for AstModule {
             uses,
             objects,
             traits,
+            enums,
             impls,
             functions,
             globals,
@@ -160,6 +191,7 @@ impl<T: AstAdapter> Visit<T> for AstModule {
         let pub_uses = pub_uses.visit(adapter)?;
         let objects = objects.visit(adapter)?;
         let traits = traits.visit(adapter)?;
+        let enums = enums.visit(adapter)?;
         let impls = impls.visit(adapter)?;
         let functions = functions.visit(adapter)?;
         let globals = globals.visit(adapter)?;
@@ -171,6 +203,7 @@ impl<T: AstAdapter> Visit<T> for AstModule {
             uses,
             objects,
             traits,
+            enums,
             impls,
             functions,
             globals,
@@ -268,15 +301,8 @@ impl<T: AstAdapter> Visit<T> for AstStatement {
     fn visit(self, adapter: &mut T) -> PResult<Self> {
         let stmt = match adapter.enter_statement(self)? {
             i @ AstStatement::Break | i @ AstStatement::Continue => i,
-            AstStatement::Let {
-                name_span,
-                var_name,
-                ty,
-                value,
-            } => AstStatement::Let {
-                name_span,
-                var_name,
-                ty: ty.visit(adapter)?,
+            AstStatement::Let { pattern, value } => AstStatement::Let {
+                pattern: pattern.visit(adapter)?,
                 value: value.visit(adapter)?,
             },
             AstStatement::While { condition, block } => AstStatement::While {
@@ -316,20 +342,22 @@ impl<T: AstAdapter> Visit<T> for AstExpression {
         let ty = ty.visit(adapter)?;
 
         let data = match data {
-            i @ AstExpressionData::True
-            | i @ AstExpressionData::False
-            | i @ AstExpressionData::Null
-            | i @ AstExpressionData::SelfRef
-            | i @ AstExpressionData::String { .. }
-            | i @ AstExpressionData::Int(..)
-            | i @ AstExpressionData::Char(..)
+            i @ AstExpressionData::SelfRef
             | i @ AstExpressionData::Identifier { .. }
             | i @ AstExpressionData::Unimplemented => i,
+            AstExpressionData::Literal(lit) => AstExpressionData::Literal(lit.visit(adapter)?),
             AstExpressionData::GlobalVariable { name } => AstExpressionData::GlobalVariable {
                 name: name.visit(adapter)?,
             },
             AstExpressionData::Block { block } => AstExpressionData::Block {
                 block: block.visit(adapter)?,
+            },
+            AstExpressionData::Match {
+                expression,
+                branches,
+            } => AstExpressionData::Match {
+                expression: expression.visit(adapter)?,
+                branches: branches.visit(adapter)?,
             },
             AstExpressionData::If {
                 condition,
@@ -434,14 +462,118 @@ impl<T: AstAdapter> Visit<T> for AstExpression {
                 lhs: lhs.visit(adapter)?,
                 rhs: rhs.visit(adapter)?,
             },
+            AstExpressionData::PositionalEnum {
+                enumerable,
+                generics,
+                variant,
+                children,
+            } => AstExpressionData::PositionalEnum {
+                enumerable: enumerable.visit(adapter)?,
+                generics: generics.visit(adapter)?,
+                variant,
+                children: children.visit(adapter)?,
+            },
+            AstExpressionData::NamedEnum {
+                enumerable,
+                generics,
+                variant,
+                children,
+            } => AstExpressionData::NamedEnum {
+                enumerable: enumerable.visit(adapter)?,
+                generics: generics.visit(adapter)?,
+                variant,
+                children: children.visit(adapter)?,
+            },
+            AstExpressionData::PlainEnum {
+                enumerable,
+                generics,
+                variant,
+            } => AstExpressionData::PlainEnum {
+                enumerable: enumerable.visit(adapter)?,
+                generics: generics.visit(adapter)?,
+                variant,
+            },
         };
 
         adapter.exit_expression(AstExpression { data, ty, span })
     }
 }
 
-impl<T: AstAdapter> Visit<T> for AstType {
+impl<T: AstAdapter> Visit<T> for AstLiteral {
     fn visit(self, adapter: &mut T) -> PResult<Self> {
+        let l = adapter.enter_literal(self)?;
+        adapter.exit_literal(l)
+    }
+}
+
+impl<T: AstAdapter> Visit<T> for AstMatchBranch {
+    fn visit(self, adapter: &mut T) -> PResult<Self> {
+        let AstMatchBranch {
+            pattern,
+            expression,
+        } = adapter.enter_match_branch(self)?;
+
+        let i = AstMatchBranch {
+            pattern: pattern.visit(adapter)?,
+            expression: expression.visit(adapter)?,
+        };
+
+        adapter.exit_match_branch(i)
+    }
+}
+
+impl<T: AstAdapter> Visit<T> for AstMatchPattern {
+    fn visit(self, adapter: &mut T) -> PResult<AstMatchPattern> {
+        let pattern = match adapter.enter_pattern(self)? {
+            AstMatchPattern::Underscore => AstMatchPattern::Underscore,
+            AstMatchPattern::Identifier(var, ty) => {
+                AstMatchPattern::Identifier(var.visit(adapter)?, ty.visit(adapter)?)
+            }
+            AstMatchPattern::PositionalEnum {
+                enumerable,
+                generics,
+                variant,
+                children,
+                ignore_rest,
+            } => AstMatchPattern::PositionalEnum {
+                enumerable: enumerable.visit(adapter)?,
+                generics: generics.visit(adapter)?,
+                variant,
+                children: children.visit(adapter)?,
+                ignore_rest,
+            },
+            AstMatchPattern::NamedEnum {
+                enumerable,
+                generics,
+                variant,
+                children,
+                ignore_rest,
+            } => AstMatchPattern::NamedEnum {
+                enumerable: enumerable.visit(adapter)?,
+                generics: generics.visit(adapter)?,
+                variant,
+                children: children.visit(adapter)?,
+                ignore_rest,
+            },
+            AstMatchPattern::PlainEnum {
+                enumerable,
+                generics,
+                variant,
+            } => AstMatchPattern::PlainEnum {
+                enumerable: enumerable.visit(adapter)?,
+                generics: generics.visit(adapter)?,
+                variant,
+            },
+            AstMatchPattern::Tuple(children) => AstMatchPattern::Tuple(children.visit(adapter)?),
+            AstMatchPattern::Literal(lit) => AstMatchPattern::Literal(lit.visit(adapter)?),
+        };
+
+        adapter.exit_pattern(pattern)
+    }
+}
+
+impl<T: AstAdapter> Visit<T> for AstType {
+    fn visit(self, adapter: &mut T) -> PResult<AstType> {
         let ty = adapter.enter_type(self)?;
 
         let ty = match ty {
@@ -461,8 +593,14 @@ impl<T: AstAdapter> Visit<T> for AstType {
             AstType::Tuple { types } => AstType::Tuple {
                 types: types.visit(adapter)?,
             },
+            AstType::ObjectEnum(name, types) => {
+                AstType::ObjectEnum(name.visit(adapter)?, types.visit(adapter)?)
+            }
             AstType::Object(name, types) => {
                 AstType::Object(name.visit(adapter)?, types.visit(adapter)?)
+            }
+            AstType::Enum(name, types) => {
+                AstType::Enum(name.visit(adapter)?, types.visit(adapter)?)
             }
             AstType::ClosureType { args, ret_ty } => AstType::ClosureType {
                 args: args.visit(adapter)?,
@@ -596,6 +734,50 @@ impl<T: AstAdapter> Visit<T> for AstTrait {
         };
 
         adapter.exit_trait(i)
+    }
+}
+
+impl<T: AstAdapter> Visit<T> for AstEnum {
+    fn visit(self, adapter: &mut T) -> PResult<AstEnum> {
+        let AstEnum {
+            name_span,
+            name,
+            module_ref,
+            generics,
+            restrictions,
+            variants,
+        } = adapter.enter_enum(self)?;
+
+        let e = AstEnum {
+            name_span,
+            name,
+            module_ref,
+            generics,
+            restrictions: restrictions.visit(adapter)?,
+            variants: variants.visit(adapter)?,
+        };
+
+        adapter.exit_enum(e)
+    }
+}
+
+impl<T: AstAdapter> Visit<T> for AstEnumVariant {
+    fn visit(self, adapter: &mut T) -> PResult<AstEnumVariant> {
+        let AstEnumVariant {
+            name_span,
+            name,
+            fields,
+            field_names,
+        } = adapter.enter_enum_variant(self)?;
+
+        let e = AstEnumVariant {
+            name_span,
+            name,
+            fields: fields.visit(adapter)?,
+            field_names,
+        };
+
+        adapter.exit_enum_variant(e)
     }
 }
 
