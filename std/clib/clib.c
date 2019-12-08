@@ -4,11 +4,11 @@
 #include "gc.c"
 
 // Functions explicitly used by the tr codegen
-#include "tr.c"
+#include "builtin.c"
 
 // Functions that are exported in std/internal/**.ch
-// These are, by virtue of their being exported, also decorated.
+// These are (by virtue of their being exported by cheshire itself) also decorated.
 #include "internal.c"
 
-// Used in LLVM GC strategy
+// Used by LLVM GC strategy, stack walking
 #include "statepoint.c"

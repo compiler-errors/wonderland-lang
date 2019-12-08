@@ -1,6 +1,6 @@
 use crate::ana::represent::AnalyzedProgram;
 use crate::ana::represent_visitor::PureAnalysisPass;
-use crate::parser::ast::{AstExpression, AstExpressionData, AstMatchPattern};
+use crate::parser::ast::{AstExpression, AstExpressionData, AstMatchPattern, AstMatchPatternData};
 use crate::parser::ast_visitor::AstAdapter;
 use crate::util::PResult;
 use std::collections::HashMap;
@@ -57,19 +57,21 @@ impl AstAdapter for AnalyzePositionalEnums {
     }
 
     fn enter_pattern(&mut self, p: AstMatchPattern) -> PResult<AstMatchPattern> {
-        match p {
-            AstMatchPattern::PlainEnum {
+        let AstMatchPattern { data, ty } = p;
+
+        let data = match data {
+            AstMatchPatternData::PlainEnum {
                 enumerable,
                 generics,
                 variant,
-            } => Ok(AstMatchPattern::PositionalEnum {
+            } => AstMatchPatternData::PositionalEnum {
                 enumerable,
                 generics,
                 variant,
                 children: Vec::new(),
                 ignore_rest: false,
-            }),
-            AstMatchPattern::PositionalEnum {
+            },
+            AstMatchPatternData::PositionalEnum {
                 enumerable,
                 variant,
                 generics,
@@ -80,15 +82,15 @@ impl AstAdapter for AnalyzePositionalEnums {
                     .fields
                     .len();
 
-                Ok(AstMatchPattern::PositionalEnum {
+                AstMatchPatternData::PositionalEnum {
                     enumerable,
                     generics,
                     variant,
-                    children: augment(children, expected, AstMatchPattern::Underscore),
+                    children: augment(children, expected, AstMatchPattern::underscore()),
                     ignore_rest: false,
-                })
+                }
             }
-            AstMatchPattern::NamedEnum {
+            AstMatchPatternData::NamedEnum {
                 enumerable,
                 generics,
                 variant,
@@ -100,16 +102,18 @@ impl AstAdapter for AnalyzePositionalEnums {
                     .as_ref()
                     .unwrap();
 
-                Ok(AstMatchPattern::PositionalEnum {
+                AstMatchPatternData::PositionalEnum {
                     enumerable,
                     generics,
                     variant,
-                    children: arrange(ordering, children, Some(AstMatchPattern::Underscore)),
+                    children: arrange(ordering, children, Some(AstMatchPattern::underscore())),
                     ignore_rest: false,
-                })
+                }
             }
-            p => Ok(p),
-        }
+            p => p,
+        };
+
+        Ok(AstMatchPattern { data, ty })
     }
 }
 

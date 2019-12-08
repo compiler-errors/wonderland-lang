@@ -1,5 +1,5 @@
-use crate::ana::represent::{AnalyzedProgram, AnEnumData, AnObjectData, AnTraitData};
-use crate::ana::represent_visitor::{PureAnalysisPass, DirtyAnalysisPass, AnAdapter};
+use crate::ana::represent::{AnEnumData, AnObjectData, AnTraitData, AnalyzedProgram};
+use crate::ana::represent_visitor::{AnAdapter, DirtyAnalysisPass};
 use crate::parser::ast::{AstTraitType, AstType, ModuleRef};
 use crate::parser::ast_visitor::AstAdapter;
 use crate::util::{IntoError, PResult};
@@ -27,7 +27,7 @@ impl AstAdapter for AnalyzeNames {
     fn enter_type(&mut self, t: AstType) -> PResult<AstType> {
         match t {
             AstType::ObjectEnum(name, generics) => {
-                    if self.analyzed_objects.contains_key(&name) {
+                if self.analyzed_objects.contains_key(&name) {
                     Ok(AstType::object(name, generics))
                 } else if self.analyzed_enums.contains_key(&name) {
                     Ok(AstType::enumerable(name, generics))
@@ -38,7 +38,7 @@ impl AstAdapter for AnalyzeNames {
                     ))
                 }
             }
-            t => Ok(t)
+            t => Ok(t),
         }
     }
 

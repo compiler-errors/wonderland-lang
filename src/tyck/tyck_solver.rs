@@ -469,7 +469,7 @@ impl TyckSolver {
                 Ok(())
             }
 
-            (a, b) => TyckSolver::error(&format!("Type non-union: {:?} and {:?}", a, b)),
+            (a, b) => TyckSolver::error(&format!("Type non-union: {} and {}", a, b)),
         }
     }
 
@@ -493,7 +493,7 @@ impl TyckSolver {
         let lhs = self.normalize_ty(lhs)?;
         let rhs = self.normalize_ty(rhs)?;
 
-        println!("; Unifying {} and {}", lhs, rhs);
+        // println!("; Unifying {} and {}", lhs, rhs);
 
         match (&lhs, &rhs) {
             /* Generics should have been repl'ed out. */

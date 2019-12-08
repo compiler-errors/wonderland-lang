@@ -117,11 +117,3 @@ pub fn unwrap_callsite(callsite: CallSiteValue) -> BasicValueEnum {
         Either::Right(_) => unreachable!(),
     }
 }
-
-pub fn num_subvals(t: &AstType) -> usize {
-    if let AstType::Tuple { types } = t {
-        types.iter().map(num_subvals).sum()
-    } else {
-        1usize
-    }
-}

@@ -1,6 +1,8 @@
 use self::decorate::*;
 use self::type_helpers::*;
-use crate::inst::{InstObjectSignature, InstantiatedProgram};
+use crate::inst::{
+    InstEnumRepresentation, InstEnumSignature, InstObjectSignature, InstantiatedProgram,
+};
 use crate::parser::ast::*;
 use crate::util::{IntoError, PError, PResult, ZipExact};
 use inkwell::attributes::{Attribute, AttributeLoc};
@@ -10,6 +12,7 @@ use inkwell::context::Context;
 use inkwell::module::Module;
 use inkwell::types::*;
 use inkwell::values::*;
+use inkwell::IntPredicate;
 use std::collections::{HashMap, HashSet};
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
@@ -45,11 +48,7 @@ enum Definition {
 struct Translator {
     context: Context,
     module: Module,
-
-    alloc_string: FunctionValue,
-    alloc_object: FunctionValue,
-    alloc_array: FunctionValue,
-    array_idx_at: FunctionValue,
+    builtin_functions: HashMap<String, FunctionValue>,
 
     break_continue: Option<(BasicBlock, BasicBlock)>,
 
@@ -59,6 +58,8 @@ struct Translator {
     type_ids: HashMap<AstType, usize>,
     // TODO: Do I need to store it like this? Why can't I just store it in reverse (usize -> ..)?
     closure_object_ids: HashMap<usize, TrClosureCaptureEnvironment>,
+
+    enums: HashMap<InstEnumSignature, InstEnumRepresentation>,
 }
 
 pub fn translate(
@@ -77,7 +78,7 @@ pub fn translate(
             println!("{}", module.print_to_string().to_string());
         }
 
-        PError::new(format!("LLVM: {}", why.to_string()));
+        return PResult::error(format!("LLVM: {}", why.to_string()));
     }
 
     if output_file != "-" {
@@ -105,7 +106,7 @@ fn emit_module(
     } else {
         let dir = TempDir::new().map_err(|e| PError::new(format!("Temp dir error: {}", e)))?;
         let dir_path = dir.path();
-        //let dir_path = Path::new("./tmpout/");
+        //let dir_path = Path::new("./tempout/");
 
         let ll = dir_path.join("file.ll").into_os_string();
         let ll_gc = dir_path.join("file.gc.ll").into_os_string();
@@ -183,7 +184,8 @@ impl Translator {
         let module = context.create_module("main");
 
         // Declare string type
-        context.opaque_struct_type("string").set_body(
+        let string_struct = context.opaque_struct_type("string");
+        string_struct.set_body(
             &[
                 context.i64_type().into(),
                 context.i8_type().ptr_type(GLOBAL).into(),
@@ -191,69 +193,20 @@ impl Translator {
             false,
         );
 
-        let alloc_string = module.add_function(
-            "gc_alloc_string",
-            module
-                .get_type("string")
-                .unwrap()
-                .into_struct_type()
-                .ptr_type(GC)
-                .fn_type(
-                    &[
-                        context.i8_type().ptr_type(GLOBAL).into(),
-                        context.i64_type().into(),
-                    ],
-                    false,
-                ),
-            None,
-        );
-        set_all_fn_attributes(&context, alloc_string);
+        let string_ty = string_struct.ptr_type(GC).into();
+        let i8_ptr_global_ty = context.i8_type().ptr_type(GLOBAL).into();
+        let i8_ptr_gc_ty = context.i8_type().ptr_type(GC).into();
+        let i64_ty = context.i64_type().into();
+        let i8_ty = context.i8_type().into();
+        let i1_ty = context.bool_type().into();
+        let i16_ty = context.i16_type().into();
+        let noreturn =
+            context.create_enum_attribute(Attribute::get_named_enum_kind_id("noreturn"), 1);
 
-        let alloc_object = module.add_function(
-            "gc_alloc_object",
-            context.i8_type().ptr_type(GC).fn_type(
-                &[context.i64_type().into(), context.i16_type().into()],
-                false,
-            ),
-            None,
-        );
-        set_all_fn_attributes(&context, alloc_object);
-
-        let alloc_array = module.add_function(
-            "gc_alloc_array",
-            context.i8_type().ptr_type(GC).fn_type(
-                &[
-                    context.i64_type().into(),
-                    context.i64_type().into(),
-                    context.i16_type().into(),
-                ],
-                false,
-            ),
-            None,
-        );
-        set_all_fn_attributes(&context, alloc_array);
-
-        let array_idx_at = module.add_function(
-            "gc_array_idx_at",
-            context.i8_type().ptr_type(GLOBAL).fn_type(
-                &[
-                    context.i8_type().ptr_type(GC).into(),
-                    context.i64_type().into(),
-                ],
-                false,
-            ),
-            None,
-        );
-        set_all_fn_attributes(&context, alloc_array);
-
-        Translator {
+        let mut tr = Translator {
             module,
             context,
-
-            alloc_string,
-            alloc_object,
-            alloc_array,
-            array_idx_at,
+            builtin_functions: HashMap::new(),
 
             break_continue: None,
 
@@ -261,7 +214,66 @@ impl Translator {
             globals: HashMap::new(),
             type_ids: HashMap::new(),
             closure_object_ids: HashMap::new(),
+            enums: HashMap::new(),
+        };
+
+        tr.add_function(
+            "gc_alloc_string",
+            string_ty,
+            &[i8_ptr_global_ty, i64_ty],
+            true,
+        );
+
+        tr.add_function("gc_alloc_object", i8_ptr_gc_ty, &[i64_ty, i16_ty], true);
+
+        tr.add_function(
+            "gc_alloc_array",
+            i8_ptr_gc_ty,
+            &[i64_ty, i64_ty, i16_ty],
+            true,
+        );
+
+        tr.add_function(
+            "gc_array_idx_at",
+            i8_ptr_global_ty,
+            &[i8_ptr_gc_ty, i64_ty],
+            true,
+        );
+
+        tr.add_function("match_panic", i8_ty, &[], true);
+        tr.get_function("match_panic")
+            .add_attribute(AttributeLoc::Function, noreturn);
+
+        tr.add_function(
+            "string_eq_literal",
+            i1_ty,
+            &[string_ty, i8_ptr_global_ty, i64_ty],
+            true,
+        );
+
+        tr
+    }
+
+    fn add_function(
+        &mut self,
+        name: &str,
+        return_value: BasicTypeEnum,
+        parameters: &[BasicTypeEnum],
+        apply_attributes: bool,
+    ) {
+        let f = self
+            .module
+            .add_function(name, fun_type(return_value, parameters), None);
+
+        if apply_attributes {
+            set_all_fn_attributes(&self.context, f);
         }
+
+        self.builtin_functions.insert(name.to_string(), f);
+    }
+
+    fn get_function(&self, name: &str) -> FunctionValue {
+        self.builtin_functions[name]
     }
 
     fn translate(&mut self, mut file: InstantiatedProgram) -> PResult<()> {
@@ -272,6 +284,7 @@ impl Translator {
             self.type_ids.insert(ty.clone(), new_type_id());
         }
         file.instantiated_types.insert(AstType::String);
+        self.enums.extend(file.instantiated_enums);
 
         // Forward declaration.
         for (sig, _) in &file.instantiated_objects {
@@ -280,11 +293,10 @@ impl Translator {
         }
 
         for (sig, obj) in &file.instantiated_objects {
-            self.translate_object(sig, obj.as_ref().unwrap())?;
+            self.translate_object(&sig, &obj)?;
         }
 
         for (sig, fun) in &file.instantiated_fns {
-            let fun = fun.as_ref().unwrap();
             let name = decorate_fn(&sig.0, &sig.1)?;
             self.forward_declare_function(
                 &name,
@@ -295,7 +307,6 @@ impl Translator {
         }
 
         for (sig, fun) in &file.instantiated_object_fns {
-            let fun = fun.as_ref().unwrap();
             let name = decorate_object_fn(&sig.0, &sig.1, &sig.2, &sig.3)?;
             self.forward_declare_function(
                 &name,
@@ -310,7 +321,6 @@ impl Translator {
         }
 
         for (sig, fun) in file.instantiated_fns {
-            let fun = fun.unwrap();
             let name = decorate_fn(&sig.0, &sig.1)?;
             let definition = map_definition(&sig.0.full_name()?, fun.definition);
 
@@ -324,7 +334,6 @@ impl Translator {
         }
 
         for (sig, fun) in file.instantiated_object_fns {
-            let fun = fun.unwrap();
             let name = decorate_object_fn(&sig.0, &sig.1, &sig.2, &sig.3)?;
 
             let definition = if fun.definition.is_some() {
@@ -487,7 +496,7 @@ impl Translator {
             // Call array_idx_at with array, elem size, and idx.
             let idx = llvm_fun.get_params()[1];
             let elem_ptr = unwrap_callsite(first_builder.build_call(
-                self.array_idx_at,
+                self.get_function("gc_array_idx_at"),
                 &[ptr.into(), idx],
                 &temp_name(),
             ));
@@ -526,7 +535,7 @@ impl Translator {
             // Call array_idx_at with array, elem size, and idx.
             let idx = llvm_fun.get_params()[1];
             let elem_ptr = unwrap_callsite(first_builder.build_call(
-                self.array_idx_at,
+                self.get_function("gc_array_idx_at"),
                 &[ptr.into(), idx],
                 &temp_name(),
             ));
@@ -672,10 +681,14 @@ impl Translator {
     fn translate_statement(&mut self, builder: &Builder, statement: &AstStatement) -> PResult<()> {
         match statement {
             // Removed in earlier stages
-            AstStatement::Let { .. } => unreachable!(),
             AstStatement::For { .. } => unreachable!(),
 
             AstStatement::Assert { .. } => unimplemented!(),
+
+            AstStatement::Let { pattern, value } => {
+                let values = &self.translate_expression(builder, value)?;
+                self.translate_pattern(builder, pattern, values, None)?
+            }
 
             AstStatement::Expression { expression } => {
                 self.translate_expression(builder, expression)?;
@@ -737,9 +750,11 @@ impl Translator {
         expression: &AstExpression,
     ) -> PResult<Vec<BasicValueEnum>> {
         let value: Vec<BasicValueEnum> = match &expression.data {
-            AstExpressionData::SelfRef => unreachable!(),
-            AstExpressionData::Unimplemented => unreachable!(),
-            AstExpressionData::ExprCall { .. } => unreachable!(),
+            AstExpressionData::SelfRef
+            | AstExpressionData::Unimplemented
+            | AstExpressionData::ExprCall { .. }
+            | AstExpressionData::NamedEnum { .. }
+            | AstExpressionData::PlainEnum { .. } => unreachable!(),
 
             c @ AstExpressionData::Closure { .. } => {
                 let env = self.translate_closure_capture_environment(c)?;
@@ -755,6 +770,115 @@ impl Translator {
                 vec![opaque_closure.into()]
             }
 
+            AstExpressionData::Match {
+                expression,
+                branches,
+            } => {
+                let match_values = self.translate_expression(builder, &expression)?;
+                let (after_block, _) = self.get_new_block(builder)?;
+                let (mut fallthrough_block, _) = self.get_new_block(builder)?;
+
+                let mut cases = Vec::new();
+
+                for AstMatchBranch {
+                    pattern,
+                    expression,
+                } in branches
+                {
+                    self.translate_pattern(
+                        builder,
+                        pattern,
+                        &match_values,
+                        Some(&fallthrough_block),
+                    )?;
+                    let (success_block, _) = self.get_new_block(builder)?;
+                    builder.build_unconditional_branch(&success_block);
+                    builder.position_at_end(&success_block);
+
+                    let vals = self.translate_expression(builder, expression)?;
+                    builder.build_unconditional_branch(&after_block);
+                    cases.push((success_block, vals));
+
+                    builder.position_at_end(&fallthrough_block);
+                    let (new_fallthrough_block, _) = self.get_new_block(builder)?;
+                    fallthrough_block = new_fallthrough_block;
+                }
+
+                // Fallthrough block -> panic
+                builder.build_unconditional_branch(&fallthrough_block);
+                builder.position_at_end(&fallthrough_block);
+                builder.build_call(self.get_function("match_panic"), &[], &temp_name());
+                builder.build_unconditional_branch(&after_block);
+
+                // Otherwise, we successfully matched, let's go unify all the returns.
+                builder.position_at_end(&after_block);
+                // This is the worst, most cursed code ever.
+                if !cases.is_empty() {
+                    let subval_tys: Vec<_> = cases[0].1.iter().map(|e| e.get_type()).collect();
+                    let mut result_subvals = Vec::new();
+
+                    for (i, ty) in subval_tys.iter().enumerate() {
+                        let subphi = builder.build_phi(*ty, &temp_name());
+                        let mut case_subvals = cases
+                            .iter()
+                            .map(|(x, y)| (&y[i] as &dyn BasicValue, x))
+                            .collect::<Vec<_>>();
+
+                        // One more for the fallthrough block
+                        let undef = type_undefined(*ty)?;
+                        case_subvals.push((&undef as &dyn BasicValue, &fallthrough_block));
+
+                        subphi.add_incoming(&case_subvals);
+                        result_subvals.push(subphi.as_basic_value());
+                    }
+
+                    result_subvals
+                } else {
+                    let ty = self.get_type(&expression.ty)?;
+                    self.flatten_val(builder, type_undefined(ty)?, &expression.ty)?
+                }
+            }
+            AstExpressionData::PositionalEnum {
+                enumerable,
+                generics,
+                variant,
+                children,
+            } => {
+                let mut flat_children = Vec::new();
+                for child in children {
+                    flat_children.extend(self.translate_expression(builder, child)?);
+                }
+
+                let en_info = &self.enums[&InstEnumSignature(enumerable.clone(), generics.clone())];
+                let mut fields: Vec<_> = (0..en_info.fields.len()).map(|_| None).collect();
+
+                // Set the discriminant, always the first value.
+                fields[0] = Some(
+                    self.context
+                        .i64_type()
+                        .const_int(en_info.discriminants[variant], false)
+                        .into(),
+                );
+
+                for (idx, child) in ZipExact::zip_exact(
+                    &en_info.variants[variant],
+                    flat_children,
+                    "flat enum children",
+                )? {
+                    fields[*idx] = Some(child);
+                }
+
+                for i in 0..fields.len() {
+                    if fields[i].is_none() {
+                        let field_ty = self.get_type(&en_info.fields[i])?;
+                        let default_val = type_zero(field_ty)?;
+                        fields[i] = Some(default_val);
+                    }
+                }
+
+                fields.into_iter().map(Option::unwrap).collect()
+            }
+
             AstExpressionData::GlobalFn { name } => {
                 let name = decorate_fn(name, &[])?;
 
@@ -767,52 +891,8 @@ impl Translator {
                     .into()]
             }
 
-            AstExpressionData::True => vec![self.context.bool_type().const_int(1, false).into()],
-            AstExpressionData::False => vec![self.context.bool_type().const_int(0, false).into()],
-
-            AstExpressionData::Null => vec![self
-                .get_type(&expression.ty)?
-                .into_pointer_type()
-                .const_null()
-                .into()],
-
-            AstExpressionData::String { string, len } => {
-                let string_const = self.context.const_string(&string, false);
-                let string_global =
-                    self.module
-                        .add_global(string_const.get_type(), None, &temp_name());
-                string_global.set_initializer(&string_const);
-
-                // Access the [N x i8]* as a i8*
-                let zero = self.context.i64_type().const_int(0, false);
-                let string = unsafe {
-                    builder.build_gep(
-                        string_global.as_pointer_value(),
-                        &[zero, zero],
-                        &temp_name(),
-                    )
-                };
-
-                let len = self.context.i64_type().const_int(*len as u64, false);
-                let fn_ret = builder.build_call(
-                    self.alloc_string,
-                    &[string.into(), len.into()],
-                    &temp_name(),
-                );
-
-                vec![unwrap_callsite(fn_ret)]
-            }
-
-            AstExpressionData::Int(i) => vec![self
-                .context
-                .i64_type()
-                .const_int_from_string(&i, StringRadix::Decimal)
-                .unwrap()
-                .into()],
-            AstExpressionData::Char(c) => {
-                let mut k = [0u8];
-                c.encode_utf8(&mut k);
-                vec![self.context.i8_type().const_int(k[0] as u64, false).into()]
+            AstExpressionData::Literal(lit) => {
+                self.translate_literal(builder, lit, &expression.ty)?
             }
 
             // Lval-always expressions. Can be calculated by getting the lval then deref'ing.
@@ -853,7 +933,7 @@ impl Translator {
 
                 let ty_id = self.type_ids[&expression.ty];
                 let ptr = builder.build_call(
-                    self.alloc_array,
+                    self.get_function("gc_alloc_array"),
                     &[
                         ty_size.into(),
                         num_elements.into(),
@@ -892,7 +972,7 @@ impl Translator {
 
                 let ty_id = self.type_ids[&expression.ty];
                 let ptr = builder.build_call(
-                    self.alloc_array,
+                    self.get_function("gc_alloc_array"),
                     &[
                         ty_size.into(),
                         num_elements.into(),
@@ -977,8 +1057,8 @@ impl Translator {
                 let tup = self.translate_expression(builder, &accessible)?;
 
                 if let AstType::Tuple { types } = &accessible.ty {
-                    let begin = types[0..*idx].iter().map(num_subvals).sum();
-                    let end = begin + num_subvals(&types[*idx]);
+                    let begin = types[0..*idx].iter().map(|t| self.num_subvals(t)).sum();
+                    let end = begin + self.num_subvals(&types[*idx]);
 
                     tup[begin..end].iter().cloned().collect()
                 } else {
@@ -992,7 +1072,7 @@ impl Translator {
                 let ty_id = self.type_ids[&expression.ty];
 
                 let val = builder.build_call(
-                    self.alloc_object,
+                    self.get_function("gc_alloc_object"),
                     &[
                         size.into(),
                         self.context
@@ -1074,6 +1154,61 @@ impl Translator {
         Ok(value)
     }
 
+    fn translate_literal(
+        &mut self,
+        builder: &Builder,
+        lit: &AstLiteral,
+        ty: &AstType,
+    ) -> PResult<Vec<BasicValueEnum>> {
+        let vals = match lit {
+            AstLiteral::True => vec![self.context.bool_type().const_int(1, false).into()],
+            AstLiteral::False => vec![self.context.bool_type().const_int(0, false).into()],
+
+            AstLiteral::Null => vec![self.get_type(ty)?.into_pointer_type().const_null().into()],
+
+            AstLiteral::String { string, len } => {
+                let string_const = self.context.const_string(&string, false);
+                let string_global =
+                    self.module
+                        .add_global(string_const.get_type(), None, &temp_name());
+                string_global.set_initializer(&string_const);
+
+                // Access the [N x i8]* as a i8*
+                let zero = self.context.i64_type().const_int(0, false);
+                let string = unsafe {
+                    builder.build_gep(
+                        string_global.as_pointer_value(),
+                        &[zero, zero],
+                        &temp_name(),
+                    )
+                };
+
+                let len = self.context.i64_type().const_int(*len as u64, false);
+                let fn_ret = builder.build_call(
+                    self.get_function("gc_alloc_string"),
+                    &[string.into(), len.into()],
+                    &temp_name(),
+                );
+
+                vec![unwrap_callsite(fn_ret)]
+            }
+
+            AstLiteral::Int(i) => vec![self
+                .context
+                .i64_type()
+                .const_int_from_string(&i, StringRadix::Decimal)
+                .unwrap()
+                .into()],
+            AstLiteral::Char(c) => {
+                let mut k = [0u8];
+                c.encode_utf8(&mut k);
+                vec![self.context.i8_type().const_int(k[0] as u64, false).into()]
+            }
+        };
+
+        Ok(vals)
+    }
+
     fn get_array_idx(
         &mut self,
         builder: &Builder,
@@ -1089,6 +1224,158 @@ impl Translator {
         );
         let elem_ptr = unsafe { builder.build_gep(array_ptr, &[idx], &temp_name()) };
         Ok(elem_ptr)
+    }
+
+    fn translate_pattern(
+        &mut self,
+        builder: &Builder,
+        pattern: &AstMatchPattern,
+        values: &[BasicValueEnum],
+        bail_block: Option<&BasicBlock>,
+    ) -> PResult<()> {
+        match &pattern.data {
+            AstMatchPatternData::Underscore => {}
+            AstMatchPatternData::NamedEnum { .. } | AstMatchPatternData::PlainEnum { .. } => {
+                unreachable!()
+            }
+            AstMatchPatternData::PositionalEnum {
+                enumerable,
+                generics,
+                variant,
+                children,
+                ..
+            } => {
+                let en_info = &self.enums[&InstEnumSignature(enumerable.clone(), generics.clone())];
+
+                let (success_block, _) = self.get_new_block(builder)?;
+                let discriminant = en_info.discriminants[variant];
+                let variant_remapping = &en_info.variants[variant];
+
+                if en_info.variants.len() == 1 {
+                    // Infallible, no need to test anything at all.
+                    builder.build_unconditional_branch(&success_block);
+                } else {
+                    let cmp = builder.build_int_compare(
+                        IntPredicate::EQ,
+                        values[0].into_int_value(),
+                        self.context.i64_type().const_int(discriminant, false),
+                        &temp_name(),
+                    );
+                    builder.build_conditional_branch(cmp, &success_block, bail_block.unwrap());
+                }
+
+                builder.position_at_end(&success_block);
+
+                let mut consumed = 0;
+                let remapped_values: Vec<_> =
+                    variant_remapping.iter().map(|i| values[*i]).collect();
+
+                for child in children {
+                    let child_size = self.num_subvals(&child.ty);
+                    self.translate_pattern(
+                        builder,
+                        child,
+                        &remapped_values[consumed..consumed + child_size],
+                        bail_block,
+                    )?;
+                    consumed += child_size;
+                }
+            }
+            AstMatchPatternData::Tuple(children) => {
+                let mut consumed = 0; // Skip the discriminant
+
+                for child in children {
+                    let child_size = self.num_subvals(&child.ty);
+                    self.translate_pattern(
+                        builder,
+                        child,
+                        &values[consumed..consumed + child_size],
+                        bail_block,
+                    )?;
+                    consumed += child_size;
+                }
+            }
+            AstMatchPatternData::Identifier(var) => {
+                for (ptr, val) in
+                    ZipExact::zip_exact(&self.variables[&var.id], values, "flattened values")?
+                {
+                    builder.build_store(*ptr, *val);
+                }
+            }
+            AstMatchPatternData::Literal(lit) => {
+                assert_eq!(values.len(), 1);
+                let value = values[0];
+
+                let (success_block, _) = self.get_new_block(builder)?;
+
+                let predicate = match lit {
+                    AstLiteral::Null => {
+                        builder.build_is_null(value.into_pointer_value(), &temp_name())
+                    }
+                    AstLiteral::True => builder.build_int_compare(
+                        IntPredicate::EQ,
+                        value.into_int_value(),
+                        self.context.bool_type().const_int(1, false),
+                        &temp_name(),
+                    ),
+                    AstLiteral::False => builder.build_int_compare(
+                        IntPredicate::EQ,
+                        value.into_int_value(),
+                        self.context.bool_type().const_int(0, false),
+                        &temp_name(),
+                    ),
+                    AstLiteral::Int(i) => builder.build_int_compare(
+                        IntPredicate::EQ,
+                        value.into_int_value(),
+                        self.context
+                            .bool_type()
+                            .const_int_from_string(&i, StringRadix::Decimal)
+                            .unwrap(),
+                        &temp_name(),
+                    ),
+                    AstLiteral::Char(c) => {
+                        let mut k = [0u8];
+                        c.encode_utf8(&mut k);
+                        builder.build_int_compare(
+                            IntPredicate::EQ,
+                            value.into_int_value(),
+                            self.context.i8_type().const_int(k[0] as u64, false),
+                            &temp_name(),
+                        )
+                    }
+                    AstLiteral::String { string, len } => {
+                        let string_const = self.context.const_string(&string, false);
+                        let string_global =
+                            self.module
+                                .add_global(string_const.get_type(), None, &temp_name());
+                        string_global.set_initializer(&string_const);
+
+                        // Access the [N x i8]* as a i8*
+                        let zero = self.context.i64_type().const_int(0, false);
+                        let string = unsafe {
+                            builder.build_gep(
+                                string_global.as_pointer_value(),
+                                &[zero, zero],
+                                &temp_name(),
+                            )
+                        };
+
+                        let len = self.context.i64_type().const_int(*len as u64, false);
+                        let fn_ret = builder.build_call(
+                            self.get_function("string_eq_literal"),
+                            &[value, string.into(), len.into()],
+                            &temp_name(),
+                        );
+                        unwrap_callsite(fn_ret).into_int_value()
+                    }
+                };
+
+                builder.build_conditional_branch(predicate, &success_block, bail_block.unwrap());
+                builder.position_at_end(&success_block);
+            }
+        }
+
+        Ok(())
     }
 
     fn translate_expression_lval(
@@ -1134,8 +1421,8 @@ impl Translator {
                 let object = self.translate_expression_lval(builder, &accessible)?;
 
                 if let AstType::Tuple { types } = &accessible.ty {
-                    let begin = types[0..*idx].iter().map(num_subvals).sum();
-                    let end = begin + num_subvals(&types[*idx]);
+                    let begin = types[0..*idx].iter().map(|t| self.num_subvals(t)).sum();
+                    let end = begin + self.num_subvals(&types[*idx]);
 
                     Ok(object[begin..end].iter().cloned().collect())
                 } else {
@@ -1283,7 +1570,7 @@ impl Translator {
 
             let ptr = unwrap_callsite(
                 builder.build_call(
-                    self.alloc_object,
+                    self.get_function("gc_alloc_object"),
                     &[
                         size.into(),
                         self.context
@@ -1329,7 +1616,7 @@ impl Translator {
     fn translate_gc_visit(
         &self,
         tys: &HashSet<AstType>,
-        instantiated_objects: &HashMap<InstObjectSignature, Option<AstObject>>,
+        instantiated_objects: &HashMap<InstObjectSignature, AstObject>,
     ) -> PResult<()> {
         let callback_value_type = self.context.i8_type().ptr_type(GC).ptr_type(GLOBAL);
         let gc_callback_type = self
@@ -1429,8 +1716,6 @@ impl Translator {
 
                     for (idx, member) in instantiated_objects
                         [&InstObjectSignature(name.clone(), generics.clone())]
-                        .as_ref()
-                        .unwrap()
                         .members
                         .iter()
                         .enumerate()
@@ -1491,11 +1776,44 @@ impl Translator {
                         &temp_name(),
                     );
 
-                    for (idx, ty) in types.iter().enumerate() {
-                        let subty_id = self.type_ids[&ty];
+                    for (idx, subty) in types.iter().enumerate() {
+                        let subty_id = self.type_ids[&subty];
                         let subty_ptr = unsafe {
                             builder.build_struct_gep(tuple_ptr, idx as u32, &temp_name())
                         };
+                        let subty_ptr = builder.build_pointer_cast(
+                            subty_ptr,
+                            self.context.i8_type().ptr_type(GLOBAL),
+                            &temp_name(),
+                        );
+                        builder.build_call(
+                            gc_visit,
+                            &[
+                                subty_ptr.into(),
+                                self.context
+                                    .i16_type()
+                                    .const_int(subty_id as u64, false)
+                                    .into(),
+                                callback_param.into(),
+                            ],
+                            &temp_name(),
+                        );
+                    }
+                }
+
+                AstType::Enum(name, generics) => {
+                    let enum_ptr = builder.build_pointer_cast(
+                        ptr_param,
+                        ptr_type(self.get_type(t)?, GLOBAL).into_pointer_type(),
+                        &temp_name(),
+                    );
+
+                    let en = InstEnumSignature(name.clone(), generics.clone());
+
+                    for (i, subty) in self.enums[&en].fields.iter().enumerate() {
+                        let subty_id = self.type_ids[&subty];
+                        let subty_ptr =
+                            unsafe { builder.build_struct_gep(enum_ptr, i as u32, &temp_name()) };
                         let subty_ptr = builder.build_pointer_cast(
                             subty_ptr,
                             self.context.i8_type().ptr_type(GLOBAL),
@@ -1663,6 +1981,15 @@ impl Translator {
                 self.context.struct_type(&types, false).into()
             }
 
+            AstType::Enum(name, generics) => {
+                let types = self.enums[&InstEnumSignature(name.clone(), generics.clone())]
+                    .fields
+                    .iter()
+                    .map(|t| self.get_type(t))
+                    .collect::<PResult<Vec<BasicTypeEnum>>>()?;
+                self.context.struct_type(&types, false).into()
+            }
+
             AstType::FnPointerType { args, ret_ty } => {
                 let types = args
                     .iter()
@@ -1693,29 +2020,35 @@ impl Translator {
         t: &AstType,
     ) -> PResult<BasicValueEnum> {
         if let AstType::Tuple { types } = t {
-            let mut subset = vals;
+            let mut consumed = 0;
             let mut bundled_value: AggregateValueEnum =
                 self.get_type(t)?.into_struct_type().get_undef().into();
 
             for (i, subty) in types.iter().enumerate() {
-                let (subvals, remaining) = subset.split_at(num_subvals(subty));
-                let bundled_subval = self.bundle_vals(builder, subvals, subty)?;
+                let num_subvals = self.num_subvals(subty);
+                let subvals = &vals[consumed..consumed + num_subvals];
 
                 // Insert the bundled set of values...
+                let bundled_subval = self.bundle_vals(builder, subvals, subty)?;
                 bundled_value = builder
                     .build_insert_value(bundled_value, bundled_subval, i as u32, &temp_name())
                     .unwrap();
 
-                // The rest of the values will be used to build the rest of the tuple.
-                subset = remaining;
+                consumed += num_subvals;
             }
 
-            // I hate that I can't just change this enum into BasicValueEnum...
-            if let AggregateValueEnum::StructValue(bundled_value) = bundled_value {
-                Ok(bundled_value.into())
-            } else {
-                unreachable!()
+            Ok(bundled_value.into_struct_value().into())
+        } else if let AstType::Enum(..) = t {
+            let mut bundled_value: AggregateValueEnum =
+                self.get_type(t)?.into_struct_type().get_undef().into();
+
+            for (i, val) in vals.iter().enumerate() {
+                bundled_value = builder
+                    .build_insert_value(bundled_value, *val, i as u32, &temp_name())
+                    .unwrap();
             }
+
+            Ok(bundled_value.into_struct_value().into())
         } else {
             assert_eq!(vals.len(), 1);
 
@@ -1740,6 +2073,20 @@ impl Translator {
             }
 
             Ok(ret)
+        } else if let AstType::Enum(name, generics) = t {
+            let en = InstEnumSignature(name.clone(), generics.clone());
+            let mut ret = Vec::new();
+
+            for (i, subty) in self.enums[&en].fields.iter().enumerate() {
+                let subval = builder
+                    .build_extract_value(v.into_struct_value(), i as u32, &temp_name())
+                    .unwrap();
+                let subvals = self.flatten_val(builder, subval, subty)?;
+                assert_eq!(subvals.len(), 1);
+                ret.push(subvals[0]);
+            }
+
+            Ok(ret)
         } else {
             Ok(vec![v])
         }
@@ -1757,6 +2104,18 @@ impl Translator {
             for (i, subty) in types.into_iter().enumerate() {
                 let subval = unsafe { builder.build_struct_gep(v, i as u32, &temp_name()) };
                 ret.extend(self.flatten_ptr(builder, subval, subty)?);
+            }
+
+            Ok(ret)
+        } else if let AstType::Enum(name, generics) = t {
+            let en = InstEnumSignature(name.clone(), generics.clone());
+            let mut ret = Vec::new();
+
+            for (i, subty) in self.enums[&en].fields.iter().enumerate() {
+                let subval = unsafe { builder.build_struct_gep(v, i as u32, &temp_name()) };
+                let subvals = self.flatten_ptr(builder, subval, subty)?;
+                assert_eq!(subvals.len(), 1);
+                ret.push(subvals[0]);
             }
 
             Ok(ret)
@@ -1782,6 +2141,20 @@ impl Translator {
             }
 
             Ok(ret)
+        } else if let AstType::Enum(name, generics) = t {
+            let en = InstEnumSignature(name.clone(), generics.clone());
+            let mut ret = Vec::new();
+
+            for (i, subty) in self.enums[&en].fields.iter().enumerate() {
+                let subval = builder
+                    .build_extract_value(v.into_struct_value(), i as u32, &temp_name())
+                    .unwrap();
+                let subvals = self.flatten_alloca(builder, subval, subty)?;
+                assert_eq!(subvals.len(), 1);
+                ret.push(subvals[0]);
+            }
+
+            Ok(ret)
         } else {
             let ptr = builder.build_alloca(self.get_type(t)?, &temp_name());
             builder.build_store(ptr, v);
@@ -1799,11 +2172,33 @@ impl Translator {
             }
 
             Ok(ret)
+        } else if let AstType::Enum(name, generics) = t {
+            let en = InstEnumSignature(name.clone(), generics.clone());
+            let mut ret = Vec::new();
+
+            for subty in &self.enums[&en].fields {
+                let subtys = self.flatten_globals(subty)?;
+                assert_eq!(subtys.len(), 1);
+                ret.push(subtys[0]);
+            }
+
+            Ok(ret)
         } else {
             let ty = self.get_type(t)?;
             let ptr = self.module.add_global(ty, None, &temp_name());
             ptr.set_initializer(&type_undefined(ty)?);
             Ok(vec![ptr])
+        }
+    }
+
+    pub fn num_subvals(&self, t: &AstType) -> usize {
+        if let AstType::Tuple { types } = t {
+            types.iter().map(|t| self.num_subvals(t)).sum()
+        } else if let AstType::Enum(name, generics) = t {
+            let en = InstEnumSignature(name.clone(), generics.clone());
+            self.enums[&en].fields.len()
+        } else {
+            1usize
         }
     }
 }
@@ -1817,7 +2212,10 @@ fn set_all_fn_attributes(context: &Context, fun: FunctionValue) {
 
 fn set_cheshire_fn_attributes(context: &Context, fun: FunctionValue) {
     fun.set_gc("statepoint-example");
-
+    fun.add_attribute(
+        AttributeLoc::Function,
+        context.create_enum_attribute(Attribute::get_named_enum_kind_id("nounwind"), 1),
+    );
     fun.add_attribute(
         AttributeLoc::Function,
         context.create_enum_attribute(Attribute::get_named_enum_kind_id("inlinehint"), 1),

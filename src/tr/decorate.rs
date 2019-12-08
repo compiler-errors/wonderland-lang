@@ -65,6 +65,28 @@ pub fn decorate_ty(t: &AstType) -> PResult<String> {
             string
         }
 
+        AstType::Enum(name, generics) if generics.len() == 0 => {
+            let (decorated_module, name) = decorate_module(name)?;
+            format!("e{}{}{}", decorated_module, name.len(), name)
+        }
+
+        AstType::Enum(name, generics) => {
+            let (decorated_module, name) = decorate_module(name)?;
+            let mut string = format!(
+                "E{}{}{}{}",
+                decorated_module,
+                name.len(),
+                name,
+                generics.len()
+            );
+
+            for t in generics {
+                string.push_str(&decorate_ty(t)?);
+            }
+
+            string
+        }
+
         AstType::ClosureType { args, ret_ty } => {
             if args.is_empty() {
                 format!("c{}", decorate_ty(&ret_ty)?)

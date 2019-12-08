@@ -809,7 +809,7 @@ impl Parser {
 
     fn parse_match_pattern(&mut self) -> PResult<AstMatchPattern> {
         if self.check_consume(Token::Underscore)? {
-            Ok(AstMatchPattern::Underscore)
+            Ok(AstMatchPattern::underscore())
         } else if self.check_consume(Token::LParen)? {
             let first = self.parse_match_pattern()?;
 
@@ -856,8 +856,7 @@ impl Parser {
                     AstType::infer()
                 };
 
-                let var = AstNamedVariable::new(name_span, name, ty.clone());
-                Ok(AstMatchPattern::Identifier(var, ty))
+                Ok(AstMatchPattern::identifier(name_span, name, ty))
             }
         } else if self.check_typename() {
             let full_name = ModuleRef::Denormalized(vec![self.expect_consume_typename()?]);
@@ -1373,7 +1372,6 @@ impl Parser {
                     self.expect_consume(Token::Comma)?;
                 }
 
-                let name_span = self.next_span;
                 let name = self.expect_consume_identifier()?;
 
                 self.expect_consume_colon()?;

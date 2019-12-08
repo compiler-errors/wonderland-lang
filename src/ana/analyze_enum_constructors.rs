@@ -1,6 +1,6 @@
 use crate::ana::represent::AnalyzedProgram;
 use crate::ana::represent_visitor::PureAnalysisPass;
-use crate::parser::ast::{AstExpression, AstExpressionData, AstMatchPattern};
+use crate::parser::ast::{AstExpression, AstExpressionData, AstMatchPattern, AstMatchPatternData};
 use crate::parser::ast_visitor::AstAdapter;
 use crate::util::{IntoError, PResult};
 
@@ -110,8 +110,8 @@ impl AstAdapter for AnalyzeEnumConstructors {
     }
 
     fn enter_pattern(&mut self, p: AstMatchPattern) -> PResult<AstMatchPattern> {
-        match &p {
-            AstMatchPattern::PlainEnum {
+        match &p.data {
+            AstMatchPatternData::PlainEnum {
                 enumerable,
                 variant,
                 ..
@@ -127,7 +127,7 @@ impl AstAdapter for AnalyzeEnumConstructors {
                     ));
                 }
             }
-            AstMatchPattern::PositionalEnum {
+            AstMatchPatternData::PositionalEnum {
                 enumerable,
                 variant,
                 children,
@@ -164,7 +164,7 @@ impl AstAdapter for AnalyzeEnumConstructors {
                     ));
                 }
             }
-            AstMatchPattern::NamedEnum {
+            AstMatchPatternData::NamedEnum {
                 enumerable,
                 variant,
                 children,

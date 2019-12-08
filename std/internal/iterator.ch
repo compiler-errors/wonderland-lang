@@ -31,3 +31,35 @@ impl<_T> Iterator for ArrayIterator<_T> {
         self:idx < self:array:len()
     }
 }
+
+/*
+impl Iterable for String {
+    type IterType = StringIterator.
+
+    fn iterator(self) -> StringIterator {
+        let i = allocate StringIterator.
+        i:str = self.
+        i:idx = 0.
+        i
+    }
+}
+
+object StringIterator {
+    str: String.
+    idx: Int.
+}
+
+impl Iterator for StringIterator {
+    type IterItem = Char.
+
+    fn next(self) -> Char {
+        let e = self:str[self:idx].
+
+        if self:idx < self:str:len() {
+            self:idx = self:idx + 1.
+        }
+
+        e
+    }
+}
+*/

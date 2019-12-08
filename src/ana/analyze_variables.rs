@@ -96,8 +96,8 @@ impl<'a> AstAdapter for AnalyzeVariables {
     }
 
     fn enter_pattern(&mut self, p: AstMatchPattern) -> PResult<AstMatchPattern> {
-        match &p {
-            AstMatchPattern::Identifier(name, ..) => {
+        match &p.data {
+            AstMatchPatternData::Identifier(name, ..) => {
                 self.assign_index(name)?;
             }
             _ => {}
@@ -325,8 +325,8 @@ impl AstAdapter for CaptureIdentifier {
     }
 
     fn enter_pattern(&mut self, p: AstMatchPattern) -> PResult<AstMatchPattern> {
-        match &p {
-            AstMatchPattern::Identifier(name, ..) => {
+        match &p.data {
+            AstMatchPatternData::Identifier(name, ..) => {
                 self.ignore(&name.name);
             }
             _ => {}

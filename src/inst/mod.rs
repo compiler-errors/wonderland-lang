@@ -5,8 +5,10 @@ use crate::parser::ast::*;
 use crate::parser::ast_visitor::AstAdapter;
 use crate::tyck::*;
 use crate::util::{Expect, IntoError, PResult, Visit};
+use either::Either;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
+use std::hash::Hash;
 use std::rc::Rc;
 
 mod post_solve;
@@ -26,7 +28,7 @@ struct InstantiationAdapter {
     instantiated_object_fns: HashMap<InstObjectFunctionSignature, Option<AstObjectFunction>>,
     instantiated_impls: HashMap<InstImplSignature, Option<AstImpl>>,
     instantiated_objects: HashMap<InstObjectSignature, Option<AstObject>>,
-    instantiated_enums: HashMap<InstEnumSignature, Option<AstEnum>>,
+    instantiated_enums: HashMap<InstEnumSignature, Option<InstEnumRepresentation>>,
     instantiated_types: HashSet<AstType>,
 
     solved_impls: HashMap<TyckObjective, InstImplSignature>,
@@ -35,10 +37,11 @@ struct InstantiationAdapter {
 #[derive(Debug)]
 pub struct InstantiatedProgram {
     pub main_fn: ModuleRef,
-    pub instantiated_fns: HashMap<InstFunctionSignature, Option<AstFunction>>,
-    pub instantiated_object_fns: HashMap<InstObjectFunctionSignature, Option<AstObjectFunction>>,
-    pub instantiated_impls: HashMap<InstImplSignature, Option<AstImpl>>,
-    pub instantiated_objects: HashMap<InstObjectSignature, Option<AstObject>>,
+    pub instantiated_fns: HashMap<InstFunctionSignature, AstFunction>,
+    pub instantiated_object_fns: HashMap<InstObjectFunctionSignature, AstObjectFunction>,
+    pub instantiated_impls: HashMap<InstImplSignature, AstImpl>,
+    pub instantiated_objects: HashMap<InstObjectSignature, AstObject>,
+    pub instantiated_enums: HashMap<InstEnumSignature, InstEnumRepresentation>,
     pub instantiated_globals: HashMap<ModuleRef, AstGlobalVariable>,
     pub instantiated_types: HashSet<AstType>,
 }
@@ -120,12 +123,17 @@ pub fn instantiate(
     Ok(InstantiatedProgram {
         main_fn,
         instantiated_globals,
-        instantiated_fns: i.instantiated_fns,
-        instantiated_object_fns: i.instantiated_object_fns,
-        instantiated_impls: i.instantiated_impls,
-        instantiated_objects: i.instantiated_objects,
+        instantiated_fns: unwrap_values(i.instantiated_fns),
+        instantiated_object_fns: unwrap_values(i.instantiated_object_fns),
+        instantiated_impls: unwrap_values(i.instantiated_impls),
+        instantiated_objects: unwrap_values(i.instantiated_objects),
+        instantiated_enums: unwrap_values(i.instantiated_enums),
         instantiated_types: i.instantiated_types,
     })
+}
+
+fn unwrap_values<K: Eq + Hash, V>(map: HashMap<K, Option<V>>) -> HashMap<K, V> {
+    map.into_iter().map(|(k, v)| (k, v.unwrap())).collect()
 }
 
 impl InstantiationAdapter {
@@ -168,8 +176,15 @@ impl InstantiationAdapter {
     fn instantiate_enum(&mut self, name: &ModuleRef, generics: &[AstType]) -> PResult<()> {
         let sig = InstEnumSignature(name.clone(), generics.to_vec());
 
-        if self.instantiated_enums.contains_key(&sig) {
-            return Ok(());
+        if let Some(x) = self.instantiated_enums.get(&sig) {
+            if x.is_some() {
+                return Ok(());
+            } else {
+                return PResult::error(format!(
+                    "Enum `{}` cannot be sized, recursively contains itself",
+                    name.full_name()?
+                ));
+            }
         }
 
         // Insert so we don't recurse infinitely.
@@ -177,8 +192,9 @@ impl InstantiationAdapter {
 
         let ids = &self.analyzed_program.clone().analyzed_enums[name].generics;
         let o = self.process_simple(self.enums[name].clone(), ids, generics)?;
+        let r = self.solve_enum_representation(o);
 
-        self.instantiated_enums.insert(sig, Some(o));
+        self.instantiated_enums.insert(sig, Some(r));
 
         Ok(())
     }
@@ -305,6 +321,104 @@ impl InstantiationAdapter {
         let t = t.visit(&mut post_solve)?.visit(self)?;
 
         Ok(t)
+    }
+
+    fn solve_enum_representation(&self, e: AstEnum) -> InstEnumRepresentation {
+        print!(
+            "Enum {} is represented with ",
+            e.module_ref.full_name().unwrap()
+        );
+
+        let discriminants = e
+            .variants
+            .keys()
+            .enumerate()
+            .map(|(i, v)| (v.clone(), i as u64))
+            .collect();
+        let mut fields = Vec::new();
+        let mut variants = HashMap::new();
+
+        for (name, variant) in e.variants {
+            let mut free_fields: HashMap<usize, AstType> =
+                fields.iter().cloned().enumerate().collect();
+            let mut member_idxes = Vec::new();
+
+            for f in variant.fields {
+                for t in self.flatten_type(f) {
+                    // Try to find a type that matches this one in the free fields. If we can't,
+                    // then add that field to the end of the representation. Maybe it'll get used
+                    // by another variant.
+                    let idx = self.find_field(&mut free_fields, t).left_or_else(|t| {
+                        let idx = fields.len();
+                        fields.push(t);
+                        idx + 1 // Add 1 to account for the later added discriminant at position 0.
+                    });
+
+                    member_idxes.push(idx);
+                }
+            }
+
+            variants.insert(name, member_idxes);
+        }
+
+        fields.insert(0, AstType::Int); // Discriminant always goes first
+        println!(
+            "{} fields: [{}]",
+            fields.len(),
+            fields
+                .iter()
+                .map(|t| format!("{}", t))
+                .collect::<Vec<String>>()
+                .join(", ")
+        );
+
+        InstEnumRepresentation {
+            fields,
+            variants,
+            discriminants,
+        }
+    }
+
+    fn flatten_type(&self, t: AstType) -> Vec<AstType> {
+        match t {
+            AstType::Tuple { types } => types
+                .iter()
+                .flat_map(|t| self.flatten_type(t.clone()))
+                .collect(),
+            AstType::Enum(name, generics) => {
+                let sig = InstEnumSignature(name.clone(), generics.clone());
+                self.instantiated_enums[&sig]
+                    .as_ref()
+                    .unwrap()
+                    .fields
+                    .clone()
+            }
+            t => vec![t],
+        }
+    }
+
+    fn find_field(
+        &self,
+        f: &mut HashMap<usize, AstType>,
+        seeking_ty: AstType,
+    ) -> Either<usize, AstType> {
+        let mut found = None; // Index in the tuple
+
+        for (idx, ty) in f.iter() {
+            if *ty == seeking_ty {
+                found = Some(*idx);
+                break;
+            }
+        }
+
+        if let Some(i) = found {
+            f.remove(&i);
+        }
+
+        match found {
+            Some(idx) => Either::Left(idx),
+            None => Either::Right(seeking_ty),
+        }
     }
 }
 

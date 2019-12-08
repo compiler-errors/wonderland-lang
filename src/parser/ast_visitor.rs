@@ -524,51 +524,57 @@ impl<T: AstAdapter> Visit<T> for AstMatchBranch {
 
 impl<T: AstAdapter> Visit<T> for AstMatchPattern {
     fn visit(self, adapter: &mut T) -> PResult<AstMatchPattern> {
-        let pattern = match adapter.enter_pattern(self)? {
-            AstMatchPattern::Underscore => AstMatchPattern::Underscore,
-            AstMatchPattern::Identifier(var, ty) => {
-                AstMatchPattern::Identifier(var.visit(adapter)?, ty.visit(adapter)?)
+        let AstMatchPattern { data, ty } = adapter.enter_pattern(self)?;
+
+        let data = match data {
+            AstMatchPatternData::Underscore => AstMatchPatternData::Underscore,
+            AstMatchPatternData::Identifier(var) => {
+                AstMatchPatternData::Identifier(var.visit(adapter)?)
             }
-            AstMatchPattern::PositionalEnum {
+            AstMatchPatternData::PositionalEnum {
                 enumerable,
                 generics,
                 variant,
                 children,
                 ignore_rest,
-            } => AstMatchPattern::PositionalEnum {
+            } => AstMatchPatternData::PositionalEnum {
                 enumerable: enumerable.visit(adapter)?,
                 generics: generics.visit(adapter)?,
                 variant,
                 children: children.visit(adapter)?,
                 ignore_rest,
             },
-            AstMatchPattern::NamedEnum {
+            AstMatchPatternData::NamedEnum {
                 enumerable,
                 generics,
                 variant,
                 children,
                 ignore_rest,
-            } => AstMatchPattern::NamedEnum {
+            } => AstMatchPatternData::NamedEnum {
                 enumerable: enumerable.visit(adapter)?,
                 generics: generics.visit(adapter)?,
                 variant,
                 children: children.visit(adapter)?,
                 ignore_rest,
             },
-            AstMatchPattern::PlainEnum {
+            AstMatchPatternData::PlainEnum {
                 enumerable,
                 generics,
                 variant,
-            } => AstMatchPattern::PlainEnum {
+            } => AstMatchPatternData::PlainEnum {
                 enumerable: enumerable.visit(adapter)?,
                 generics: generics.visit(adapter)?,
                 variant,
             },
-            AstMatchPattern::Tuple(children) => AstMatchPattern::Tuple(children.visit(adapter)?),
-            AstMatchPattern::Literal(lit) => AstMatchPattern::Literal(lit.visit(adapter)?),
+            AstMatchPatternData::Tuple(children) => {
+                AstMatchPatternData::Tuple(children.visit(adapter)?)
+            }
+            AstMatchPatternData::Literal(lit) => AstMatchPatternData::Literal(lit.visit(adapter)?),
         };
 
-        adapter.exit_pattern(pattern)
+        let ty = ty.visit(adapter)?;
+
+        adapter.exit_pattern(AstMatchPattern { data, ty })
     }
 }
 

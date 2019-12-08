@@ -1,6 +1,6 @@
 use crate::ana::represent::AnalyzedProgram;
 use crate::ana::represent_visitor::PureAnalysisPass;
-use crate::parser::ast::{AstMatchPattern, AstStatement};
+use crate::parser::ast::{AstMatchPattern, AstMatchPatternData, AstStatement};
 use crate::parser::ast_visitor::AstAdapter;
 use crate::util::{IntoError, PResult};
 
@@ -18,11 +18,11 @@ impl PureAnalysisPass for AnalyzeInfallibleEnums {
 
 impl AnalyzeInfallibleEnums {
     fn is_infallible(&self, pattern: &AstMatchPattern) -> bool {
-        match pattern {
-            AstMatchPattern::Underscore | AstMatchPattern::Identifier(..) => true,
-            AstMatchPattern::Literal(..) => false,
-            AstMatchPattern::Tuple(children) => children.iter().all(|x| self.is_infallible(x)),
-            AstMatchPattern::NamedEnum {
+        match &pattern.data {
+            AstMatchPatternData::Underscore | AstMatchPatternData::Identifier(..) => true,
+            AstMatchPatternData::Literal(..) => false,
+            AstMatchPatternData::Tuple(children) => children.iter().all(|x| self.is_infallible(x)),
+            AstMatchPatternData::NamedEnum {
                 enumerable,
                 children,
                 ..
@@ -30,7 +30,7 @@ impl AnalyzeInfallibleEnums {
                 self.0.analyzed_enums[enumerable].variants.len() == 1
                     && children.values().all(|x| self.is_infallible(x))
             }
-            AstMatchPattern::PositionalEnum {
+            AstMatchPatternData::PositionalEnum {
                 enumerable,
                 children,
                 ..
@@ -38,11 +38,9 @@ impl AnalyzeInfallibleEnums {
                 self.0.analyzed_enums[enumerable].variants.len() == 1
                     && children.iter().all(|x| self.is_infallible(x))
             }
-            AstMatchPattern::PlainEnum {
-                enumerable,
-                variant,
-                ..
-            } => self.0.analyzed_enums[enumerable].variants.len() == 1,
+            AstMatchPatternData::PlainEnum { enumerable, .. } => {
+                self.0.analyzed_enums[enumerable].variants.len() == 1
+            }
         }
     }
 }

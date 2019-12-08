@@ -25,10 +25,12 @@ impl TyckObjectiveAdapter {
     }
 
     fn unify_pattern_type(&mut self, pattern: &AstMatchPattern, other_ty: &AstType) -> PResult<()> {
-        match pattern {
-            AstMatchPattern::Underscore => {}
-            AstMatchPattern::Identifier(_, ty) => self.solver.unify(ty, other_ty)?,
-            AstMatchPattern::Tuple(children) => {
+        self.solver.unify(&pattern.ty, other_ty)?;
+
+        match &pattern.data {
+            AstMatchPatternData::Underscore => {}
+            AstMatchPatternData::Identifier(v) => self.solver.unify(&v.ty, other_ty)?,
+            AstMatchPatternData::Tuple(children) => {
                 let mut children_tys = Vec::new();
 
                 for child in children {
@@ -39,7 +41,7 @@ impl TyckObjectiveAdapter {
 
                 self.solver.unify(&AstType::tuple(children_tys), other_ty)?;
             }
-            AstMatchPattern::Literal(lit) => match lit {
+            AstMatchPatternData::Literal(lit) => match lit {
                 AstLiteral::True | AstLiteral::False => {
                     self.solver.unify(&AstType::Bool, other_ty)?
                 }
@@ -48,7 +50,7 @@ impl TyckObjectiveAdapter {
                 AstLiteral::Char(..) => self.solver.unify(&AstType::Char, other_ty)?,
                 AstLiteral::String { .. } => self.solver.unify(&AstType::String, other_ty)?,
             },
-            AstMatchPattern::PositionalEnum {
+            AstMatchPatternData::PositionalEnum {
                 enumerable,
                 generics,
                 variant,
@@ -67,8 +69,12 @@ impl TyckObjectiveAdapter {
                 {
                     self.unify_pattern_type(child, &ty)?;
                 }
+
+                self.solver.unify(&other_ty, &AstType::enumerable(enumerable.clone(), generics.clone()))?;
             }
-            AstMatchPattern::PlainEnum { .. } | AstMatchPattern::NamedEnum { .. } => unreachable!(),
+            AstMatchPatternData::PlainEnum { .. } | AstMatchPatternData::NamedEnum { .. } => {
+                unreachable!()
+            }
         }
 
         Ok(())

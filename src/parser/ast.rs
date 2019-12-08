@@ -939,9 +939,15 @@ pub struct AstMatchBranch {
 }
 
 #[derive(Debug, Clone)]
-pub enum AstMatchPattern {
+pub struct AstMatchPattern {
+    pub data: AstMatchPatternData,
+    pub ty: AstType,
+}
+
+#[derive(Debug, Clone)]
+pub enum AstMatchPatternData {
     Underscore,
-    Identifier(AstNamedVariable, AstType),
+    Identifier(AstNamedVariable),
     PositionalEnum {
         enumerable: ModuleRef,
         generics: Vec<AstType>,
@@ -966,8 +972,22 @@ pub enum AstMatchPattern {
 }
 
 impl AstMatchPattern {
+    pub fn underscore() -> AstMatchPattern {
+        AstMatchPattern {
+            data: AstMatchPatternData::Underscore,
+            ty: AstType::infer(),
+        }
+    }
+
     pub fn identifier(name_span: Span, name: String, ty: AstType) -> AstMatchPattern {
-        AstMatchPattern::Identifier(AstNamedVariable::new(name_span, name, ty.clone()), ty)
+        AstMatchPattern {
+            data: AstMatchPatternData::Identifier(AstNamedVariable::new(
+                name_span,
+                name,
+                ty.clone(),
+            )),
+            ty,
+        }
     }
 
     pub fn positional_enum(
@@ -977,12 +997,15 @@ impl AstMatchPattern {
         children: Vec<AstMatchPattern>,
         ignore_rest: bool,
     ) -> AstMatchPattern {
-        AstMatchPattern::PositionalEnum {
-            enumerable,
-            generics,
-            variant,
-            children,
-            ignore_rest,
+        AstMatchPattern {
+            data: AstMatchPatternData::PositionalEnum {
+                enumerable,
+                generics,
+                variant,
+                children,
+                ignore_rest,
+            },
+            ty: AstType::infer(),
         }
     }
 
@@ -993,12 +1016,15 @@ impl AstMatchPattern {
         children: HashMap<String, AstMatchPattern>,
         ignore_rest: bool,
     ) -> AstMatchPattern {
-        AstMatchPattern::NamedEnum {
-            enumerable,
-            generics,
-            variant,
-            children,
-            ignore_rest,
+        AstMatchPattern {
+            data: AstMatchPatternData::NamedEnum {
+                enumerable,
+                generics,
+                variant,
+                children,
+                ignore_rest,
+            },
+            ty: AstType::infer(),
         }
     }
 
@@ -1007,19 +1033,28 @@ impl AstMatchPattern {
         generics: Vec<AstType>,
         variant: String,
     ) -> AstMatchPattern {
-        AstMatchPattern::PlainEnum {
-            enumerable,
-            generics,
-            variant,
+        AstMatchPattern {
+            data: AstMatchPatternData::PlainEnum {
+                enumerable,
+                generics,
+                variant,
+            },
+            ty: AstType::infer(),
         }
     }
 
     pub fn tuple(children: Vec<AstMatchPattern>) -> AstMatchPattern {
-        AstMatchPattern::Tuple(children)
+        AstMatchPattern {
+            data: AstMatchPatternData::Tuple(children),
+            ty: AstType::infer(),
+        }
     }
 
     pub fn literal(lit: AstLiteral) -> AstMatchPattern {
-        AstMatchPattern::Literal(lit)
+        AstMatchPattern {
+            data: AstMatchPatternData::Literal(lit),
+            ty: AstType::infer(),
+        }
     }
 }
 
