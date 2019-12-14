@@ -13,7 +13,7 @@
 #define i8 uint8_t
 #define i1 bool
 
-#define DEBUG_PRINTF(...) if (true) { printf(__VA_ARGS__); }
+#define DEBUG_PRINTF(...) if (false) { printf(__VA_ARGS__); }
 #define NOINLINE __attribute__((noinline))
 
 struct array {

@@ -19,6 +19,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::RwLock;
 use tempfile::TempDir;
+use std::io::Write;
 
 mod decorate;
 mod type_helpers;
@@ -76,6 +77,7 @@ pub fn translate(
     if let Result::Err(why) = module.verify() {
         if output_file != "-" {
             println!("{}", module.print_to_string().to_string());
+            std::io::stdout().flush().unwrap();
         }
 
         return PResult::error(format!("LLVM: {}", why.to_string()));
@@ -104,9 +106,9 @@ fn emit_module(
             ));
         }
     } else {
-        let dir = TempDir::new().map_err(|e| PError::new(format!("Temp dir error: {}", e)))?;
-        let dir_path = dir.path();
-        //let dir_path = Path::new("./tempout/");
+        //let dir = TempDir::new().map_err(|e| PError::new(format!("Temp dir error: {}", e)))?;
+        //let dir_path = dir.path();
+        let dir_path = Path::new("./tempout/");
 
         let ll = dir_path.join("file.ll").into_os_string();
         let ll_gc = dir_path.join("file.gc.ll").into_os_string();
@@ -796,6 +798,10 @@ impl Translator {
                     builder.position_at_end(&success_block);
 
                     let vals = self.translate_expression(builder, expression)?;
+
+                    // We may have branched from the original success since we emitted the branch
+                    // to it, so let's capture the new block at the tip of the builder.
+                    let success_block = builder.get_insert_block().unwrap();
                     builder.build_unconditional_branch(&after_block);
                     cases.push((success_block, vals));
 
@@ -853,10 +859,11 @@ impl Translator {
                 let mut fields: Vec<_> = (0..en_info.fields.len()).map(|_| None).collect();
 
                 // Set the discriminant, always the first value.
+                let disc = en_info.discriminants[variant];
                 fields[0] = Some(
                     self.context
                         .i64_type()
-                        .const_int(en_info.discriminants[variant], false)
+                        .const_int(disc, false)
                         .into(),
                 );
 
@@ -891,9 +898,7 @@ impl Translator {
                     .into()]
             }
 
-            AstExpressionData::Literal(lit) => {
-                self.translate_literal(builder, lit, &expression.ty)?
-            }
+            AstExpressionData::Literal(lit) => self.translate_literal(builder, lit)?,
 
             // Lval-always expressions. Can be calculated by getting the lval then deref'ing.
             AstExpressionData::Identifier { .. }
@@ -1066,8 +1071,24 @@ impl Translator {
                 }
             }
 
-            AstExpressionData::AllocateObject { object } => {
-                let ptr_type = self.get_type(object)?.into_pointer_type();
+            AstExpressionData::AllocateObject {
+                object,
+                generics,
+                children,
+                children_idxes,
+            } => {
+                // I don't like this.
+                let ptr_type = self
+                    .get_type(&AstType::object(object.clone(), generics.clone()))?
+                    .into_pointer_type();
+                let children_idxes = children_idxes.as_ref().unwrap();
+
+                let mut children_values = HashMap::new();
+                for (name, child) in children {
+                    children_values
+                        .insert(name.clone(), self.translate_expression(builder, child)?);
+                }
+
                 let size = type_size(ptr_type.get_element_type().into_struct_type().into())?;
                 let ty_id = self.type_ids[&expression.ty];
 
@@ -1084,9 +1105,24 @@ impl Translator {
                 );
                 let ptr = unwrap_callsite(val);
 
-                vec![builder
-                    .build_pointer_cast(ptr.into_pointer_value(), ptr_type, &temp_name())
-                    .into()]
+                let object =
+                    builder.build_pointer_cast(ptr.into_pointer_value(), ptr_type, &temp_name());
+
+                for (name, child_values) in children_values {
+                    let idx = children_idxes[&name];
+                    let member_ptr =
+                        unsafe { builder.build_struct_gep(object, idx as u32, &temp_name()) };
+                    let flat_member_ptrs =
+                        self.flatten_ptr(builder, member_ptr, &children[&name].ty)?;
+
+                    for (ptr, value) in
+                        ZipExact::zip_exact(flat_member_ptrs, child_values, "flat object members")?
+                    {
+                        builder.build_store(ptr, value);
+                    }
+                }
+
+                vec![object.into()]
             }
 
             AstExpressionData::Not(_expr) => unreachable!(),
@@ -1129,9 +1165,14 @@ impl Translator {
                 );
 
                 let then_values = self.translate_block(&then_builder, &then_ast_block)?;
+                // We may have branched from the original block since we emitted the branch
+                // to it, so let's capture the new block at the tip of the builder.
+                let then_block = then_builder.get_insert_block().unwrap();
                 then_builder.build_unconditional_branch(&after_block);
 
                 let else_values = self.translate_block(&else_builder, &else_ast_block)?;
+                // DITTO the note above about branch divergence.
+                let else_block = else_builder.get_insert_block().unwrap();
                 else_builder.build_unconditional_branch(&after_block);
 
                 builder.position_at_end(&after_block);
@@ -1158,13 +1199,10 @@ impl Translator {
         &mut self,
         builder: &Builder,
         lit: &AstLiteral,
-        ty: &AstType,
     ) -> PResult<Vec<BasicValueEnum>> {
         let vals = match lit {
             AstLiteral::True => vec![self.context.bool_type().const_int(1, false).into()],
             AstLiteral::False => vec![self.context.bool_type().const_int(0, false).into()],
-
-            AstLiteral::Null => vec![self.get_type(ty)?.into_pointer_type().const_null().into()],
 
             AstLiteral::String { string, len } => {
                 let string_const = self.context.const_string(&string, false);
@@ -1309,9 +1347,6 @@ impl Translator {
                 let (success_block, _) = self.get_new_block(builder)?;
 
                 let predicate = match lit {
-                    AstLiteral::Null => {
-                        builder.build_is_null(value.into_pointer_value(), &temp_name())
-                    }
                     AstLiteral::True => builder.build_int_compare(
                         IntPredicate::EQ,
                         value.into_int_value(),
@@ -1394,22 +1429,6 @@ impl Translator {
                 let object = self.translate_expression(builder, &object)?;
                 assert_eq!(object.len(), 1);
                 let object = object[0].into_pointer_value();
-
-                /* TODO: This is a bit cursed. Causes our GC not to recognize...
-                let object = builder.build_address_space_cast(
-                    object.into_pointer_value(),
-                    ptr_type(
-                        object
-                            .get_type()
-                            .into_pointer_type()
-                            .get_element_type()
-                            .into_struct_type()
-                            .into(),
-                        GLOBAL,
-                    )
-                    .into_pointer_type(),
-                    &temp_name(),
-                );*/
 
                 let member = unsafe {
                     builder.build_struct_gep(object, mem_idx.unwrap() as u32, &temp_name())

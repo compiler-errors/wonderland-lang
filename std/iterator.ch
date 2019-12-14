@@ -10,3 +10,8 @@ trait Iterator {
     fn next(self) -> <Self as Iterator>::IterItem.
     fn has_next(self) -> Bool.
 }
+
+enum Range {
+    Finite(Int, Int).
+    Infinite(Int).
+}

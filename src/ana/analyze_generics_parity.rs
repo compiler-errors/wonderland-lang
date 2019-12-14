@@ -133,6 +133,20 @@ impl AstAdapter for AnalyzeGenericsParity {
                     children,
                 }
             }
+            AstExpressionData::AllocateObject {
+                object,
+                generics,
+                children,
+                children_idxes,
+            } => {
+                let generics = self.check_generics(&object, generics)?;
+                AstExpressionData::AllocateObject {
+                    object,
+                    generics,
+                    children,
+                    children_idxes,
+                }
+            }
             d => d,
         };
 

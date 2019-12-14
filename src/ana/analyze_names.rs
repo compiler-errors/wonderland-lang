@@ -1,6 +1,6 @@
 use crate::ana::represent::{AnEnumData, AnObjectData, AnTraitData, AnalyzedProgram};
 use crate::ana::represent_visitor::{AnAdapter, DirtyAnalysisPass};
-use crate::parser::ast::{AstTraitType, AstType, ModuleRef};
+use crate::parser::ast::{AstExpression, AstExpressionData, AstTraitType, AstType, ModuleRef};
 use crate::parser::ast_visitor::AstAdapter;
 use crate::util::{IntoError, PResult};
 use std::collections::HashMap;
@@ -48,5 +48,21 @@ impl AstAdapter for AnalyzeNames {
         }
 
         Ok(t)
+    }
+
+    fn enter_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
+        match &e.data {
+            AstExpressionData::AllocateObject { object, .. } => {
+                if !self.analyzed_objects.contains_key(object) {
+                    return PResult::error(format!(
+                        "No such object named `{}`.",
+                        object.full_name()?
+                    ));
+                }
+            }
+            _ => {}
+        }
+
+        Ok(e)
     }
 }

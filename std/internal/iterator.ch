@@ -2,10 +2,7 @@ impl<_T> Iterable for [_T] {
     type IterType = ArrayIterator<_T>.
 
     fn iterator(self) -> ArrayIterator<_T> {
-        let i = allocate ArrayIterator<_T>.
-        i:array = self.
-        i:idx = 0.
-        i
+        allocate ArrayIterator<_T> { array: self, idx: 0 }
     }
 }
 
@@ -32,15 +29,12 @@ impl<_T> Iterator for ArrayIterator<_T> {
     }
 }
 
-/*
+
 impl Iterable for String {
     type IterType = StringIterator.
 
     fn iterator(self) -> StringIterator {
-        let i = allocate StringIterator.
-        i:str = self.
-        i:idx = 0.
-        i
+        allocate StringIterator { str: self, idx: 0 }
     }
 }
 
@@ -61,5 +55,40 @@ impl Iterator for StringIterator {
 
         e
     }
+
+    fn has_next(self) -> Bool {
+        self:idx < self:str:len()
+    }
 }
-*/
+
+impl Iterable for Range {
+    type IterType = RangeIterator.
+
+    fn iterator(self) -> RangeIterator {
+        match self {
+            Range!Finite(start, end) -> allocate RangeIterator { idx: start, end: Option!Some(end) },
+            Range!Infinite(start) -> allocate RangeIterator { idx: start, end: Option!None },
+        }
+    }
+}
+
+object RangeIterator {
+    idx: Int.
+    end: Option<Int>.
+}
+
+impl Iterator for RangeIterator {
+    type IterItem = Int.
+
+    fn next(self) -> Int {
+        self:idx = self:idx + 1.
+        self:idx - 1
+    }
+
+    fn has_next(self) -> Bool {
+        match self:end {
+            Option!Some(end) -> self:idx < end,
+            Option!None -> true,
+        }
+    }
+}

@@ -124,6 +124,20 @@ impl GenericsInstantiator {
             .visit(&mut instantiate)
     }
 
+    pub fn instantiate_object_members(
+        analyzed_program: &AnalyzedProgram,
+        obj_name: &ModuleRef,
+        generics: &[AstType],
+    ) -> PResult<HashMap<String, AstType>> {
+        let obj_data = &analyzed_program.analyzed_objects[obj_name];
+        let mapping = ZipExact::zip_exact(&obj_data.generics, generics, "object generics")?
+            .map(|(id, t)| (id.0, t.clone()))
+            .collect();
+        let mut instantiate = GenericsInstantiator(mapping);
+
+        obj_data.member_tys.clone().visit(&mut instantiate)
+    }
+
     pub fn instantiate_enum_pattern(
         analyzed_program: &AnalyzedProgram,
         en_name: &ModuleRef,

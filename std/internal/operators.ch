@@ -7,6 +7,8 @@ export fn eq_int(a: Int, b: Int) -> Bool.
 export fn neg_int(a: Int) -> Int.
 export fn add_string(a: String, b: String) -> String.
 export fn get_char(s: String, i: Int) -> Char.
+export fn eq_string(a: String, b: String) -> Bool.
+export fn len_string(s: String) -> Int.
 
 // Cursed exports bc they don't actually live in stdlib.
 export fn deref_array<_T>(array: [_T], idx: Int) -> _T.
@@ -174,5 +176,19 @@ impl<_T> DerefAssign for [_T] {
 impl<_T> Len for [_T] {
     fn len(self) -> Int {
         array_len(self)
+    }
+}
+
+impl Len for String {
+    fn len(self) -> Int = len_string(self).
+}
+
+impl Equals<String> for String{
+    fn eq(self, other: String) -> Bool {
+        eq_string(self, other)
+    }
+
+    fn ne(self, other: String) -> Bool {
+        !eq_string(self, other)
     }
 }

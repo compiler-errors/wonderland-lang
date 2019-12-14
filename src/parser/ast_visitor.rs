@@ -444,8 +444,16 @@ impl<T: AstAdapter> Visit<T> for AstExpression {
                 mem_name,
                 mem_idx,
             },
-            AstExpressionData::AllocateObject { object } => AstExpressionData::AllocateObject {
+            AstExpressionData::AllocateObject {
+                object,
+                generics,
+                children,
+                children_idxes,
+            } => AstExpressionData::AllocateObject {
                 object: object.visit(adapter)?,
+                generics: generics.visit(adapter)?,
+                children: children.visit(adapter)?,
+                children_idxes,
             },
             AstExpressionData::AllocateArray { object, size } => AstExpressionData::AllocateArray {
                 object: object.visit(adapter)?,

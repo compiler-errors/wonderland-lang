@@ -52,7 +52,6 @@ enum TyckDelayedObjective {
     Unify(AstType, AstType),
     TupleAccess(AstType, usize, AstType),
     ObjectAccess(AstType, String, AstType),
-    Nullable(AstType),
 }
 
 static MAX_ITERATIONS: usize = 1_000_000_usize;
@@ -187,12 +186,6 @@ impl TyckSolver {
 
         self.delayed_objectives
             .push(TyckDelayedObjective::Unify(a.clone(), b.clone()));
-        Ok(())
-    }
-
-    pub fn add_delayed_nullable_goal(&mut self, ty: &AstType) -> PResult<()> {
-        self.delayed_objectives
-            .push(TyckDelayedObjective::Nullable(ty.clone()));
         Ok(())
     }
 
@@ -772,24 +765,6 @@ impl TyckSolver {
                                 ));
                         } else {
                             TyckSolver::error(&format!("Object type expected, got {:?}", object))?;
-                        }
-                    }
-                    TyckDelayedObjective::Nullable(object) => {
-                        match &self.normalize_ty(&object)? {
-                            AstType::Object(..) | AstType::String | AstType::Array { .. } => {
-                                /* Okay! */
-                                progress = true;
-                            }
-                            AstType::Infer(..) => {
-                                self.delayed_objectives
-                                    .push(TyckDelayedObjective::Nullable(object));
-                            }
-                            _ => {
-                                return TyckSolver::error(&format!(
-                                    "Object type expected, got {:?}",
-                                    object
-                                ))
-                            }
                         }
                     }
                 }

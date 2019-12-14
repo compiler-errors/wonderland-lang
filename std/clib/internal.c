@@ -63,9 +63,13 @@ NOINLINE struct string* fpP8internalP9operators10add_string(struct string* a,
   i64 length = strlen((char*) a->payload) + strlen((char*) b->payload);
 
   i64 block_size = (i64) (sizeof(struct string) + (length + 1) * sizeof(i8));
+
+  gc_mark((i8**) &a);
+  gc_mark((i8**) &b);
   struct string* string_ptr = gc_alloc_block(block_size, 0 /* string type */, __builtin_frame_address(0));
-  a = (struct string*) gc_remap_object((i8*) a);
-  b = (struct string*) gc_remap_object((i8*) b);
+  gc_remap_and_unmark((i8**) &a);
+  gc_remap_and_unmark((i8**) &b);
+
   gc_remap_free();
 
   string_ptr->length = length;
@@ -77,4 +81,16 @@ NOINLINE struct string* fpP8internalP9operators10add_string(struct string* a,
 i8 fpP8internalP9operators8get_char(struct string* string, i64 idx) {
   _ensure_bounds_or_panic("String", string->length, idx);
   return string->payload[idx];
+}
+
+i64 fpP8internalP9operators10len_string(struct string* string) {
+    return string->length;
+}
+
+i1 fpP8internalP9operators9eq_string(struct string* a, struct string* b) {
+    if (a->length != b->length) {
+        return false;
+    }
+
+    return strncmp((char*) a->payload, (char*) b->payload, a->length) == 0;
 }

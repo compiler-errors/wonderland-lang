@@ -5,9 +5,9 @@ use self::represent::*;
 use self::represent_visitor::*;
 use crate::ana::analyze_argument_parity::AnalyzeArgumentParity;
 use crate::ana::analyze_associated_types::AnalyzeAssociatedTypes;
+use crate::ana::analyze_constructor_fields::AnalyzeConstructorFields;
 use crate::ana::analyze_control_flow::AnalyzeControlFlow;
 use crate::ana::analyze_elaborations::AnalyzeElaborations;
-use crate::ana::analyze_enum_constructors::AnalyzeEnumConstructors;
 use crate::ana::analyze_fn_calls::AnalyzeFnCalls;
 use crate::ana::analyze_for_loops::AnalyzeForLoops;
 use crate::ana::analyze_generics::AnalyzeGenerics;
@@ -19,6 +19,7 @@ use crate::ana::analyze_impls::AnalyzeImpls;
 use crate::ana::analyze_infallible_enums::AnalyzeInfallibleEnums;
 use crate::ana::analyze_names::AnalyzeNames;
 use crate::ana::analyze_object_functions::AnalyzeObjectFunctions;
+use crate::ana::analyze_object_indices::AnalyzeObjectIndices;
 use crate::ana::analyze_operators::AnalyzeOperators;
 use crate::ana::analyze_positional_enums::AnalyzePositionalEnums;
 use crate::ana::analyze_returns::AnalyzeReturns;
@@ -29,9 +30,9 @@ use crate::util::{Comment, PResult, Visit};
 
 mod analyze_argument_parity;
 mod analyze_associated_types;
+mod analyze_constructor_fields;
 mod analyze_control_flow;
 mod analyze_elaborations;
-mod analyze_enum_constructors;
 mod analyze_fn_calls;
 mod analyze_for_loops;
 mod analyze_generics;
@@ -45,6 +46,7 @@ mod analyze_info;
 mod analyze_modules;
 mod analyze_names;
 mod analyze_object_functions;
+mod analyze_object_indices;
 mod analyze_operators;
 mod analyze_positional_enums;
 mod analyze_returns;
@@ -94,8 +96,12 @@ pub fn analyze(p: AstProgram) -> PResult<(AnalyzedProgram, AstProgram)> {
         ),
         // Then the rest.
         (
-            "analyze_enum_constructors",
-            Box::new(AnalyzeEnumConstructors::analyze),
+            "analyze_constructor_fields",
+            Box::new(AnalyzeConstructorFields::analyze),
+        ),
+        (
+            "analyze_object_indices",
+            Box::new(AnalyzeObjectIndices::analyze),
         ),
         (
             "analyze_positional_enums",

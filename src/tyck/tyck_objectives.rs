@@ -12,15 +12,31 @@ pub struct TyckObjectiveAdapter {
     variables: HashMap<VariableId, AstType>,
     analyzed_program: Rc<AnalyzedProgram>,
     return_type: Option<AstType>,
+
+    // Need to save this because it's difficult to find
+    // Needed for `allocate [T; n]`
+    default_trait: AstTraitType,
 }
 
 impl TyckObjectiveAdapter {
     pub fn new(solver: TyckSolver, analyzed_program: Rc<AnalyzedProgram>) -> TyckObjectiveAdapter {
+        let mut default_trait = None;
+        for tr in analyzed_program.analyzed_traits.values() {
+            // TODO: I don't like this.
+            if &tr.name.full_name().unwrap() == "std::option::Default" {
+                default_trait = Some(AstTraitType(tr.name.clone(), vec![]));
+                break;
+            }
+        }
+
+        let default_trait = default_trait.unwrap();
+
         TyckObjectiveAdapter {
             solver,
             variables: HashMap::new(),
             analyzed_program,
             return_type: None,
+            default_trait,
         }
     }
 
@@ -45,7 +61,6 @@ impl TyckObjectiveAdapter {
                 AstLiteral::True | AstLiteral::False => {
                     self.solver.unify(&AstType::Bool, other_ty)?
                 }
-                AstLiteral::Null => self.solver.add_delayed_nullable_goal(other_ty)?,
                 AstLiteral::Int(..) => self.solver.unify(&AstType::Int, other_ty)?,
                 AstLiteral::Char(..) => self.solver.unify(&AstType::Char, other_ty)?,
                 AstLiteral::String { .. } => self.solver.unify(&AstType::String, other_ty)?,
@@ -70,7 +85,10 @@ impl TyckObjectiveAdapter {
                     self.unify_pattern_type(child, &ty)?;
                 }
 
-                self.solver.unify(&other_ty, &AstType::enumerable(enumerable.clone(), generics.clone()))?;
+                self.solver.unify(
+                    &other_ty,
+                    &AstType::enumerable(enumerable.clone(), generics.clone()),
+                )?;
             }
             AstMatchPatternData::PlainEnum { .. } | AstMatchPatternData::NamedEnum { .. } => {
                 unreachable!()
@@ -204,9 +222,6 @@ impl<'a> AstAdapter for TyckObjectiveAdapter {
                 AstLiteral::True | AstLiteral::False => {
                     self.solver.unify(&ty, &AstType::Bool)?;
                 }
-                AstLiteral::Null => {
-                    self.solver.add_delayed_nullable_goal(&ty)?;
-                }
                 AstLiteral::String { .. } => self.solver.unify(&ty, &AstType::String)?,
                 AstLiteral::Int(..) => {
                     self.solver.unify(&ty, &AstType::Int)?;
@@ -238,6 +253,7 @@ impl<'a> AstAdapter for TyckObjectiveAdapter {
                 self.solver.unify(&AstType::array(elem_ty), &ty)?;
             }
             AstExpressionData::AllocateArray { object, size } => {
+                self.solver.add_objective(object, &self.default_trait)?;
                 self.solver.unify(&AstType::array(object.clone()), &ty)?;
                 self.solver.unify(&AstType::Int, &size.ty)?;
             }
@@ -302,8 +318,24 @@ impl<'a> AstAdapter for TyckObjectiveAdapter {
                     .add_delayed_object_access(object_ty, mem_name, &ty)?;
             }
 
-            AstExpressionData::AllocateObject { object } => {
-                self.solver.unify(object, &ty)?;
+            AstExpressionData::AllocateObject {
+                object,
+                generics,
+                children,
+                ..
+            } => {
+                let expected_tys = GenericsInstantiator::instantiate_object_members(
+                    &self.analyzed_program,
+                    object,
+                    &generics,
+                )?;
+
+                for (child, expr) in children {
+                    self.solver.unify(&expected_tys[child], &expr.ty)?;
+                }
+
+                self.solver
+                    .unify(&AstType::Object(object.clone(), generics.clone()), &ty)?;
             }
 
             AstExpressionData::Not(subexpression) => {

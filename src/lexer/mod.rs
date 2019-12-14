@@ -379,7 +379,6 @@ impl Lexer {
             "assert" => Token::Assert,
             "true" => Token::True,
             "false" => Token::False,
-            "null" => Token::Null,
 
             "object" => Token::Object,
             "type" => Token::Type,

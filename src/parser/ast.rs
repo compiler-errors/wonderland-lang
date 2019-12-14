@@ -514,7 +514,10 @@ pub enum AstExpressionData {
     },
 
     AllocateObject {
-        object: AstType,
+        object: ModuleRef,
+        generics: Vec<AstType>,
+        children: HashMap<String, AstExpression>,
+        children_idxes: Option<HashMap<String, usize>>,
     },
 
     AllocateArray {
@@ -852,10 +855,20 @@ impl AstExpression {
         }
     }
 
-    pub fn allocate_object(span: Span, object: AstType) -> AstExpression {
+    pub fn allocate_object(
+        span: Span,
+        object: ModuleRef,
+        generics: Vec<AstType>,
+        children: HashMap<String, AstExpression>,
+    ) -> AstExpression {
         AstExpression {
             span,
-            data: AstExpressionData::AllocateObject { object },
+            data: AstExpressionData::AllocateObject {
+                object,
+                generics,
+                children,
+                children_idxes: None,
+            },
             ty: AstType::infer(),
         }
     }
@@ -1062,7 +1075,6 @@ impl AstMatchPattern {
 pub enum AstLiteral {
     True,
     False,
-    Null,
     String { string: String, len: usize },
     Int(String),
     Char(char),

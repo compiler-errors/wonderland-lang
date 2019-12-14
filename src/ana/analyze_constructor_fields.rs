@@ -3,12 +3,13 @@ use crate::ana::represent_visitor::PureAnalysisPass;
 use crate::parser::ast::{AstExpression, AstExpressionData, AstMatchPattern, AstMatchPatternData};
 use crate::parser::ast_visitor::AstAdapter;
 use crate::util::{IntoError, PResult};
+use std::collections::HashMap;
 
-pub struct AnalyzeEnumConstructors(AnalyzedProgram);
+pub struct AnalyzeConstructorFields(AnalyzedProgram);
 
-impl PureAnalysisPass for AnalyzeEnumConstructors {
-    fn new(a: AnalyzedProgram) -> PResult<AnalyzeEnumConstructors> {
-        Ok(AnalyzeEnumConstructors(a))
+impl PureAnalysisPass for AnalyzeConstructorFields {
+    fn new(a: AnalyzedProgram) -> PResult<AnalyzeConstructorFields> {
+        Ok(AnalyzeConstructorFields(a))
     }
 
     fn drop(self) -> AnalyzedProgram {
@@ -16,7 +17,7 @@ impl PureAnalysisPass for AnalyzeEnumConstructors {
     }
 }
 
-impl AstAdapter for AnalyzeEnumConstructors {
+impl AstAdapter for AnalyzeConstructorFields {
     fn enter_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
         match &e.data {
             AstExpressionData::PlainEnum {
@@ -79,29 +80,17 @@ impl AstAdapter for AnalyzeEnumConstructors {
                     ));
                 }
 
-                let fields = var_info.field_names.as_ref().unwrap();
-
-                for field in fields.keys() {
-                    if !children.contains_key(field) {
-                        return PResult::error(format!(
-                            "Missing field {} from constructor `{}!{}`.",
-                            field,
-                            enumerable.full_name()?,
-                            variant
-                        ));
-                    }
-                }
-
-                for field in children.keys() {
-                    if !fields.contains_key(field) {
-                        return PResult::error(format!(
-                            "Unexpected field {} in constructor `{}!{}`.",
-                            field,
-                            enumerable.full_name()?,
-                            variant
-                        ));
-                    }
-                }
+                check_named_fields(
+                    var_info.field_names.as_ref().unwrap(),
+                    &children,
+                    &format!("{}!{}", enumerable.full_name()?, variant),
+                )?;
+            }
+            AstExpressionData::AllocateObject {
+                object, children, ..
+            } => {
+                let obj_info = &self.0.analyzed_objects[object];
+                check_named_fields(&obj_info.member_tys, &children, &object.full_name()?)?;
             }
             _ => {}
         }
@@ -224,4 +213,30 @@ impl AstAdapter for AnalyzeEnumConstructors {
 
         Ok(p)
     }
+}
+
+fn check_named_fields<V, V2>(
+    expected: &HashMap<String, V>,
+    given: &HashMap<String, V2>,
+    name: &str,
+) -> PResult<()> {
+    for field in expected.keys() {
+        if !given.contains_key(field) {
+            return PResult::error(format!(
+                "Missing field `{}` from constructor `{}`.",
+                field, name
+            ));
+        }
+    }
+
+    for field in given.keys() {
+        if !expected.contains_key(field) {
+            return PResult::error(format!(
+                "Unexpected field `{}` in constructor `{}`.",
+                field, name
+            ));
+        }
+    }
+
+    Ok(())
 }

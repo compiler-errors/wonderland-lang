@@ -335,6 +335,7 @@ impl InstantiationAdapter {
             .enumerate()
             .map(|(i, v)| (v.clone(), i as u64))
             .collect();
+
         let mut fields = Vec::new();
         let mut variants = HashMap::new();
 
@@ -351,8 +352,8 @@ impl InstantiationAdapter {
                     let idx = self.find_field(&mut free_fields, t).left_or_else(|t| {
                         let idx = fields.len();
                         fields.push(t);
-                        idx + 1 // Add 1 to account for the later added discriminant at position 0.
-                    });
+                        idx
+                    }) + 1; // Add 1 to account for the later added discriminant at position 0.
 
                     member_idxes.push(idx);
                 }
@@ -371,6 +372,10 @@ impl InstantiationAdapter {
                 .collect::<Vec<String>>()
                 .join(", ")
         );
+
+        for (n, d) in &discriminants {
+            println!("{}!{} -> {}", e.module_ref.full_name().unwrap(), n, d);
+        }
 
         InstEnumRepresentation {
             fields,

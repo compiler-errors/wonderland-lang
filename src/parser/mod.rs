@@ -1182,7 +1182,6 @@ impl Parser {
             }
             Token::True
             | Token::False
-            | Token::Null
             | Token::String(..)
             | Token::IntLiteral(..)
             | Token::CharLiteral(..) => {
@@ -1206,10 +1205,6 @@ impl Parser {
             Token::False => {
                 self.bump()?;
                 Ok(AstLiteral::False)
-            }
-            Token::Null => {
-                self.bump()?;
-                Ok(AstLiteral::Null)
             }
             Token::String(string, len) => {
                 let string = string.clone();
@@ -1536,10 +1531,37 @@ impl Parser {
 
             Ok(AstExpression::allocate_array(span, ty, expr))
         } else {
-            let (ty, ty_span) = self.parse_objectenum_type()?;
-            span = span.unite(ty_span);
+            if let (AstType::ObjectEnum(object, generics), ty_span) =
+                self.parse_objectenum_type()?
+            {
+                span = span.unite(ty_span);
+                let mut children = HashMap::new();
 
-            Ok(AstExpression::allocate_object(span, ty))
+                if self.check_consume(Token::LBrace)? {
+                    while !self.check_consume(Token::RBrace)? {
+                        if !children.is_empty() {
+                            self.expect_consume(Token::Comma)?;
+                        }
+
+                        let name_span = self.next_span;
+                        let name = self.expect_consume_identifier()?;
+
+                        if self.check_consume_colon()? {
+                            let child = self.parse_expression()?;
+                            children.insert(name, child);
+                        } else {
+                            children
+                                .insert(name.clone(), AstExpression::identifier(name_span, name));
+                        }
+                    }
+                }
+
+                Ok(AstExpression::allocate_object(
+                    span, object, generics, children,
+                ))
+            } else {
+                unreachable!();
+            }
         }
     }
 
