@@ -15,11 +15,11 @@ use inkwell::values::*;
 use inkwell::IntPredicate;
 use std::collections::{HashMap, HashSet};
 use std::ffi::{OsStr, OsString};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::RwLock;
 use tempfile::TempDir;
-use std::io::Write;
 
 mod decorate;
 mod type_helpers;
@@ -38,6 +38,7 @@ lazy_static! {
 enum Definition {
     Block(AstBlock),
     None,
+    AllocateArray(AstType),
     ArrayAccess,
     ArrayAssign,
     ArrayLen,
@@ -106,9 +107,9 @@ fn emit_module(
             ));
         }
     } else {
-        //let dir = TempDir::new().map_err(|e| PError::new(format!("Temp dir error: {}", e)))?;
-        //let dir_path = dir.path();
-        let dir_path = Path::new("./tempout/");
+        let dir = TempDir::new().map_err(|e| PError::new(format!("Temp dir error: {}", e)))?;
+        let dir_path = dir.path();
+        //let dir_path = Path::new("./tempout/");
 
         let ll = dir_path.join("file.ll").into_os_string();
         let ll_gc = dir_path.join("file.gc.ll").into_os_string();
@@ -118,8 +119,14 @@ fn emit_module(
         let mut opt_command = Command::new("opt".to_string());
         opt_command.args(&[
             &ll,
+            // Turn all the alloca's into real phi nodes.
             OsStr::new("--mem2reg"),
+            // Emit a bunch of statepoint bullshit so we can walk the stack later.
             OsStr::new("--rewrite-statepoints-for-gc"),
+            // Once we've done that, we can optimize it like crazy.
+            // Do things like trivializing jumps between blocks, dead code analysis, etc.
+            // This really makes up for the somewhat liberal usage of eventually no-ops that
+            // I structure the tr module code around.
             OsStr::new("-O3"),
             OsStr::new("-o"),
             &ll_gc,
@@ -135,6 +142,9 @@ fn emit_module(
             OsStr::new("-filetype=obj"),
         ]);
 
+        // This poor command, unfortunately, is the reason that cheshire currently only works
+        // on Linux. For some reasons LLVM exports the stackmap in some hidden symbol mode,
+        // so we can't build with it unless we re-export it as globally accessible.
         let mut objcopy_command = Command::new("objcopy".to_string());
         objcopy_command.args(&[
             &ll_o,
@@ -324,7 +334,7 @@ impl Translator {
 
         for (sig, fun) in file.instantiated_fns {
             let name = decorate_fn(&sig.0, &sig.1)?;
-            let definition = map_definition(&sig.0.full_name()?, fun.definition);
+            let definition = map_definition(&sig.0.full_name()?, &sig.1, fun.definition);
 
             self.translate_function(
                 &name,
@@ -440,229 +450,275 @@ impl Translator {
     ) -> PResult<()> {
         let llvm_fun = self.module.get_function(&fun_name).unwrap();
 
-        if let Definition::Block(definition) = definition {
-            set_cheshire_fn_attributes(&self.context, llvm_fun);
+        match definition {
+            Definition::Block(definition) => {
+                set_cheshire_fn_attributes(&self.context, llvm_fun);
 
-            let param_values: HashMap<_, _> =
-                ZipExact::zip_exact(parameter_list, &llvm_fun.get_params(), "params")?
-                    .map(|(p, v)| (p.id, v.clone()))
-                    .collect();
+                let param_values: HashMap<_, _> =
+                    ZipExact::zip_exact(parameter_list, &llvm_fun.get_params(), "params")?
+                        .map(|(p, v)| (p.id, v.clone()))
+                        .collect();
 
-            let block = llvm_fun.append_basic_block("pre");
-            let first_builder = Builder::create();
-            first_builder.position_at_end(&block);
+                let block = llvm_fun.append_basic_block("pre");
+                let first_builder = Builder::create();
+                first_builder.position_at_end(&block);
 
-            for (id, var) in variables {
-                let ty = self.get_type(&var.ty)?;
-                let val = param_values
-                    .get(&id)
-                    .map(|f| Ok(f.clone()))
-                    .unwrap_or_else(|| type_zero(ty))?;
+                for (id, var) in variables {
+                    let ty = self.get_type(&var.ty)?;
+                    let val = param_values
+                        .get(&id)
+                        .map(|f| Ok(f.clone()))
+                        .unwrap_or_else(|| type_zero(ty))?;
 
-                let ptrs = self.flatten_alloca(&first_builder, val, &var.ty)?;
-                self.variables.insert(*id, ptrs);
+                    let ptrs = self.flatten_alloca(&first_builder, val, &var.ty)?;
+                    self.variables.insert(*id, ptrs);
+                }
+
+                let start_block = llvm_fun.append_basic_block("start");
+                first_builder.build_unconditional_branch(&start_block);
+
+                let start_builder = Builder::create();
+                start_builder.position_at_end(&start_block);
+
+                let ret = self.translate_block(&start_builder, &definition)?;
+                let ret = self.bundle_vals(&start_builder, &ret, &definition.expression.ty)?;
+
+                start_builder.build_return(Some(&ret));
             }
+            Definition::AllocateArray(element_ast_ty) => {
+                let num_elements = llvm_fun.get_params()[0];
 
-            let start_block = llvm_fun.append_basic_block("start");
-            first_builder.build_unconditional_branch(&start_block);
+                let block = llvm_fun.append_basic_block("pre");
+                let first_builder = Builder::create();
+                first_builder.position_at_end(&block);
 
-            let start_builder = Builder::create();
-            start_builder.position_at_end(&start_block);
+                let element_ty = self.get_type(&element_ast_ty)?;
+                let array_ty = self.get_type(&AstType::array(element_ast_ty.clone()))?;
+                let ty_size = type_size(element_ty)?;
 
-            let ret = self.translate_block(&start_builder, &definition)?;
-            let ret = self.bundle_vals(&start_builder, &ret, &definition.expression.ty)?;
-
-            start_builder.build_return(Some(&ret));
-        } else if let Definition::ArrayAccess = definition {
-            // TODO: Don't decorate me? I think??
-
-            // Emit array access logic for `FpP8internalP5deref11deref_array1...`
-            let return_type = llvm_fun.get_type().get_return_type().unwrap();
-
-            let block = llvm_fun.append_basic_block("pre");
-            let first_builder = Builder::create();
-            first_builder.position_at_end(&block);
-
-            // Alloca and store the array parameter.
-            let array = llvm_fun.get_params()[0];
-            let alloca = first_builder.build_alloca(array.get_type(), &temp_name());
-            first_builder.build_store(alloca, array);
-
-            // Take parameter zero, which is an array, and cast it to i8*
-            let ptr = first_builder.build_pointer_cast(
-                array.into_pointer_value(),
-                self.context.i8_type().ptr_type(GC),
-                &temp_name(),
-            );
-
-            // Call array_idx_at with array, elem size, and idx.
-            let idx = llvm_fun.get_params()[1];
-            let elem_ptr = unwrap_callsite(first_builder.build_call(
-                self.get_function("gc_array_idx_at"),
-                &[ptr.into(), idx],
-                &temp_name(),
-            ));
-
-            // Cast that pointer to T*
-            let elem_ptr_typed = first_builder.build_pointer_cast(
-                elem_ptr.into_pointer_value(),
-                ptr_type(return_type, GLOBAL).into_pointer_type(),
-                &temp_name(),
-            );
-            let elem = first_builder.build_load(elem_ptr_typed, &temp_name());
-
-            first_builder.build_return(Some(&elem));
-        } else if let Definition::ArrayAssign = definition {
-            // TODO: Don't decorate me? I think??
-
-            // Emit array access logic for `FpP8internalP5deref11deref_array1...`
-            let return_type = llvm_fun.get_type().get_return_type().unwrap();
-
-            let block = llvm_fun.append_basic_block("pre");
-            let first_builder = Builder::create();
-            first_builder.position_at_end(&block);
-
-            // Alloca and store the array parameter.
-            let array = llvm_fun.get_params()[0];
-            let alloca = first_builder.build_alloca(array.get_type(), &temp_name());
-            first_builder.build_store(alloca, array);
-
-            // Take parameter zero, which is an array, and cast it to i8*
-            let ptr = first_builder.build_pointer_cast(
-                array.into_pointer_value(),
-                self.context.i8_type().ptr_type(GC),
-                &temp_name(),
-            );
-
-            // Call array_idx_at with array, elem size, and idx.
-            let idx = llvm_fun.get_params()[1];
-            let elem_ptr = unwrap_callsite(first_builder.build_call(
-                self.get_function("gc_array_idx_at"),
-                &[ptr.into(), idx],
-                &temp_name(),
-            ));
-
-            // Cast that pointer to T*
-            let elem_ptr_typed = first_builder.build_pointer_cast(
-                elem_ptr.into_pointer_value(),
-                ptr_type(return_type, GLOBAL).into_pointer_type(),
-                &temp_name(),
-            );
-            let value = llvm_fun.get_params()[2];
-            first_builder.build_store(elem_ptr_typed, value);
-            first_builder.build_return(Some(&value));
-        } else if let Definition::ArrayLen = definition {
-            let block = llvm_fun.append_basic_block("pre");
-            let first_builder = Builder::create();
-            first_builder.position_at_end(&block);
-
-            // Alloca and store the array parameter.
-            let array = llvm_fun.get_params()[0];
-            let alloca = first_builder.build_alloca(array.get_type(), &temp_name());
-            first_builder.build_store(alloca, array);
-
-            let array_deref = first_builder.build_load(array.into_pointer_value(), &temp_name());
-            let size = first_builder
-                .build_extract_value(array_deref.into_struct_value(), 0, &temp_name())
-                .unwrap();
-
-            first_builder.build_return(Some(&size));
-        } else if let Definition::CursedTransmute = definition {
-            let to_type = self.get_type(return_ty)?;
-
-            let block = llvm_fun.append_basic_block("pre");
-            let first_builder = Builder::create();
-            first_builder.position_at_end(&block);
-
-            let casted = first_builder.build_pointer_cast(
-                llvm_fun.get_params()[0].into_pointer_value(),
-                to_type.into_pointer_type(),
-                &temp_name(),
-            );
-            first_builder.build_return(Some(&casted));
-        } else if let Definition::CallFn = definition {
-            // This is not a leaf fn. Therefore, for GC to work, I need to decorate this fn with
-            // with gc, and hopefully we can inline here too.
-            set_cheshire_fn_attributes(&self.context, llvm_fun);
-
-            let block = llvm_fun.append_basic_block("pre");
-            let first_builder = Builder::create();
-            first_builder.position_at_end(&block);
-
-            let args_tuple = llvm_fun.get_params()[1].into_struct_value();
-            let mut args = Vec::new();
-
-            for idx in 0..args_tuple.get_type().count_fields() {
-                args.push(
-                    first_builder
-                        .build_extract_value(args_tuple, idx, &temp_name())
-                        .unwrap(),
+                let ty_id = self.type_ids[&element_ast_ty];
+                let ptr = first_builder.build_call(
+                    self.get_function("gc_alloc_array"),
+                    &[
+                        ty_size.into(),
+                        num_elements.into(),
+                        self.context
+                            .i16_type()
+                            .const_int(ty_id as u64, false)
+                            .into(),
+                    ],
+                    &temp_name(),
                 );
-            }
 
-            // This is... somewhat (read: very) clowny.
-            let arg_tys: Vec<_> = args.iter().map(|t| t.get_type()).collect();
-            let ret_ty = llvm_fun.get_type().get_return_type().unwrap();
-
-            let function_ptr_type = fun_type(ret_ty, &arg_tys).ptr_type(GLOBAL);
-            let function_ptr = first_builder.build_pointer_cast(
-                llvm_fun.get_params()[0].into_pointer_value(),
-                function_ptr_type,
-                &temp_name(),
-            );
-
-            // Get the tuple at param1, unpack args.
-            // Call, then ret. No flattening needed I don't think..?
-            let ret = unwrap_callsite(first_builder.build_call(function_ptr, &args, &temp_name()));
-            first_builder.build_return(Some(&ret));
-        } else if let Definition::CallClosure = definition {
-            // This is not a leaf fn. Therefore, for GC to work, I need to decorate this fn with
-            // with gc, and hopefully we can inline here too.
-            set_cheshire_fn_attributes(&self.context, llvm_fun);
-
-            let block = llvm_fun.append_basic_block("pre");
-            let first_builder = Builder::create();
-            first_builder.position_at_end(&block);
-
-            // Get the first argument.
-            let env_arg = llvm_fun.get_params()[0].into_pointer_value();
-
-            // Get the first member from that struct argument, which is a fn.
-            let fn_ptr_ptr = unsafe { first_builder.build_struct_gep(env_arg, 0, &temp_name()) };
-            let fn_ptr = first_builder
-                .build_load(fn_ptr_ptr, &temp_name())
-                .into_pointer_value();
-
-            // Unpack arguments...
-            let args_tuple = llvm_fun.get_params()[1].into_struct_value();
-            let mut args = Vec::new();
-
-            for idx in 0..args_tuple.get_type().count_fields() {
-                args.push(
-                    first_builder
-                        .build_extract_value(args_tuple, idx, &temp_name())
-                        .unwrap(),
+                let ptr = first_builder.build_pointer_cast(
+                    unwrap_callsite(ptr).into_pointer_value(),
+                    array_ty.into_pointer_type(),
+                    &temp_name(),
                 );
+
+                first_builder.build_return(Some(&ptr));
             }
+            Definition::ArrayAccess => {
+                // TODO: Don't decorate me? I think??
 
-            // Cast environment back to some opaque type ({}*) so we can pass to our function.
-            // Then put it in as the first argument.
-            let env_casted =
-                first_builder.build_pointer_cast(env_arg, opaque_env_type(), &temp_name());
-            args.insert(0, env_casted.into());
+                // Emit array access logic for `FpP8internalP5deref11deref_array1...`
+                let return_type = llvm_fun.get_type().get_return_type().unwrap();
 
-            let arg_tys: Vec<_> = args.iter().map(|t| t.get_type()).collect();
-            let ret_ty = llvm_fun.get_type().get_return_type().unwrap();
+                let block = llvm_fun.append_basic_block("pre");
+                let first_builder = Builder::create();
+                first_builder.position_at_end(&block);
 
-            let fn_ptr_casted = first_builder.build_pointer_cast(
-                fn_ptr,
-                fun_type(ret_ty, &arg_tys).ptr_type(GLOBAL),
-                &temp_name(),
-            );
+                // Alloca and store the array parameter.
+                let array = llvm_fun.get_params()[0];
+                let alloca = first_builder.build_alloca(array.get_type(), &temp_name());
+                first_builder.build_store(alloca, array);
 
-            // Call FIRST ARG (as i8* or smth) + all the args.
-            let ret = unwrap_callsite(first_builder.build_call(fn_ptr_casted, &args, &temp_name()));
-            first_builder.build_return(Some(&ret));
+                // Take parameter zero, which is an array, and cast it to i8*
+                let ptr = first_builder.build_pointer_cast(
+                    array.into_pointer_value(),
+                    self.context.i8_type().ptr_type(GC),
+                    &temp_name(),
+                );
+
+                // Call array_idx_at with array, elem size, and idx.
+                let idx = llvm_fun.get_params()[1];
+                let elem_ptr = unwrap_callsite(first_builder.build_call(
+                    self.get_function("gc_array_idx_at"),
+                    &[ptr.into(), idx],
+                    &temp_name(),
+                ));
+
+                // Cast that pointer to T*
+                let elem_ptr_typed = first_builder.build_pointer_cast(
+                    elem_ptr.into_pointer_value(),
+                    ptr_type(return_type, GLOBAL).into_pointer_type(),
+                    &temp_name(),
+                );
+                let elem = first_builder.build_load(elem_ptr_typed, &temp_name());
+
+                first_builder.build_return(Some(&elem));
+            }
+            Definition::ArrayAssign => {
+                // TODO: Don't decorate me? I think??
+
+                // Emit array access logic for `FpP8internalP5deref11deref_array1...`
+                let return_type = llvm_fun.get_type().get_return_type().unwrap();
+
+                let block = llvm_fun.append_basic_block("pre");
+                let first_builder = Builder::create();
+                first_builder.position_at_end(&block);
+
+                // Alloca and store the array parameter.
+                let array = llvm_fun.get_params()[0];
+                let alloca = first_builder.build_alloca(array.get_type(), &temp_name());
+                first_builder.build_store(alloca, array);
+
+                // Take parameter zero, which is an array, and cast it to i8*
+                let ptr = first_builder.build_pointer_cast(
+                    array.into_pointer_value(),
+                    self.context.i8_type().ptr_type(GC),
+                    &temp_name(),
+                );
+
+                // Call array_idx_at with array, elem size, and idx.
+                let idx = llvm_fun.get_params()[1];
+                let elem_ptr = unwrap_callsite(first_builder.build_call(
+                    self.get_function("gc_array_idx_at"),
+                    &[ptr.into(), idx],
+                    &temp_name(),
+                ));
+
+                // Cast that pointer to T*
+                let elem_ptr_typed = first_builder.build_pointer_cast(
+                    elem_ptr.into_pointer_value(),
+                    ptr_type(return_type, GLOBAL).into_pointer_type(),
+                    &temp_name(),
+                );
+                let value = llvm_fun.get_params()[2];
+                first_builder.build_store(elem_ptr_typed, value);
+                first_builder.build_return(Some(&value));
+            }
+            Definition::ArrayLen => {
+                let block = llvm_fun.append_basic_block("pre");
+                let first_builder = Builder::create();
+                first_builder.position_at_end(&block);
+
+                // Alloca and store the array parameter.
+                let array = llvm_fun.get_params()[0];
+                let alloca = first_builder.build_alloca(array.get_type(), &temp_name());
+                first_builder.build_store(alloca, array);
+
+                let array_deref =
+                    first_builder.build_load(array.into_pointer_value(), &temp_name());
+                let size = first_builder
+                    .build_extract_value(array_deref.into_struct_value(), 0, &temp_name())
+                    .unwrap();
+
+                first_builder.build_return(Some(&size));
+            }
+            Definition::CursedTransmute => {
+                let to_type = self.get_type(return_ty)?;
+
+                let block = llvm_fun.append_basic_block("pre");
+                let first_builder = Builder::create();
+                first_builder.position_at_end(&block);
+
+                let casted = first_builder.build_pointer_cast(
+                    llvm_fun.get_params()[0].into_pointer_value(),
+                    to_type.into_pointer_type(),
+                    &temp_name(),
+                );
+                first_builder.build_return(Some(&casted));
+            }
+            Definition::CallFn => {
+                // This is not a leaf fn. Therefore, for GC to work, I need to decorate this fn with
+                // with gc, and hopefully we can inline here too.
+                set_cheshire_fn_attributes(&self.context, llvm_fun);
+
+                let block = llvm_fun.append_basic_block("pre");
+                let first_builder = Builder::create();
+                first_builder.position_at_end(&block);
+
+                let args_tuple = llvm_fun.get_params()[1].into_struct_value();
+                let mut args = Vec::new();
+
+                for idx in 0..args_tuple.get_type().count_fields() {
+                    args.push(
+                        first_builder
+                            .build_extract_value(args_tuple, idx, &temp_name())
+                            .unwrap(),
+                    );
+                }
+
+                // This is... somewhat (read: very) clowny.
+                let arg_tys: Vec<_> = args.iter().map(|t| t.get_type()).collect();
+                let ret_ty = llvm_fun.get_type().get_return_type().unwrap();
+
+                let function_ptr_type = fun_type(ret_ty, &arg_tys).ptr_type(GLOBAL);
+                let function_ptr = first_builder.build_pointer_cast(
+                    llvm_fun.get_params()[0].into_pointer_value(),
+                    function_ptr_type,
+                    &temp_name(),
+                );
+
+                // Get the tuple at param1, unpack args.
+                // Call, then ret. No flattening needed I don't think..?
+                let ret =
+                    unwrap_callsite(first_builder.build_call(function_ptr, &args, &temp_name()));
+                first_builder.build_return(Some(&ret));
+            }
+            Definition::CallClosure => {
+                // This is not a leaf fn. Therefore, for GC to work, I need to decorate this fn with
+                // with gc, and hopefully we can inline here too.
+                set_cheshire_fn_attributes(&self.context, llvm_fun);
+
+                let block = llvm_fun.append_basic_block("pre");
+                let first_builder = Builder::create();
+                first_builder.position_at_end(&block);
+
+                // Get the first argument.
+                let env_arg = llvm_fun.get_params()[0].into_pointer_value();
+
+                // Get the first member from that struct argument, which is a fn.
+                let fn_ptr_ptr =
+                    unsafe { first_builder.build_struct_gep(env_arg, 0, &temp_name()) };
+                let fn_ptr = first_builder
+                    .build_load(fn_ptr_ptr, &temp_name())
+                    .into_pointer_value();
+
+                // Unpack arguments...
+                let args_tuple = llvm_fun.get_params()[1].into_struct_value();
+                let mut args = Vec::new();
+
+                for idx in 0..args_tuple.get_type().count_fields() {
+                    args.push(
+                        first_builder
+                            .build_extract_value(args_tuple, idx, &temp_name())
+                            .unwrap(),
+                    );
+                }
+
+                // Cast environment back to some opaque type ({}*) so we can pass to our function.
+                // Then put it in as the first argument.
+                let env_casted =
+                    first_builder.build_pointer_cast(env_arg, opaque_env_type(), &temp_name());
+                args.insert(0, env_casted.into());
+
+                let arg_tys: Vec<_> = args.iter().map(|t| t.get_type()).collect();
+                let ret_ty = llvm_fun.get_type().get_return_type().unwrap();
+
+                let fn_ptr_casted = first_builder.build_pointer_cast(
+                    fn_ptr,
+                    fun_type(ret_ty, &arg_tys).ptr_type(GLOBAL),
+                    &temp_name(),
+                );
+
+                // Call FIRST ARG (as i8* or smth) + all the args.
+                let ret =
+                    unwrap_callsite(first_builder.build_call(fn_ptr_casted, &args, &temp_name()));
+                first_builder.build_return(Some(&ret));
+            }
+            Definition::None => {}
         }
 
         Ok(())
@@ -756,7 +812,8 @@ impl Translator {
             | AstExpressionData::Unimplemented
             | AstExpressionData::ExprCall { .. }
             | AstExpressionData::NamedEnum { .. }
-            | AstExpressionData::PlainEnum { .. } => unreachable!(),
+            | AstExpressionData::PlainEnum { .. }
+            | AstExpressionData::AllocateArray { .. } => unreachable!(),
 
             c @ AstExpressionData::Closure { .. } => {
                 let env = self.translate_closure_capture_environment(c)?;
@@ -860,12 +917,7 @@ impl Translator {
 
                 // Set the discriminant, always the first value.
                 let disc = en_info.discriminants[variant];
-                fields[0] = Some(
-                    self.context
-                        .i64_type()
-                        .const_int(disc, false)
-                        .into(),
-                );
+                fields[0] = Some(self.context.i64_type().const_int(disc, false).into());
 
                 for (idx, child) in ZipExact::zip_exact(
                     &en_info.variants[variant],
@@ -962,38 +1014,6 @@ impl Translator {
                     let e = self.bundle_vals(builder, e, &element_ast_ty)?;
                     builder.build_store(loc, e);
                 }
-
-                vec![ptr.into()]
-            }
-
-            AstExpressionData::AllocateArray { object, size } => {
-                let num_elements = self.translate_expression(builder, &size)?;
-                assert_eq!(num_elements.len(), 1);
-                let num_elements = num_elements[0];
-
-                let element_ty = self.get_type(object)?;
-                let array_ty = self.get_type(&expression.ty)?;
-                let ty_size = type_size(element_ty)?;
-
-                let ty_id = self.type_ids[&expression.ty];
-                let ptr = builder.build_call(
-                    self.get_function("gc_alloc_array"),
-                    &[
-                        ty_size.into(),
-                        num_elements.into(),
-                        self.context
-                            .i16_type()
-                            .const_int(ty_id as u64, false)
-                            .into(),
-                    ],
-                    &temp_name(),
-                );
-
-                let ptr = builder.build_pointer_cast(
-                    unwrap_callsite(ptr).into_pointer_value(),
-                    array_ty.into_pointer_type(),
-                    &temp_name(),
-                );
 
                 vec![ptr.into()]
             }
@@ -2241,8 +2261,11 @@ fn set_cheshire_fn_attributes(context: &Context, fun: FunctionValue) {
     );
 }
 
-fn map_definition(mod_name: &str, block: Option<AstBlock>) -> Definition {
+fn map_definition(mod_name: &str, generics: &[AstType], block: Option<AstBlock>) -> Definition {
     let def = match mod_name {
+        "std::internal::cursed::cursed_allocate_array" => {
+            Some(Definition::AllocateArray(generics[0].clone()))
+        }
         "std::internal::operators::deref_array" => Some(Definition::ArrayAccess),
         "std::internal::operators::deref_array_assign" => Some(Definition::ArrayAssign),
         "std::internal::operators::array_len" => Some(Definition::ArrayLen),

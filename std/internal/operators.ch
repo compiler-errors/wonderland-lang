@@ -1,3 +1,5 @@
+use std::internal::cursed::cursed_allocate_array.
+
 export fn add_int(a: Int, b: Int) -> Int.
 export fn mul_int(a: Int, b: Int) -> Int.
 export fn div_int(a: Int, b: Int) -> Int.
@@ -190,5 +192,17 @@ impl Equals<String> for String{
 
     fn ne(self, other: String) -> Bool {
         !eq_string(self, other)
+    }
+}
+
+impl<_T> AllocateArray for _T where _T: Default {
+    fn allocate_array(n: Int) -> [_T] {
+        let a = cursed_allocate_array:<_T>(n).
+
+        for i in Range!Finite(0, n) {
+          a[i] = <_T as Default>:default().
+        }
+
+        a
     }
 }

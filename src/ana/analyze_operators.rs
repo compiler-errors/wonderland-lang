@@ -186,6 +186,14 @@ impl AstAdapter for AnalyzeOperators {
                     impl_signature: None,
                 }
             }
+            AstExpressionData::AllocateArray { object, size } => AstExpressionData::StaticCall {
+                call_type: object.clone(),
+                fn_name: "allocate_array".into(),
+                fn_generics: vec![],
+                args: vec![*size],
+                associated_trait: Some(AstTraitType(self.construct_ref("AllocateArray")?, vec![])),
+                impl_signature: None,
+            },
             e => e,
         };
 

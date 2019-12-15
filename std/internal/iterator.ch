@@ -27,6 +27,10 @@ impl<_T> Iterator for ArrayIterator<_T> {
     fn has_next(self) -> Bool {
         self:idx < self:array:len()
     }
+
+    fn size_hint(self) -> Int {
+        self:array:len()
+    }
 }
 
 
@@ -59,6 +63,10 @@ impl Iterator for StringIterator {
     fn has_next(self) -> Bool {
         self:idx < self:str:len()
     }
+
+    fn size_hint(self) -> Int {
+        self:str:len()
+    }
 }
 
 impl Iterable for Range {
@@ -89,6 +97,13 @@ impl Iterator for RangeIterator {
         match self:end {
             Option!Some(end) -> self:idx < end,
             Option!None -> true,
+        }
+    }
+
+    fn size_hint(self) -> Int {
+        match self:end {
+            Option!Some(end) -> self:idx - end,
+            Option!None -> 0,
         }
     }
 }

@@ -12,31 +12,15 @@ pub struct TyckObjectiveAdapter {
     variables: HashMap<VariableId, AstType>,
     analyzed_program: Rc<AnalyzedProgram>,
     return_type: Option<AstType>,
-
-    // Need to save this because it's difficult to find
-    // Needed for `allocate [T; n]`
-    default_trait: AstTraitType,
 }
 
 impl TyckObjectiveAdapter {
     pub fn new(solver: TyckSolver, analyzed_program: Rc<AnalyzedProgram>) -> TyckObjectiveAdapter {
-        let mut default_trait = None;
-        for tr in analyzed_program.analyzed_traits.values() {
-            // TODO: I don't like this.
-            if &tr.name.full_name().unwrap() == "std::option::Default" {
-                default_trait = Some(AstTraitType(tr.name.clone(), vec![]));
-                break;
-            }
-        }
-
-        let default_trait = default_trait.unwrap();
-
         TyckObjectiveAdapter {
             solver,
             variables: HashMap::new(),
             analyzed_program,
             return_type: None,
-            default_trait,
         }
     }
 
@@ -186,8 +170,6 @@ impl<'a> AstAdapter for TyckObjectiveAdapter {
         let AstExpression { data, ty, span } = e;
 
         match &data {
-            AstExpressionData::ExprCall { .. } => unreachable!(),
-
             AstExpressionData::Unimplemented => {}
             AstExpressionData::Block { block } => {
                 self.solver.unify(&block.expression.ty, &ty)?;
@@ -217,7 +199,6 @@ impl<'a> AstAdapter for TyckObjectiveAdapter {
                     self.solver.unify(&expression.ty, &ty)?;
                 }
             }
-            AstExpressionData::SelfRef => unreachable!(),
             AstExpressionData::Literal(lit) => match lit {
                 AstLiteral::True | AstLiteral::False => {
                     self.solver.unify(&ty, &AstType::Bool)?;
@@ -252,11 +233,6 @@ impl<'a> AstAdapter for TyckObjectiveAdapter {
 
                 self.solver.unify(&AstType::array(elem_ty), &ty)?;
             }
-            AstExpressionData::AllocateArray { object, size } => {
-                self.solver.add_objective(object, &self.default_trait)?;
-                self.solver.unify(&AstType::array(object.clone()), &ty)?;
-                self.solver.unify(&AstType::Int, &size.ty)?;
-            }
 
             // A regular function call
             AstExpressionData::FnCall {
@@ -275,8 +251,6 @@ impl<'a> AstAdapter for TyckObjectiveAdapter {
                 self.solver.unify(&return_ty, &ty)?;
                 self.solver.add_objectives(&objectives)?; // Add fn restrictions
             }
-            // Call an object's member function
-            AstExpressionData::ObjectCall { .. } => unreachable!(),
             // Call an object's static function
             AstExpressionData::StaticCall {
                 call_type,
@@ -302,8 +276,6 @@ impl<'a> AstAdapter for TyckObjectiveAdapter {
                 self.solver.add_objective(&call_type, &associated_trait)?;
                 self.solver.add_objectives(&objectives)?; // Add fn restrictions
             }
-            // An array access `a[1u]`
-            AstExpressionData::ArrayAccess { .. } => unreachable!(),
             // A tuple access `a:1`
             AstExpressionData::TupleAccess { accessible, idx } => {
                 let tuple_ty = &accessible.ty;
@@ -409,7 +381,12 @@ impl<'a> AstAdapter for TyckObjectiveAdapter {
                 }
             }
 
-            AstExpressionData::NamedEnum { .. }
+            AstExpressionData::SelfRef
+            | AstExpressionData::AllocateArray { .. }
+            | AstExpressionData::ExprCall { .. }
+            | AstExpressionData::ObjectCall { .. }
+            | AstExpressionData::ArrayAccess { .. }
+            | AstExpressionData::NamedEnum { .. }
             | AstExpressionData::PlainEnum { .. }
             | AstExpressionData::BinOp { .. } => unreachable!(),
         }

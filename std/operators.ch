@@ -87,3 +87,7 @@ trait Call<_Args, _Ret> {
 
     fn call(self, args: _Args) -> _Ret.
 }
+
+trait AllocateArray {
+    fn allocate_array(n: Int) -> [Self].
+}
