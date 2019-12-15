@@ -974,12 +974,12 @@ impl Parser {
     fn parse_for_loop(&mut self) -> PResult<AstStatement> {
         let span = self.next_span;
         self.expect_consume(Token::For)?;
-        let ident = self.expect_consume_identifier()?;
+        let pattern = self.parse_match_pattern()?;
         self.expect_consume(Token::In)?;
         let iter_expr = self.parse_expression()?;
         let (block, _) = self.parse_block()?;
 
-        Ok(AstStatement::for_loop(span, ident, iter_expr, block))
+        Ok(AstStatement::for_loop(span, pattern, iter_expr, block))
     }
 
     fn parse_return_statement(&mut self) -> PResult<AstStatement> {

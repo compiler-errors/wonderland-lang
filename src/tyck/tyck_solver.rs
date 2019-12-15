@@ -12,10 +12,10 @@ pub struct TyckSolver {
     solution: TyckSolution,
 
     /// Objectives that are used to explore the type space.
-    objectives: VecDeque<TyckObjective>,
+    pub objectives: VecDeque<TyckObjective>,
 
     /// Objectives which may only be solved after further inference or normalization.
-    delayed_objectives: Vec<TyckDelayedObjective>,
+    pub delayed_objectives: Vec<TyckDelayedObjective>,
 
     /// Type-space, so we make sure that every encountered type is normalized...
     types: HashSet<AstType>,
@@ -27,7 +27,7 @@ pub struct TyckSolver {
 pub struct TyckSolution {
     analyzed_program: Rc<AnalyzedProgram>,
     inferences: HashMap<InferId, AstType>,
-    impl_signatures: HashMap<TyckObjective, AstImplSignature>,
+    pub impl_signatures: HashMap<TyckObjective, AstImplSignature>,
 }
 
 impl TyckSolver {
@@ -48,7 +48,7 @@ impl TyckSolver {
 }
 
 #[derive(Debug, Clone)]
-enum TyckDelayedObjective {
+pub enum TyckDelayedObjective {
     Unify(AstType, AstType),
     TupleAccess(AstType, usize, AstType),
     ObjectAccess(AstType, String, AstType),
@@ -833,6 +833,26 @@ impl TyckSolution {
         let tys = t.1.clone().visit(&mut Normalize(self))?;
 
         Ok(AstTraitType(name, tys))
+    }
+
+    pub fn augment(&mut self, other: TyckSolution) -> PResult<()> {
+        for (id, ty) in other.inferences {
+            if let Some(other_ty) = self.inferences.insert(id, ty.clone()) {
+                if ty != other_ty {
+                    panic!("_{}: Cannot unify {} and {}", id.0, ty, other_ty);
+                }
+            }
+        }
+
+        for (obj, sig) in other.impl_signatures {
+            if let Some(other_sig) = self.impl_signatures.insert(obj.clone(), sig.clone()) {
+                if sig != other_sig {
+                    panic!("{}: Cannot unify {:?} and {:?}", obj, sig, other_sig);
+                }
+            }
+        }
+
+        Ok(())
     }
 }
 

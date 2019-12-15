@@ -1,3 +1,9 @@
+impl<_It> Iterable for _It where _It: Iterator {
+    type IterType = Self.
+
+    fn iterator(self) -> Self = self.
+}
+
 impl<_T> Iterable for [_T] {
     type IterType = ArrayIterator<_T>.
 

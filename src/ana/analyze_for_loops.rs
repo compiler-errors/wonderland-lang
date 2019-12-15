@@ -16,7 +16,7 @@ impl AstAdapter for AnalyzeForLoops {
         match s {
             AstStatement::For {
                 span,
-                identifier,
+                pattern,
                 iterable,
                 mut block,
             } => {
@@ -25,7 +25,7 @@ impl AstAdapter for AnalyzeForLoops {
                 block.statements.insert(
                     0,
                     AstStatement::let_statement(
-                        AstMatchPattern::identifier(span, identifier, AstType::infer()),
+                        pattern,
                         AstExpression::object_call(
                             span,
                             iter_object.clone(),

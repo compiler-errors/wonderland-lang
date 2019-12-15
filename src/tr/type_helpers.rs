@@ -5,6 +5,7 @@ use inkwell::types::{BasicTypeEnum, FunctionType, PointerType, StructType};
 use inkwell::values::{BasicValueEnum, CallSiteValue, IntValue};
 use inkwell::AddressSpace;
 use std::collections::HashMap;
+use inkwell::context::Context;
 
 pub const GLOBAL: AddressSpace = AddressSpace::Generic; /* Wot. */
 pub const GC: AddressSpace = AddressSpace::Global; /* addrspace(1) is Managed, i swear */
@@ -19,22 +20,22 @@ pub struct TrClosureCaptureEnvironment {
 }
 
 impl TrClosureCaptureEnvironment {
-    pub fn into_struct_type(&self) -> PointerType {
-        let mut field_types = vec![opaque_fn_type().into()];
+    pub fn into_struct_type(&self, context: &Context) -> PointerType {
+        let mut field_types = vec![opaque_fn_type(context).into()];
         field_types.extend(self.captured.iter().map(|id| self.tys[id]));
 
-        StructType::struct_type(&field_types, false).ptr_type(GC)
+        context.struct_type(&field_types, false).ptr_type(GC)
     }
 }
 
-pub fn opaque_fn_type() -> PointerType {
-    StructType::struct_type(&[], false)
+pub fn opaque_fn_type(context: &Context) -> PointerType {
+    context.struct_type(&[], false)
         .fn_type(&[], false)
         .ptr_type(GLOBAL)
 }
 
-pub fn opaque_env_type() -> PointerType {
-    StructType::struct_type(&[], false).ptr_type(GLOBAL)
+pub fn opaque_env_type(context: &Context) -> PointerType {
+    context.struct_type(&[], false).ptr_type(GLOBAL)
 }
 
 pub fn fun_type(t: BasicTypeEnum, p: &[BasicTypeEnum]) -> FunctionType {

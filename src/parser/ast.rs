@@ -363,7 +363,7 @@ pub enum AstStatement {
     },
     For {
         span: Span,
-        identifier: String,
+        pattern: AstMatchPattern,
         iterable: AstExpression,
         block: AstBlock,
     },
@@ -391,13 +391,13 @@ impl AstStatement {
 
     pub fn for_loop(
         span: Span,
-        identifier: String,
+        pattern: AstMatchPattern,
         iterable: AstExpression,
         block: AstBlock,
     ) -> AstStatement {
         AstStatement::For {
             span,
-            identifier,
+            pattern,
             iterable,
             block,
         }

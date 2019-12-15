@@ -486,6 +486,7 @@ impl Translator {
                 start_builder.build_return(Some(&ret));
             }
             Definition::AllocateArray(element_ast_ty) => {
+                let array_ast_ty = AstType::array(element_ast_ty.clone());
                 let num_elements = llvm_fun.get_params()[0];
 
                 let block = llvm_fun.append_basic_block("pre");
@@ -493,10 +494,10 @@ impl Translator {
                 first_builder.position_at_end(&block);
 
                 let element_ty = self.get_type(&element_ast_ty)?;
-                let array_ty = self.get_type(&AstType::array(element_ast_ty.clone()))?;
+                let array_ty = self.get_type(&array_ast_ty)?;
                 let ty_size = type_size(element_ty)?;
 
-                let ty_id = self.type_ids[&element_ast_ty];
+                let ty_id = self.type_ids[&array_ast_ty];
                 let ptr = first_builder.build_call(
                     self.get_function("gc_alloc_array"),
                     &[
@@ -701,7 +702,7 @@ impl Translator {
                 // Cast environment back to some opaque type ({}*) so we can pass to our function.
                 // Then put it in as the first argument.
                 let env_casted =
-                    first_builder.build_pointer_cast(env_arg, opaque_env_type(), &temp_name());
+                    first_builder.build_pointer_cast(env_arg, opaque_env_type(&self.context), &temp_name());
                 args.insert(0, env_casted.into());
 
                 let arg_tys: Vec<_> = args.iter().map(|t| t.get_type()).collect();
@@ -1528,7 +1529,7 @@ impl Translator {
                 .iter()
                 .map(|p| self.get_type(&p.ty))
                 .collect::<PResult<_>>()?;
-            param_tys.insert(0, opaque_env_type().into());
+            param_tys.insert(0, opaque_env_type(&self.context).into());
 
             let llvm_fun =
                 self.module
@@ -1548,7 +1549,7 @@ impl Translator {
             let opaque_env_ptr = llvm_fun.get_params()[0].into_pointer_value();
             let env_ptr = first_builder.build_pointer_cast(
                 opaque_env_ptr,
-                env.into_struct_type(),
+                env.into_struct_type(&self.context),
                 &temp_name(),
             );
             let env_struct = first_builder
@@ -1599,7 +1600,7 @@ impl Translator {
             ..
         } = c
         {
-            let env_ty = env.into_struct_type();
+            let env_ty = env.into_struct_type(&self.context);
             let size = env_ty
                 .get_element_type()
                 .into_struct_type()
@@ -1628,7 +1629,7 @@ impl Translator {
             let fn_dest = unsafe { builder.build_struct_gep(env_ptr, 0, &temp_name()) };
             let opaque_fn = builder.build_pointer_cast(
                 fun.as_global_value().as_pointer_value(),
-                opaque_fn_type(),
+                opaque_fn_type(&self.context),
                 &temp_name(),
             );
             builder.build_store(fn_dest, opaque_fn);
@@ -1911,7 +1912,7 @@ impl Translator {
             // Change the i8* into an object addrspace(1)**
             let object_ptr = builder.build_pointer_cast(
                 ptr_param,
-                ptr_type(env.into_struct_type().into(), GLOBAL).into_pointer_type(),
+                ptr_type(env.into_struct_type(&self.context).into(), GLOBAL).into_pointer_type(),
                 &temp_name(),
             );
             let object = builder.build_load(object_ptr, &temp_name());
@@ -2041,7 +2042,7 @@ impl Translator {
             }
 
             AstType::ClosureType { .. } => {
-                StructType::struct_type(&[opaque_fn_type().into()], false)
+                self.context.struct_type(&[opaque_fn_type(&self.context).into()], false)
                     .ptr_type(GC)
                     .into()
             }

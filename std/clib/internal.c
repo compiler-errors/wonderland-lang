@@ -69,7 +69,6 @@ NOINLINE struct string* fpP8internalP9operators10add_string(struct string* a,
   struct string* string_ptr = gc_alloc_block(block_size, 0 /* string type */, __builtin_frame_address(0));
   gc_remap_and_unmark((i8**) &a);
   gc_remap_and_unmark((i8**) &b);
-
   gc_remap_free();
 
   string_ptr->length = length;

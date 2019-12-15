@@ -188,7 +188,6 @@ where
     let mut objective_adapter = TyckObjectiveAdapter::new(base_solver.clone(), program);
 
     let t = t.visit(&mut objective_adapter)?;
-
     let solution = objective_adapter.solver.solve()?;
 
     Ok((t, solution))
@@ -201,7 +200,7 @@ pub fn typecheck_associated_type(
     trait_ty: &AstTraitType,
     name: &str,
     assoc_ty: &AstType,
-) -> PResult<()> {
+) -> PResult<TyckSolution> {
     let trait_data = &program.analyzed_traits[&trait_ty.0];
 
     let mut objective_adapter = TyckObjectiveAdapter::new(base_solver.clone(), program.clone());
@@ -222,9 +221,7 @@ pub fn typecheck_associated_type(
             &restrictions,
         )?)?;
 
-    objective_adapter.solver.solve()?;
-
-    Ok(())
+    objective_adapter.solver.solve()
 }
 
 pub fn typecheck_impl(
@@ -252,11 +249,11 @@ pub fn typecheck_impl(
     imp.impl_ty.clone().visit(&mut objective_adapter)?;
     imp.trait_ty.clone().visit(&mut objective_adapter)?;
 
-    let solution = objective_adapter.solver.solve()?;
+    let mut solution = objective_adapter.solver.solve()?;
 
     // Foreach associated type, prove instantiated assoc-type bounds from trait hold. And type itself is well-formed.
     for (name, ty) in &imp.associated_types {
-        typecheck_associated_type(
+        let assoc_solution = typecheck_associated_type(
             program.clone(),
             &base_solver,
             &imp.impl_ty,
@@ -264,6 +261,8 @@ pub fn typecheck_impl(
             name,
             ty,
         )?;
+
+        solution.augment(assoc_solution)?;
     }
 
     // If it's not a dummy impl, functions and types should all be matched to one in the trait. (<=>).

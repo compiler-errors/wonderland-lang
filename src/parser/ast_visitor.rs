@@ -311,12 +311,12 @@ impl<T: AstAdapter> Visit<T> for AstStatement {
             },
             AstStatement::For {
                 span,
-                identifier,
+                pattern,
                 iterable,
                 block,
             } => AstStatement::For {
                 span,
-                identifier,
+                pattern: pattern.visit(adapter)?,
                 iterable: iterable.visit(adapter)?,
                 block: block.visit(adapter)?,
             },

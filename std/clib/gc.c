@@ -83,6 +83,7 @@ i8* gc_remap_block(i8* ptr) {
         entry = entry->next;
     }
 
+    fprintf(stderr, "Bad entry.\n");
     exit(-1);
 }
 
@@ -129,6 +130,8 @@ void gc_visit(i8* ptr, i16 ty, GC_CALLBACK);
 
 void gc_visit_array(struct array** array_ptr, i16 element_ty, GC_CALLBACK) {
   DEBUG_PRINTF("Visiting array %p in %p\n", *array_ptr, array_ptr);
+  DEBUG_PRINTF("Array child size is %"PRId64"\n", (*array_ptr)->element_size);
+  DEBUG_PRINTF("Array child number is %"PRId64"\n", (*array_ptr)->length);
 
   if (*array_ptr == NULL) {
     return;
