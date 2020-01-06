@@ -1,6 +1,6 @@
 use crate::util::{FileId, FileRegistry, IntoError, PResult, Span};
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::RwLock;
 
 #[derive(Debug, Clone)]
@@ -191,7 +191,45 @@ pub struct GenericId(pub usize);
 pub struct DummyId(pub usize);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct AstTraitType(pub ModuleRef, pub Vec<AstType>);
+pub struct AstTraitType {
+    pub name: ModuleRef,
+    pub generics: Vec<AstType>,
+}
+
+impl AstTraitType {
+    pub fn new(name: ModuleRef, generics: Vec<AstType>) -> AstTraitType {
+        AstTraitType { name, generics }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct AstTraitTypeWithAssocs {
+    pub trt: AstTraitType,
+
+    /// We store these bindings like this because hashmap is not hash, I think...
+    pub assoc_bindings: BTreeMap<String, AstType>,
+}
+
+impl AstTraitTypeWithAssocs {
+    pub fn new(
+        name: ModuleRef,
+        generics: Vec<AstType>,
+        assoc_bindings: BTreeMap<String, AstType>,
+    ) -> AstTraitTypeWithAssocs {
+        AstTraitTypeWithAssocs {
+            trt: AstTraitType::new(name, generics),
+            assoc_bindings,
+        }
+    }
+
+    pub fn split(self) -> (AstTraitType, BTreeMap<String, AstType>) {
+        let AstTraitTypeWithAssocs {
+            trt: ty,
+            assoc_bindings,
+        } = self;
+        (ty, assoc_bindings)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 /// A type as parsed by the Parser module.
@@ -228,12 +266,12 @@ pub enum AstType {
 
     AssociatedType {
         obj_ty: Box<AstType>,
-        trait_ty: Option<AstTraitType>,
+        trait_ty: Option<AstTraitTypeWithAssocs>,
         name: String,
     },
     ElaboratedType {
         obj_ty: Box<AstType>,
-        trait_ty: AstTraitType,
+        trait_ty: AstTraitTypeWithAssocs,
     },
 
     GenericPlaceholder(GenericId, String),
@@ -320,7 +358,7 @@ impl AstType {
         }
     }
 
-    pub fn elaborated_type(ty: AstType, trt: AstTraitType) -> AstType {
+    pub fn elaborated_type(ty: AstType, trt: AstTraitTypeWithAssocs) -> AstType {
         AstType::ElaboratedType {
             obj_ty: Box::new(ty),
             trait_ty: trt,
@@ -493,7 +531,7 @@ pub enum AstExpressionData {
         fn_generics: Vec<AstType>,
         args: Vec<AstExpression>,
 
-        associated_trait: Option<AstTraitType>,
+        associated_trait: Option<AstTraitTypeWithAssocs>,
         impl_signature: Option<AstImplSignature>,
     },
     /// An array access `a[1u]`
@@ -1238,17 +1276,17 @@ impl AstTrait {
 #[derive(Debug, Clone)]
 pub struct AstAssociatedType {
     pub name: String,
-    pub restrictions: Vec<AstTraitType>,
+    pub restrictions: Vec<AstTraitTypeWithAssocs>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AstTypeRestriction {
     pub ty: AstType,
-    pub trt: AstTraitType,
+    pub trt: AstTraitTypeWithAssocs,
 }
 
 impl AstTypeRestriction {
-    pub fn new(ty: AstType, trt: AstTraitType) -> AstTypeRestriction {
+    pub fn new(ty: AstType, trt: AstTraitTypeWithAssocs) -> AstTypeRestriction {
         AstTypeRestriction { ty, trt }
     }
 }

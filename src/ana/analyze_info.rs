@@ -23,6 +23,8 @@ impl AnalyzeInfo {
                 analyzed_impls: HashMap::new(),
                 analyzed_modules: HashMap::new(),
                 analyzed_globals: HashMap::new(),
+                associated_types_to_traits: HashMap::new(),
+                methods_to_traits: HashMap::new(),
             },
         }
     }
@@ -150,6 +152,22 @@ impl AstAdapter for AnalyzeInfo {
             self.analyzed_program
                 .analyzed_traits
                 .insert(trt.module_ref.clone(), ana_trt);
+
+            for assoc_ty in trt.associated_types.keys() {
+                self.analyzed_program
+                    .associated_types_to_traits
+                    .entry(assoc_ty.clone())
+                    .or_default()
+                    .push(trt.module_ref.clone());
+            }
+
+            for method in trt.functions.keys() {
+                self.analyzed_program
+                    .methods_to_traits
+                    .entry(method.clone())
+                    .or_default()
+                    .push(trt.module_ref.clone());
+            }
         }
 
         for imp in m.impls.values() {
@@ -186,7 +204,7 @@ impl AstAdapter for AnalyzeInfo {
     fn exit_program(&mut self, p: AstProgram) -> PResult<AstProgram> {
         for m in &p.modules {
             for imp in m.impls.values() {
-                let trt_name = imp.trait_ty.0.clone();
+                let trt_name = imp.trait_ty.name.clone();
                 self.analyzed_program
                     .analyzed_traits
                     .get_mut(&trt_name)

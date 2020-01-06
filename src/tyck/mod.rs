@@ -150,7 +150,7 @@ fn typecheck_dummy_impl(
     base_solver: &TyckSolver,
     imp: AnImplData,
 ) -> PResult<()> {
-    let trait_data = &program.analyzed_traits[&imp.trait_ty.0];
+    let trait_data = &program.analyzed_traits[&imp.trait_ty.name];
 
     let mut objective_adapter = TyckObjectiveAdapter::new(base_solver.clone(), program.clone());
     objective_adapter
@@ -201,7 +201,7 @@ pub fn typecheck_associated_type(
     name: &str,
     assoc_ty: &AstType,
 ) -> PResult<TyckSolution> {
-    let trait_data = &program.analyzed_traits[&trait_ty.0];
+    let trait_data = &program.analyzed_traits[&trait_ty.name];
 
     let mut objective_adapter = TyckObjectiveAdapter::new(base_solver.clone(), program.clone());
     let assoc_ty = assoc_ty.clone().visit(&mut objective_adapter)?;
@@ -229,7 +229,7 @@ pub fn typecheck_impl(
     base_solver: &TyckSolver,
     imp: AstImpl,
 ) -> PResult<(AstImpl, TyckSolution)> {
-    let trait_name = &imp.trait_ty.0;
+    let trait_name = &imp.trait_ty.name;
     let trait_data = &program.analyzed_traits[trait_name];
     let mut objective_adapter = TyckObjectiveAdapter::new(base_solver.clone(), program.clone());
 
@@ -305,8 +305,8 @@ pub fn typecheck_impl_fn(
     let (expected_params, expected_ret_ty, expected_constraints) =
         GenericsInstantiator::instantiate_trait_fn_signature(
             &program,
-            &trait_ty.0,
-            &trait_ty.1,
+            &trait_ty.name,
+            &trait_ty.generics,
             &fun.name,
             fn_generics,
             &impl_ty,
@@ -329,7 +329,7 @@ pub fn typecheck_impl_fn(
     let mut norm_expected_constraints = HashSet::new();
     for AstTypeRestriction { ty, trt } in expected_constraints {
         let ty = solution.normalize_ty(&ty)?;
-        let trt = solution.normalize_trait_ty(&trt)?;
+        let trt = solution.normalize_trait_ty_with_assocs(&trt)?;
 
         norm_expected_constraints.insert(AstTypeRestriction::new(ty, trt));
     }
@@ -337,7 +337,7 @@ pub fn typecheck_impl_fn(
     let mut given_constraints = HashSet::new();
     for AstTypeRestriction { ty, trt } in &fun.restrictions {
         let ty = solution.normalize_ty(ty)?;
-        let trt = solution.normalize_trait_ty(trt)?;
+        let trt = solution.normalize_trait_ty_with_assocs(trt)?;
 
         given_constraints.insert(AstTypeRestriction::new(ty, trt));
     }

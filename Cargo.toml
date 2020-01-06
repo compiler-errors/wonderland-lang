@@ -5,11 +5,12 @@ authors = ["Michael Goulet <michael@errs.io>"]
 edition = "2018"
 
 [features]
-default = ["tr"]
+default = ["tyck2"]
 lex = []
 parse = ["lex"]
 ana = ["parse"]
 tyck = ["ana"]
+tyck2 = ["ana"]
 inst = ["tyck"]
 tr = ["inst"]
 

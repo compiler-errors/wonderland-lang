@@ -35,7 +35,7 @@ impl<_T> Iterator for ArrayIterator<_T> {
     }
 
     fn size_hint(self) -> Int {
-        self:array:len()
+        self:array:len() - self:idx
     }
 }
 
@@ -71,7 +71,7 @@ impl Iterator for StringIterator {
     }
 
     fn size_hint(self) -> Int {
-        self:str:len()
+        self:str:len() - self:idx
     }
 }
 
@@ -108,7 +108,7 @@ impl Iterator for RangeIterator {
 
     fn size_hint(self) -> Int {
         match self:end {
-            Option!Some(end) -> self:idx - end,
+            Option!Some(end) -> end - self:idx,
             Option!None -> 0,
         }
     }

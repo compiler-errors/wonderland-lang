@@ -37,6 +37,12 @@ pub trait AstAdapter {
     fn enter_trait_type(&mut self, t: AstTraitType) -> PResult<AstTraitType> {
         Ok(t)
     }
+    fn enter_trait_type_with_assocs(
+        &mut self,
+        t: AstTraitTypeWithAssocs,
+    ) -> PResult<AstTraitTypeWithAssocs> {
+        Ok(t)
+    }
     fn enter_statement(&mut self, s: AstStatement) -> PResult<AstStatement> {
         Ok(s)
     }
@@ -110,6 +116,12 @@ pub trait AstAdapter {
         Ok(t)
     }
     fn exit_trait_type(&mut self, t: AstTraitType) -> PResult<AstTraitType> {
+        Ok(t)
+    }
+    fn exit_trait_type_with_assocs(
+        &mut self,
+        t: AstTraitTypeWithAssocs,
+    ) -> PResult<AstTraitTypeWithAssocs> {
         Ok(t)
     }
     fn exit_statement(&mut self, s: AstStatement) -> PResult<AstStatement> {
@@ -645,11 +657,27 @@ impl<T: AstAdapter> Visit<T> for AstType {
 
 impl<T: AstAdapter> Visit<T> for AstTraitType {
     fn visit(self, adapter: &mut T) -> PResult<Self> {
-        let AstTraitType(name, tys) = adapter.enter_trait_type(self)?;
+        let AstTraitType { name, generics } = adapter.enter_trait_type(self)?;
         let name = name.visit(adapter)?;
-        let tys = tys.visit(adapter)?;
+        let generics = generics.visit(adapter)?;
 
-        adapter.exit_trait_type(AstTraitType(name, tys))
+        adapter.exit_trait_type(AstTraitType { name, generics })
+    }
+}
+
+impl<T: AstAdapter> Visit<T> for AstTraitTypeWithAssocs {
+    fn visit(self, adapter: &mut T) -> PResult<Self> {
+        let AstTraitTypeWithAssocs {
+            trt: ty,
+            assoc_bindings,
+        } = adapter.enter_trait_type_with_assocs(self)?;
+        let ty = ty.visit(adapter)?;
+        let assoc_bindings = assoc_bindings.visit(adapter)?;
+
+        adapter.exit_trait_type_with_assocs(AstTraitTypeWithAssocs {
+            trt: ty,
+            assoc_bindings,
+        })
     }
 }
 

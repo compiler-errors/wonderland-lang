@@ -4,32 +4,32 @@ void fp5print(struct string* str) {
   printf("%s", str->payload);
 }
 
-i1 fpP8internalP9operators6eq_int(i64 a, i64 b) {
+INLINE i1 fpP8internalP9operators6eq_int(i64 a, i64 b) {
   return a == b;
 }
 
-i1 fpP8internalP9operators6gt_int(i64 a, i64 b) {
+INLINE i1 fpP8internalP9operators6gt_int(i64 a, i64 b) {
   // SIGNED comparison, please.
   return ((int64_t) a) > ((int64_t) b);
 }
 
-i64 fpP8internalP9operators7add_int(i64 a, i64 b) {
+INLINE i64 fpP8internalP9operators7add_int(i64 a, i64 b) {
   return a + b;
 }
 
-i64 fpP8internalP9operators7neg_int(i64 a) {
+INLINE i64 fpP8internalP9operators7neg_int(i64 a) {
   return -a;
 }
 
-i64 fpP8internalP9operators7mul_int(i64 a, i64 b) {
+INLINE i64 fpP8internalP9operators7mul_int(i64 a, i64 b) {
   return a * b;
 }
 
-i64 fpP8internalP9operators7div_int(i64 a, i64 b) {
+INLINE i64 fpP8internalP9operators7div_int(i64 a, i64 b) {
   return a / b;
 }
 
-i64 fpP8internalP9operators7mod_int(i64 a, i64 b) {
+INLINE i64 fpP8internalP9operators7mod_int(i64 a, i64 b) {
   return a % b;
 }
 
@@ -82,7 +82,7 @@ i8 fpP8internalP9operators8get_char(struct string* string, i64 idx) {
   return string->payload[idx];
 }
 
-i64 fpP8internalP9operators10len_string(struct string* string) {
+INLINE i64 fpP8internalP9operators10len_string(struct string* string) {
     return string->length;
 }
 

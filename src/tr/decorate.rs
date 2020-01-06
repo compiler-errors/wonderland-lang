@@ -169,9 +169,9 @@ pub fn decorate_object_fn(
     fn_name: &str,
     fn_generics: &[AstType],
 ) -> PResult<String> {
-    let (decorated_module, trt_name) = decorate_module(&trt.0)?;
+    let (decorated_module, trt_name) = decorate_module(&trt.name)?;
 
-    Ok(if trt.1.len() == 0 && fn_generics.len() == 0 {
+    Ok(if trt.generics.len() == 0 && fn_generics.len() == 0 {
         format!(
             "i{}{}{}{}{}{}",
             decorate_ty(ty)?,
@@ -188,10 +188,10 @@ pub fn decorate_object_fn(
             decorated_module,
             trt_name.len(),
             trt_name,
-            trt.1.len()
+            trt.generics.len()
         );
 
-        for t in &trt.1 {
+        for t in &trt.generics {
             string.push_str(&decorate_ty(t)?);
         }
 
@@ -205,10 +205,10 @@ pub fn decorate_object_fn(
             decorated_module,
             trt_name.len(),
             trt_name,
-            trt.1.len()
+            trt.generics.len()
         );
 
-        for t in &trt.1 {
+        for t in &trt.generics {
             string.push_str(&decorate_ty(t)?);
         }
 

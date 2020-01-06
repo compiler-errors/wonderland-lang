@@ -1,4 +1,4 @@
-use crate::ana::analyze_modules::SharedModule;
+use crate::ana::analyze_modules::{ModuleItem, SharedModule};
 use crate::parser::ast::*;
 use crate::util::FileId;
 use std::collections::HashMap;
@@ -13,6 +13,8 @@ pub struct AnalyzedProgram {
     pub analyzed_impls: HashMap<ImplId, AnImplData>,
     pub analyzed_modules: HashMap<FileId, SharedModule>,
     pub analyzed_globals: HashMap<ModuleRef, AstType>,
+    pub associated_types_to_traits: HashMap<String, Vec<ModuleRef>>,
+    pub methods_to_traits: HashMap<String, Vec<ModuleRef>>,
 }
 
 #[derive(Debug, Clone)]

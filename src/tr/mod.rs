@@ -69,6 +69,7 @@ pub fn translate(
     llvm_ir: bool,
     output_file: &str,
     included_files: Vec<OsString>,
+    permanent_temp_dir: Option<&str>,
 ) -> PResult<()> {
     let mut tr = Translator::new();
     tr.translate(file)?;
@@ -85,7 +86,13 @@ pub fn translate(
     }
 
     if output_file != "-" {
-        emit_module(module, llvm_ir, output_file, included_files)?;
+        emit_module(
+            module,
+            llvm_ir,
+            output_file,
+            included_files,
+            permanent_temp_dir,
+        )?;
     } else {
         println!("{}", module.print_to_string().to_string());
     }
@@ -98,6 +105,7 @@ fn emit_module(
     llvm_ir: bool,
     output_file: &str,
     included_files: Vec<OsString>,
+    permanent_temp_dir: Option<&str>,
 ) -> PResult<()> {
     if llvm_ir {
         if let Err(msg) = module.print_to_file(&PathBuf::from(output_file)) {
@@ -107,9 +115,25 @@ fn emit_module(
             ));
         }
     } else {
-        let dir = TempDir::new().map_err(|e| PError::new(format!("Temp dir error: {}", e)))?;
-        let dir_path = dir.path();
-        //let dir_path = Path::new("./tempout/");
+        let dir;
+        let dir_path;
+
+        if let Some(permanent_temp_dir) = permanent_temp_dir {
+            dir_path = Path::new(permanent_temp_dir);
+
+            if dir_path.exists() && !dir_path.is_dir() {
+                return PResult::error(format!(
+                    "The specified path {} exists and is not a directory!",
+                    dir_path.display()
+                ));
+            }
+
+            std::fs::create_dir_all(dir_path)
+                .map_err(|e| PError::new(format!("Temp dir error: {}", e)))?;
+        } else {
+            dir = Some(TempDir::new().map_err(|e| PError::new(format!("Temp dir error: {}", e)))?);
+            dir_path = dir.as_ref().unwrap().path();
+        }
 
         let ll = dir_path.join("file.ll").into_os_string();
         let ll_gc = dir_path.join("file.gc.ll").into_os_string();
@@ -157,11 +181,12 @@ fn emit_module(
             .args(&[
                 *STDLIB_PATH,
                 &ll_o,
-                OsStr::new("-o"),
-                OsStr::new(output_file),
-                OsStr::new("-O3"),
                 OsStr::new("-g"),
                 OsStr::new("-fPIC"),
+                OsStr::new("-flto"),
+                OsStr::new("-O3"),
+                OsStr::new("-o"),
+                OsStr::new(output_file),
             ])
             .args(&included_files);
 
@@ -701,8 +726,11 @@ impl Translator {
 
                 // Cast environment back to some opaque type ({}*) so we can pass to our function.
                 // Then put it in as the first argument.
-                let env_casted =
-                    first_builder.build_pointer_cast(env_arg, opaque_env_type(&self.context), &temp_name());
+                let env_casted = first_builder.build_pointer_cast(
+                    env_arg,
+                    opaque_env_type(&self.context),
+                    &temp_name(),
+                );
                 args.insert(0, env_casted.into());
 
                 let arg_tys: Vec<_> = args.iter().map(|t| t.get_type()).collect();
@@ -1056,7 +1084,7 @@ impl Translator {
             } => {
                 let name = decorate_object_fn(
                     call_type,
-                    associated_trait.as_ref().unwrap(),
+                    &associated_trait.as_ref().unwrap().trt,
                     fn_name,
                     fn_generics,
                 )?;
@@ -2041,11 +2069,11 @@ impl Translator {
                     .into()
             }
 
-            AstType::ClosureType { .. } => {
-                self.context.struct_type(&[opaque_fn_type(&self.context).into()], false)
-                    .ptr_type(GC)
-                    .into()
-            }
+            AstType::ClosureType { .. } => self
+                .context
+                .struct_type(&[opaque_fn_type(&self.context).into()], false)
+                .ptr_type(GC)
+                .into(),
 
             _ => unreachable!(),
         };

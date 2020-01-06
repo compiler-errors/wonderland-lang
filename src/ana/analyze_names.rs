@@ -43,8 +43,8 @@ impl AstAdapter for AnalyzeNames {
     }
 
     fn enter_trait_type(&mut self, t: AstTraitType) -> PResult<AstTraitType> {
-        if !self.analyzed_traits.contains_key(&t.0) {
-            return PResult::error(format!("No such trait named `{}`.", t.0.full_name()?));
+        if !self.analyzed_traits.contains_key(&t.name) {
+            return PResult::error(format!("No such trait named `{}`.", t.name.full_name()?));
         }
 
         Ok(t)

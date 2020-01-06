@@ -1,5 +1,5 @@
 use crate::util::PResult;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::hash::Hash;
 
 pub trait Visit<A>: Sized {
@@ -31,6 +31,18 @@ impl<T, S: Visit<T>> Visit<T> for Vec<S> {
 impl<T, K: Eq + Hash, V: Visit<T>> Visit<T> for HashMap<K, V> {
     fn visit(self, adapter: &mut T) -> PResult<HashMap<K, V>> {
         let mut out = HashMap::new();
+
+        for (k, v) in self.into_iter() {
+            out.insert(k, v.visit(adapter)?);
+        }
+
+        Ok(out)
+    }
+}
+
+impl<T, K: Eq + Hash + Ord, V: Visit<T>> Visit<T> for BTreeMap<K, V> {
+    fn visit(self, adapter: &mut T) -> PResult<BTreeMap<K, V>> {
+        let mut out = BTreeMap::new();
 
         for (k, v) in self.into_iter() {
             out.insert(k, v.visit(adapter)?);

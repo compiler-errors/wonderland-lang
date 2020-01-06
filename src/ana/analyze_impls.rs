@@ -19,7 +19,7 @@ impl PureAnalysisPass for AnalyzeImpls {
 
 impl AstAdapter for AnalyzeImpls {
     fn enter_impl(&mut self, i: AstImpl) -> PResult<AstImpl> {
-        let info = &self.0.analyzed_traits[&i.trait_ty.0];
+        let info = &self.0.analyzed_traits[&i.trait_ty.name];
 
         compare(
             "method",

@@ -264,8 +264,8 @@ impl<'a> AstAdapter for TyckObjectiveAdapter {
                 let (param_tys, return_ty, objectives) =
                     GenericsInstantiator::instantiate_trait_fn_signature(
                         &*self.analyzed_program,
-                        &associated_trait.0,
-                        &associated_trait.1,
+                        &associated_trait.trt.name,
+                        &associated_trait.trt.generics,
                         fn_name,
                         fn_generics,
                         &call_type,

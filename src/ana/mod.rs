@@ -4,7 +4,7 @@ use self::analyze_modules::{AnalyzePubUses, ModuleMap};
 use self::represent::*;
 use self::represent_visitor::*;
 use crate::ana::analyze_argument_parity::AnalyzeArgumentParity;
-use crate::ana::analyze_associated_types::AnalyzeAssociatedTypes;
+use crate::ana::analyze_associated_types_and_methods::AnalyzeAssociatedTypesAndMethods;
 use crate::ana::analyze_constructor_fields::AnalyzeConstructorFields;
 use crate::ana::analyze_control_flow::AnalyzeControlFlow;
 use crate::ana::analyze_elaborations::AnalyzeElaborations;
@@ -18,7 +18,6 @@ use crate::ana::analyze_illegal_infers::AnalyzeIllegalInfers;
 use crate::ana::analyze_impls::AnalyzeImpls;
 use crate::ana::analyze_infallible_enums::AnalyzeInfallibleEnums;
 use crate::ana::analyze_names::AnalyzeNames;
-use crate::ana::analyze_object_functions::AnalyzeObjectFunctions;
 use crate::ana::analyze_object_indices::AnalyzeObjectIndices;
 use crate::ana::analyze_operators::AnalyzeOperators;
 use crate::ana::analyze_positional_enums::AnalyzePositionalEnums;
@@ -29,7 +28,7 @@ use crate::parser::ast::AstProgram;
 use crate::util::{Comment, PResult, Visit};
 
 mod analyze_argument_parity;
-mod analyze_associated_types;
+mod analyze_associated_types_and_methods;
 mod analyze_constructor_fields;
 mod analyze_control_flow;
 mod analyze_elaborations;
@@ -45,7 +44,6 @@ mod analyze_infallible_enums;
 mod analyze_info;
 mod analyze_modules;
 mod analyze_names;
-mod analyze_object_functions;
 mod analyze_object_indices;
 mod analyze_operators;
 mod analyze_positional_enums;
@@ -108,8 +106,8 @@ pub fn analyze(p: AstProgram) -> PResult<(AnalyzedProgram, AstProgram)> {
             Box::new(AnalyzePositionalEnums::analyze),
         ),
         (
-            "analyze_associated_types",
-            Box::new(AnalyzeAssociatedTypes::analyze),
+            "analyze_associated_types_and_methods",
+            Box::new(AnalyzeAssociatedTypesAndMethods::analyze),
         ), // Before generics
         ("analyze_generics", Box::new(AnalyzeGenerics::analyze)),
         (
@@ -128,10 +126,6 @@ pub fn analyze(p: AstProgram) -> PResult<(AnalyzedProgram, AstProgram)> {
             Box::new(AnalyzeControlFlow::analyze),
         ),
         ("analyze_impls", Box::new(AnalyzeImpls::analyze)), // Before object functions
-        (
-            "analyze_object_functions",
-            Box::new(AnalyzeObjectFunctions::analyze),
-        ),
         ("analyze_self", Box::new(AnalyzeSelf::analyze)),
         (
             "analyze_argument_parity",

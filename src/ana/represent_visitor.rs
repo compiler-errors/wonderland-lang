@@ -18,6 +18,8 @@ pub trait AstAnalysisPass: AstAdapter + Sized {
 
 pub trait PureAnalysisPass: AstAdapter + Sized {
     fn new(a: AnalyzedProgram) -> PResult<Self>;
+
+    // Recovers the analyzed program which is contained in this analysis pass
     fn drop(self) -> AnalyzedProgram;
 
     fn analyze(a: AnalyzedProgram, p: AstProgram) -> PResult<(AnalyzedProgram, AstProgram)> {
@@ -111,6 +113,8 @@ impl<T: AnAdapter> Visit<T> for AnalyzedProgram {
             analyzed_impls,
             analyzed_modules,
             analyzed_globals,
+            associated_types_to_traits,
+            methods_to_traits,
         } = adapter.enter_analyzed_program(self)?;
 
         let i = AnalyzedProgram {
@@ -122,6 +126,8 @@ impl<T: AnAdapter> Visit<T> for AnalyzedProgram {
             analyzed_impls: analyzed_impls.visit(adapter)?,
             analyzed_globals: analyzed_globals.visit(adapter)?,
             analyzed_modules,
+            associated_types_to_traits,
+            methods_to_traits,
         };
 
         adapter.exit_analyzed_program(i)

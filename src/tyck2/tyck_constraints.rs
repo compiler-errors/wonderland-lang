@@ -1,7 +1,7 @@
 use crate::ana::represent::*;
 use crate::parser::ast::*;
 use crate::parser::ast_visitor::AstAdapter;
-use crate::tyck::tyck_instantiate::GenericsInstantiator;
+use crate::tyck2::tyck_instantiate::GenericsInstantiator;
 use crate::util::{PError, PResult, Visit};
 use std::collections::{BTreeMap, HashMap};
 

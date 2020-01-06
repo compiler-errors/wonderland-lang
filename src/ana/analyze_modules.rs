@@ -391,8 +391,7 @@ impl<'a> AstAdapter for AnalyzeUses<'a> {
     }
 
     fn exit_module(&mut self, m: AstModule) -> PResult<AstModule> {
-        let mut s = None;
-        std::mem::swap(&mut s, &mut self.current_mod);
+        let s = std::mem::take(&mut self.current_mod);
         self.modules.insert(m.id, s.unwrap());
 
         Ok(m)

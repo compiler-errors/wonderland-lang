@@ -6,7 +6,7 @@ use self::ast::*;
 use crate::lexer::*;
 use crate::util::*;
 use crate::util::{FileId, FileRegistry, Span};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::str::FromStr;
 use std::sync::RwLock;
 
@@ -634,7 +634,7 @@ impl Parser {
         Ok((AstType::ObjectEnum(obj, generics), span))
     }
 
-    fn parse_trait_type(&mut self) -> PResult<(AstTraitType, Span)> {
+    fn parse_trait_type(&mut self) -> PResult<(AstTraitTypeWithAssocs, Span)> {
         let mut span = self.next_span;
         let mut path = Vec::new();
 
@@ -658,19 +658,20 @@ impl Parser {
             }
         }
 
-        let generics = if self.check(Token::Lt) {
-            let (generics, generics_span) = self.parse_expr_generics()?;
+        let (generics, bindings) = if self.check(Token::Lt) {
+            let (generics, bindings, generics_span) = self.parse_trait_generics()?;
             span = span.unite(generics_span);
-            generics
+
+            (generics, bindings)
         } else {
-            Vec::new()
+            (Vec::new(), BTreeMap::new())
         };
 
         let obj = ModuleRef::Denormalized(path);
-        Ok((AstTraitType(obj, generics), span))
+        Ok((AstTraitTypeWithAssocs::new(obj, generics, bindings), span))
     }
 
-    fn parse_fn_trait_type(&mut self) -> PResult<(AstTraitType, Span)> {
+    fn parse_fn_trait_type(&mut self) -> PResult<(AstTraitTypeWithAssocs, Span)> {
         // TODO: I'm not super happy that this is happening here when I do
         // other desugaring in analyze_operators itself.
 
@@ -691,7 +692,10 @@ impl Parser {
             AstType::none()
         };
 
-        Ok((AstTraitType(call_trait, vec![args, ret_ty]), span))
+        Ok((
+            AstTraitTypeWithAssocs::new(call_trait, vec![args, ret_ty], BTreeMap::new()),
+            span,
+        ))
     }
 
     fn parse_generic_type(&mut self) -> PResult<(AstType, Span)> {
@@ -1645,6 +1649,48 @@ impl Parser {
         }
     }
 
+    fn parse_trait_generics(&mut self) -> PResult<(Vec<AstType>, BTreeMap<String, AstType>, Span)> {
+        let mut span = self.next_span;
+        self.expect_consume(Token::Lt)?;
+
+        let mut generics = Vec::new();
+        let mut bindings = BTreeMap::new();
+
+        span = span.unite(self.next_span);
+        while !self.check_consume(Token::Gt)? || generics.len() + bindings.len() == 0 {
+            if generics.len() != 0 || bindings.len() != 0 {
+                self.expect_consume(Token::Comma)?;
+            }
+
+            if self.check_consume(Token::ColonColon)? {
+                let name_span = self.next_span;
+                let name = self.expect_consume_typename()?;
+                self.expect_consume(Token::Equals)?;
+                let (ty, _) = self.parse_type()?;
+
+                bindings.insert(name.clone(), ty).is_not_expected(
+                    name_span,
+                    "associated type binding",
+                    &name,
+                )?;
+            } else {
+                let (ty, _) = self.parse_type()?;
+                generics.push(ty);
+            }
+
+            span = span.unite(self.next_span);
+        }
+
+        if generics.len() + bindings.len() == 0 {
+            self.error_at(
+                span,
+                format!("Expected generics or associated type bindings, got `<>`"),
+            )
+        } else {
+            Ok((generics, bindings, span))
+        }
+    }
+
     fn ensure_lval(&self, expr: &AstExpression) -> PResult<()> {
         match &expr.data {
             AstExpressionData::Identifier { .. }
@@ -1887,7 +1933,7 @@ impl Parser {
                 .collect();
 
             let trait_name = temp_name();
-            let trait_ty = AstTraitType(
+            let trait_ty = AstTraitType::new(
                 ModuleRef::Normalized(self.file, trait_name.clone()),
                 impl_generics.iter().map(|t| t.clone().into()).collect(),
             );
@@ -1913,7 +1959,15 @@ impl Parser {
                 )),
             ))
         } else {
-            let (trait_ty, _) = self.parse_trait_type()?;
+            let (trait_ty, trt_span) = self.parse_trait_type()?;
+            let (trait_ty, assoc_tys) = trait_ty.split();
+            if !assoc_tys.is_empty() {
+                return self.error_at(
+                    trt_span,
+                    format!("Did not expect associated bindings in impl trait type"),
+                );
+            }
+
             self.expect_consume(Token::For)?;
             let (impl_ty, _) = self.parse_type()?;
             let restrictions = self.try_parse_restrictions()?;

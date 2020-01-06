@@ -34,6 +34,22 @@ trait Compare<_T> {
     fn le(self, other: _T) -> Bool.
 }
 
+fn min<_T>(a: _T, b: _T) where _T: Compare<_T> {
+    if a < b {
+        a
+    } else {
+        b
+    }
+}
+
+fn max<_T>(a: _T, b: _T) where _T: Compare<_T> {
+    if a > b {
+        a
+    } else {
+        b
+    }
+}
+
 trait Equals<_T> {
     fn eq(self, other: _T) -> Bool.
     fn ne(self, other: _T) -> Bool.

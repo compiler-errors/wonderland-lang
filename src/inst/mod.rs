@@ -4,7 +4,7 @@ pub use crate::inst::represent::*;
 use crate::parser::ast::*;
 use crate::parser::ast_visitor::AstAdapter;
 use crate::tyck::*;
-use crate::util::{Expect, IntoError, PResult, Visit, Comment};
+use crate::util::{Comment, Expect, IntoError, PResult, Visit};
 use either::Either;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
@@ -116,7 +116,8 @@ pub fn instantiate(
 
     let mut instantiated_globals = HashMap::new();
     for (name, g) in globals {
-        let g = i.process_simple(g, &[], &[])
+        let g = i
+            .process_simple(g, &[], &[])
             .with_comment(|| format!("In global `{}`", name.full_name().unwrap()))?;
         instantiated_globals.insert(name, g);
     }
@@ -149,7 +150,8 @@ impl InstantiationAdapter {
         self.instantiated_fns.insert(sig.clone(), None);
 
         let ids = &self.analyzed_program.clone().analyzed_functions[name].generics;
-        let f = self.process_simple(self.fns[name].clone(), ids, generics)
+        let f = self
+            .process_simple(self.fns[name].clone(), ids, generics)
             .with_comment(|| format!("In function `{}`", name.full_name().unwrap()))?;
 
         self.instantiated_fns.insert(sig, Some(f));
@@ -168,7 +170,8 @@ impl InstantiationAdapter {
         self.instantiated_objects.insert(sig.clone(), None);
 
         let ids = &self.analyzed_program.clone().analyzed_objects[name].generics;
-        let o = self.process_simple(self.objects[name].clone(), ids, generics)
+        let o = self
+            .process_simple(self.objects[name].clone(), ids, generics)
             .with_comment(|| format!("In object `{}`", name.full_name().unwrap()))?;
 
         self.instantiated_objects.insert(sig, Some(o));
@@ -194,7 +197,8 @@ impl InstantiationAdapter {
         self.instantiated_enums.insert(sig.clone(), None);
 
         let ids = &self.analyzed_program.clone().analyzed_enums[name].generics;
-        let o = self.process_simple(self.enums[name].clone(), ids, generics)
+        let o = self
+            .process_simple(self.enums[name].clone(), ids, generics)
             .with_comment(|| format!("In enum `{}`", name.full_name().unwrap()))?;
         let r = self.solve_enum_representation(o);
 
@@ -463,10 +467,14 @@ impl AstAdapter for InstantiationAdapter {
                 fn_generics,
                 ..
             } => {
-                let trt = associated_trait.as_ref().unwrap();
                 let impl_sig = impl_signature.as_ref().unwrap();
-
-                self.instantiate_object_function(call_type, trt, impl_sig, fn_name, fn_generics)?;
+                self.instantiate_object_function(
+                    call_type,
+                    &associated_trait.as_ref().unwrap().trt,
+                    impl_sig,
+                    fn_name,
+                    fn_generics,
+                )?;
             }
             AstExpressionData::GlobalFn { name } => {
                 self.instantiate_function(name, &[])?;

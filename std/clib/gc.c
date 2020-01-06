@@ -274,7 +274,9 @@ void gc_walk(i8* cheshire_stack_root, i1 verify_derives, GC_CALLBACK) {
     frame_info_t* frame = lookup_return_address(table, ret);
 
     if (frame == NULL) {
-        // TODO: Panic, first frame should never be NULL.
+        fprintf(stderr, "PANIC: There are no stack frames; there should be at least one--check "
+                        "that some stupid inlining magic isn't taking place.");
+        exit(-1);
     }
 
     while (frame) {

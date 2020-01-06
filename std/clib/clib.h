@@ -15,6 +15,7 @@
 
 #define DEBUG_PRINTF(...) if (false) { printf(__VA_ARGS__); }
 #define NOINLINE __attribute__((noinline))
+#define INLINE __attribute__((always_inline))
 
 struct array {
   i64 length;

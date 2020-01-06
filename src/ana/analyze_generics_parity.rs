@@ -73,7 +73,7 @@ impl AstAdapter for AnalyzeGenericsParity {
     }
 
     fn enter_trait_type(&mut self, mut t: AstTraitType) -> PResult<AstTraitType> {
-        t.1 = self.check_generics(&t.0, t.1)?;
+        t.generics = self.check_generics(&t.name, t.generics)?;
         Ok(t)
     }
 

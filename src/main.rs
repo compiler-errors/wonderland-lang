@@ -24,6 +24,9 @@ use crate::tr::translate;
 #[cfg(feature = "tyck")]
 use crate::tyck::typecheck;
 
+#[cfg(feature = "tyck2")]
+use crate::tyck2::typecheck;
+
 use crate::util::{report_err, FileId, FileRegistry, PError, PResult};
 use getopts::{Matches, Options};
 
@@ -51,6 +54,9 @@ mod tr;
 #[cfg(feature = "tyck")]
 mod tyck;
 
+#[cfg(feature = "tyck2")]
+mod tyck2;
+
 mod util;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -64,7 +70,7 @@ enum Mode {
     Translate,
 }
 
-const DEFAULT_MODE: Mode = Mode::Translate;
+const DEFAULT_MODE: Mode = Mode::Typecheck;
 
 fn main() {
     let args: Vec<_> = std::env::args().collect();
@@ -82,7 +88,7 @@ fn main() {
     if cfg!(feature = "ana") {
         opts.optflag("a", "analyze", "Analyze file(s)");
     }
-    if cfg!(feature = "tyck") {
+    if cfg!(feature = "tyck") || cfg!(feature = "tyck2") {
         opts.optflag("t", "tyck", "Typecheck file(s)");
     }
     if cfg!(feature = "inst") {
@@ -94,6 +100,7 @@ fn main() {
 
     opts.optflag("L", "llvm-ir", "Compile file(s) to LLVM IR");
     opts.optopt("O", "output", "output file", "FILE");
+    opts.optopt("S", "tempdir", "temporary file output", "DIR");
 
     opts.optmulti("I", "include", "Included C files", "CFILE");
 
@@ -121,10 +128,18 @@ fn main() {
         .into_iter()
         .map(|s| OsString::from(s))
         .collect();
+    let permanent_temp_dir = matches.opt_str("S");
 
     println!("Mode: {:#?}", mode);
-    match_mode(mode, files, llvm_ir, &output_file, included_files)
-        .unwrap_or_else(|e| report_err(e));
+    match_mode(
+        mode,
+        files,
+        llvm_ir,
+        &output_file,
+        included_files,
+        permanent_temp_dir.as_deref(),
+    )
+    .unwrap_or_else(|e| report_err(e));
 }
 
 fn get_files(mode: Mode, matches: &[String]) -> PResult<Vec<FileId>> {
@@ -184,6 +199,7 @@ fn match_mode(
     llvm_ir: bool,
     output_file: &str,
     included_files: Vec<OsString>,
+    permanent_temp_dir: Option<&str>,
 ) -> PResult<()> {
     match mode {
         #[cfg(feature = "lex")]
@@ -192,12 +208,18 @@ fn match_mode(
         Mode::Parse => try_parse(files),
         #[cfg(feature = "ana")]
         Mode::Analyze => try_analyze(files),
-        #[cfg(feature = "tyck")]
+        #[cfg(any(feature = "tyck", feature = "tyck2"))]
         Mode::Typecheck => try_typecheck(files),
         #[cfg(feature = "inst")]
         Mode::Instantiate => try_instantiate(files),
         #[cfg(feature = "tr")]
-        Mode::Translate => try_translate(files, llvm_ir, &output_file, included_files),
+        Mode::Translate => try_translate(
+            files,
+            llvm_ir,
+            &output_file,
+            included_files,
+            permanent_temp_dir,
+        ),
         m => help(m != Mode::Help),
     }
 }
@@ -251,7 +273,7 @@ cheshire (-i | --instantiate) FILE...
   that every fully-typed version of the method is valid.
 
 
-cheshire (-c | --compile) [--llvm-ir] FILE... [-O OUTPUT]
+cheshire (-c | --compile) [--llvm-ir | -L] FILE... [-S | --tempdir DIR] [-O OUTPUT]
   Compile files to LLVM IR, which is then linked into a
   file and outputted into OUTPUT. If the `-O` argument is
   not provided, then this defaults to 'cheshire.out' in
@@ -261,6 +283,15 @@ cheshire (-c | --compile) [--llvm-ir] FILE... [-O OUTPUT]
   before the linking phase and produce a plain LLVM IR
   blob. The default output filename will also be changed
   to `cheshire.out.ll`.
+
+  if `-tempdir` is provided, then the program will emit the temporary
+  files that it uses during compilation and linking to the given
+  directory. It will ensure that this directory exists.
+
+  The `-` filename can be used for either input or output.
+  If provided multiple times for input, it will only be
+  used once. If used for input, it corresponds to the module
+  `stdin`.
 
 ------------------------------------------------------------
     "
@@ -296,7 +327,7 @@ fn try_analyze(files: Vec<FileId>) -> PResult<()> {
     Ok(())
 }
 
-#[cfg(feature = "tyck")]
+#[cfg(any(feature = "tyck", feature = "tyck2"))]
 fn try_typecheck(files: Vec<FileId>) -> PResult<()> {
     let program = parse_program(files)?;
     let (a, p) = analyze(program)?;
@@ -324,13 +355,14 @@ fn try_translate(
     llvm_ir: bool,
     output_file: &str,
     included_files: Vec<OsString>,
+    permanent_temp_dir: Option<&str>,
 ) -> PResult<()> {
     let program = parse_program(files)?;
     let (a, p) = analyze(program)?;
 
     typecheck(&a, &p)?;
     let i = instantiate(a, p)?;
-    translate(i, llvm_ir, output_file, included_files)?;
+    translate(i, llvm_ir, output_file, included_files, permanent_temp_dir)?;
 
     Ok(())
 }

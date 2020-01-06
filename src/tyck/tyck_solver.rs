@@ -4,7 +4,7 @@ use crate::parser::ast_visitor::AstAdapter;
 use crate::tyck::tyck_instantiate::GenericsInstantiator;
 use crate::tyck::TyckObjective;
 use crate::util::{Comment, IntoError, PError, PResult, Span, Visit, ZipExact};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::rc::Rc;
 
 #[derive(Debug, Clone)]
@@ -110,7 +110,13 @@ impl TyckSolver {
         TyckSolver::error("No more solutions")
     }
 
-    pub fn add_objective(&mut self, obj_ty: &AstType, trait_ty: &AstTraitType) -> PResult<()> {
+    pub fn add_objective(
+        &mut self,
+        obj_ty: &AstType,
+        trait_ty_with_assocs: &AstTraitTypeWithAssocs,
+    ) -> PResult<()> {
+        let (trait_ty, assoc_bindings) = trait_ty_with_assocs.clone().split();
+
         let t = TyckObjective {
             obj_ty: obj_ty.clone(),
             trait_ty: trait_ty.clone(),
@@ -118,6 +124,23 @@ impl TyckSolver {
 
         if !self.objectives.contains(&t) {
             self.objectives.push_back(t);
+        }
+
+        for (name, ty) in assoc_bindings {
+            self.unify(
+                &ty,
+                &AstType::AssociatedType {
+                    obj_ty: Box::new(obj_ty.clone()),
+                    // We populate this with no bindings because we would loop infinitely.
+                    // It's also not necessary, due to the fact that we are enforcing these bindings
+                    // right here and now, so no need to enforce it later.
+                    trait_ty: Some(AstTraitTypeWithAssocs {
+                        trt: trait_ty.clone(),
+                        assoc_bindings: BTreeMap::new(),
+                    }),
+                    name,
+                },
+            )?;
         }
 
         Ok(())
@@ -314,7 +337,7 @@ impl TyckSolver {
         let mut impls = Vec::new();
 
         for (id, i) in &self.analyzed_program.analyzed_impls {
-            if i.trait_ty.0 == objective.0 {
+            if i.trait_ty.name == objective.name {
                 impls.push(*id);
             }
         }
@@ -467,8 +490,8 @@ impl TyckSolver {
     }
 
     pub fn unify_traits_heuristic(&self, lhs: &AstTraitType, rhs: &AstTraitType) -> PResult<()> {
-        if lhs.0 == rhs.0 {
-            for (l, r) in ZipExact::zip_exact(&lhs.1, &rhs.1, "trait generics")? {
+        if lhs.name == rhs.name {
+            for (l, r) in ZipExact::zip_exact(&lhs.generics, &rhs.generics, "trait generics")? {
                 self.unify_heuristic(l, r)?;
             }
 
@@ -476,8 +499,8 @@ impl TyckSolver {
         } else {
             TyckSolver::error(&format!(
                 "Trait types won't unify: {} and {}",
-                lhs.0.full_name()?,
-                rhs.0.full_name()?
+                lhs.name.full_name()?,
+                rhs.name.full_name()?
             ))
         }
     }
@@ -624,8 +647,8 @@ impl TyckSolver {
     }
 
     pub fn unify_traits(&mut self, lhs: &AstTraitType, rhs: &AstTraitType) -> PResult<()> {
-        if lhs.0 == rhs.0 {
-            for (l, r) in ZipExact::zip_exact(&lhs.1, &rhs.1, "trait generics")? {
+        if lhs.name == rhs.name {
+            for (l, r) in ZipExact::zip_exact(&lhs.generics, &rhs.generics, "trait generics")? {
                 self.unify(l, r)?;
             }
 
@@ -633,15 +656,14 @@ impl TyckSolver {
         } else {
             TyckSolver::error(&format!(
                 "Trait types won't unify: {} and {}",
-                lhs.0.full_name()?,
-                rhs.0.full_name()?
+                lhs.name.full_name()?,
+                rhs.name.full_name()?
             ))
         }
     }
 
     fn normalize(&mut self) -> PResult<()> {
-        let mut types = HashSet::new();
-        std::mem::swap(&mut types, &mut self.types);
+        let types = std::mem::take(&mut self.types);
 
         for ty in types {
             let ty = self.normalize_ty(&ty)?;
@@ -656,15 +678,13 @@ impl TyckSolver {
             self.types.insert(ty);
         }
 
-        let mut inferences = HashMap::new();
-        std::mem::swap(&mut inferences, &mut self.solution.inferences);
+        let inferences = std::mem::take(&mut self.solution.inferences);
 
         for (id, ty) in inferences {
             self.solution.inferences.insert(id, self.normalize_ty(&ty)?);
         }
 
-        let mut impl_signatures = HashMap::new();
-        std::mem::swap(&mut impl_signatures, &mut self.solution.impl_signatures);
+        let impl_signatures = std::mem::take(&mut self.solution.impl_signatures);
 
         for (obj, sig) in impl_signatures {
             let obj = self.normalize_objective(&obj)?;
@@ -689,8 +709,7 @@ impl TyckSolver {
             }
         }
 
-        let mut objectives = VecDeque::new();
-        std::mem::swap(&mut objectives, &mut self.objectives);
+        let objectives = std::mem::take(&mut self.objectives);
 
         for obj in &objectives {
             let obj = self.normalize_objective(obj)?;
@@ -710,8 +729,7 @@ impl TyckSolver {
             // We do this iteratively because sometimes one unstuck objective will cause
             // another objective to become unstuck.
             // I know, I hate that too.
-            let mut delayed_objectives = Vec::new();
-            std::mem::swap(&mut delayed_objectives, &mut self.delayed_objectives);
+            let delayed_objectives = std::mem::take(&mut self.delayed_objectives);
 
             for d in delayed_objectives {
                 match d {
@@ -829,10 +847,14 @@ impl TyckSolution {
     }
 
     pub fn normalize_trait_ty(&self, t: &AstTraitType) -> PResult<AstTraitType> {
-        let name = t.0.clone();
-        let tys = t.1.clone().visit(&mut Normalize(self))?;
+        t.clone().visit(&mut Normalize(self))
+    }
 
-        Ok(AstTraitType(name, tys))
+    pub fn normalize_trait_ty_with_assocs(
+        &self,
+        t: &AstTraitTypeWithAssocs,
+    ) -> PResult<AstTraitTypeWithAssocs> {
+        t.clone().visit(&mut Normalize(self))
     }
 
     pub fn augment(&mut self, other: TyckSolution) -> PResult<()> {
@@ -878,7 +900,7 @@ impl<'a> AstAdapter for Normalize<'a> {
             } => {
                 let typecheck_objective = &TyckObjective {
                     obj_ty: *obj_ty.clone(),
-                    trait_ty: trait_ty.as_ref().unwrap().clone(),
+                    trait_ty: trait_ty.as_ref().unwrap().trt.clone(),
                 };
 
                 if let Some(impl_signature) = self.0.impl_signatures.get(typecheck_objective) {

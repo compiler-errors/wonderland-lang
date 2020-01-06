@@ -1,9 +1,11 @@
 use crate::ana::represent::AnalyzedProgram;
 use crate::parser::ast::{
-    AstExpression, AstExpressionData, AstProgram, AstTraitType, AstType, BinOpKind, ModuleRef,
+    AstExpression, AstExpressionData, AstProgram, AstTraitTypeWithAssocs, AstType, BinOpKind,
+    ModuleRef,
 };
 use crate::parser::ast_visitor::AstAdapter;
 use crate::util::{FileId, FileRegistry, IntoError, PResult, Visit};
+use std::collections::BTreeMap;
 
 pub struct AnalyzeOperators {
     analyzed_program: AnalyzedProgram,
@@ -103,7 +105,11 @@ impl AnalyzeOperators {
             fn_name: fn_name.into(),
             fn_generics: vec![],
             args: vec![*lhs, *rhs],
-            associated_trait: Some(AstTraitType(associated_trait, vec![AstType::infer()])),
+            associated_trait: Some(AstTraitTypeWithAssocs::new(
+                associated_trait,
+                vec![AstType::infer()],
+                BTreeMap::new(),
+            )),
             impl_signature: None,
         })
     }
@@ -119,7 +125,11 @@ impl AstAdapter for AnalyzeOperators {
                 fn_name: "negate".into(),
                 fn_generics: vec![],
                 args: vec![*expr],
-                associated_trait: Some(AstTraitType(self.construct_ref("Negate")?, vec![])),
+                associated_trait: Some(AstTraitTypeWithAssocs::new(
+                    self.construct_ref("Negate")?,
+                    vec![],
+                    BTreeMap::new(),
+                )),
                 impl_signature: None,
             },
             AstExpressionData::Not(expr) => AstExpressionData::StaticCall {
@@ -127,7 +137,11 @@ impl AstAdapter for AnalyzeOperators {
                 fn_name: "not".into(),
                 fn_generics: vec![],
                 args: vec![*expr],
-                associated_trait: Some(AstTraitType(self.construct_ref("Not")?, vec![])),
+                associated_trait: Some(AstTraitTypeWithAssocs::new(
+                    self.construct_ref("Not")?,
+                    vec![],
+                    BTreeMap::new(),
+                )),
                 impl_signature: None,
             },
             AstExpressionData::Assign { lhs, rhs } => {
@@ -144,9 +158,10 @@ impl AstAdapter for AnalyzeOperators {
                             fn_name: "deref_assign".into(),
                             fn_generics: vec![],
                             args: vec![*accessible, *idx, *rhs],
-                            associated_trait: Some(AstTraitType(
+                            associated_trait: Some(AstTraitTypeWithAssocs::new(
                                 self.construct_ref("DerefAssign")?,
                                 vec![],
+                                BTreeMap::new(),
                             )),
                             impl_signature: None,
                         }
@@ -166,7 +181,11 @@ impl AstAdapter for AnalyzeOperators {
                 fn_name: "deref".into(),
                 fn_generics: vec![],
                 args: vec![*accessible, *idx],
-                associated_trait: Some(AstTraitType(self.construct_ref("Deref")?, vec![])),
+                associated_trait: Some(AstTraitTypeWithAssocs::new(
+                    self.construct_ref("Deref")?,
+                    vec![],
+                    BTreeMap::new(),
+                )),
                 impl_signature: None,
             },
             AstExpressionData::BinOp { kind, lhs, rhs } => self.get_binop_call(kind, lhs, rhs)?,
@@ -179,9 +198,10 @@ impl AstAdapter for AnalyzeOperators {
                     fn_name: "call".into(),
                     fn_generics: vec![],
                     args: vec![*expr, args],
-                    associated_trait: Some(AstTraitType(
+                    associated_trait: Some(AstTraitTypeWithAssocs::new(
                         self.construct_ref("Call")?,
                         vec![AstType::tuple(arg_tys), AstType::infer()],
+                        BTreeMap::new(),
                     )),
                     impl_signature: None,
                 }
@@ -191,7 +211,11 @@ impl AstAdapter for AnalyzeOperators {
                 fn_name: "allocate_array".into(),
                 fn_generics: vec![],
                 args: vec![*size],
-                associated_trait: Some(AstTraitType(self.construct_ref("AllocateArray")?, vec![])),
+                associated_trait: Some(AstTraitTypeWithAssocs::new(
+                    self.construct_ref("AllocateArray")?,
+                    vec![],
+                    BTreeMap::new(),
+                )),
                 impl_signature: None,
             },
             e => e,

@@ -1,6 +1,7 @@
 use std::fmt;
 
-use crate::parser::ast::{AstTraitType, AstType};
+use crate::parser::ast::{AstTraitType, AstTraitTypeWithAssocs, AstType};
+use std::collections::BTreeMap;
 
 impl fmt::Display for AstType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -13,21 +14,27 @@ impl fmt::Display for AstType {
             AstType::SelfType => write!(f, "Self"),
             AstType::Generic(id) => write!(f, "_{}(g)", id),
             AstType::Array { ty } => write!(f, "[{}]", ty),
-            AstType::Tuple { types } => write!(f, "({})", DisplayAstTypeList(types, true)),
+            AstType::Tuple { types } => write!(f, "({})", DisplayAstTypeList(types, None, true)),
             AstType::Object(module, generics)
             | AstType::Enum(module, generics)
             | AstType::ObjectEnum(module, generics) => write!(
                 f,
                 "{}{}",
                 module.full_name().unwrap(),
-                DisplayGenerics(generics)
+                DisplayGenerics(generics, None)
             ),
-            AstType::ClosureType { args, ret_ty } => {
-                write!(f, "|{}| -> {}", DisplayAstTypeList(args, false), *ret_ty,)
-            }
-            AstType::FnPointerType { args, ret_ty } => {
-                write!(f, "fn({}) -> {}", DisplayAstTypeList(args, false), *ret_ty,)
-            }
+            AstType::ClosureType { args, ret_ty } => write!(
+                f,
+                "|{}| -> {}",
+                DisplayAstTypeList(args, None, false),
+                *ret_ty
+            ),
+            AstType::FnPointerType { args, ret_ty } => write!(
+                f,
+                "fn({}) -> {}",
+                DisplayAstTypeList(args, None, false),
+                *ret_ty
+            ),
             AstType::AssociatedType {
                 obj_ty,
                 trait_ty,
@@ -57,43 +64,77 @@ impl fmt::Display for AstType {
 
 impl fmt::Display for AstTraitType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let AstTraitType(module, generics) = self;
+        let AstTraitType { name, generics } = self;
         write!(
             f,
             "{}{}",
-            module.full_name().unwrap(),
-            DisplayGenerics(generics)
+            name.full_name().unwrap(),
+            DisplayGenerics(generics, None)
+        )
+    }
+}
+
+impl fmt::Display for AstTraitTypeWithAssocs {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let AstTraitTypeWithAssocs {
+            trt: AstTraitType { name, generics },
+            assoc_bindings,
+        } = self;
+        write!(
+            f,
+            "{}{}",
+            name.full_name().unwrap(),
+            DisplayGenerics(generics, Some(assoc_bindings))
         )
     }
 }
 
 /// Wrapper type to allow displaying a comma-separated sequence of AstType.
-struct DisplayAstTypeList<'a>(&'a [AstType], bool);
-
-/// Wrapper type which conditionally displays a generics list (e.g. for Foo vs Foo<String, Int>).
-struct DisplayGenerics<'a>(&'a [AstType]);
+struct DisplayAstTypeList<'a>(&'a [AstType], Option<&'a BTreeMap<String, AstType>>, bool);
 
 impl<'a> fmt::Display for DisplayAstTypeList<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let &DisplayAstTypeList(types, needs_final_comma) = self;
-        for (i, ty) in types.iter().enumerate() {
-            if i != 0 {
+        let &DisplayAstTypeList(types, assoc_bindings, needs_final_comma) = self;
+        let mut printed = 0;
+
+        for ty in types.iter() {
+            if printed > 0 {
                 write!(f, ", ")?;
             }
+
             write!(f, "{}", ty)?;
+            printed += 1;
         }
-        if needs_final_comma && types.len() == 1 {
+
+        if let Some(assoc_bindings) = assoc_bindings {
+            for (name, ty) in assoc_bindings {
+                if printed > 0 {
+                    write!(f, ", ")?;
+                }
+                write!(f, "{}={}", name, ty)?;
+                printed += 1;
+            }
+        }
+
+        if needs_final_comma && printed == 1 {
             write!(f, ",")?;
         }
         Ok(())
     }
 }
 
+/// Wrapper type which conditionally displays a generics list (e.g. for Foo vs Foo<String, Int>).
+struct DisplayGenerics<'a>(&'a [AstType], Option<&'a BTreeMap<String, AstType>>);
+
 impl<'a> fmt::Display for DisplayGenerics<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let &DisplayGenerics(generics) = self;
+        let &DisplayGenerics(generics, assoc_bindings) = self;
         if generics.len() != 0 {
-            write!(f, "<{}>", DisplayAstTypeList(generics, false))?;
+            write!(
+                f,
+                "<{}>",
+                DisplayAstTypeList(generics, assoc_bindings, false)
+            )?;
         }
         Ok(())
     }

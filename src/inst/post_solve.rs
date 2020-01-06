@@ -41,7 +41,7 @@ impl AstAdapter for PostSolveAdapter {
                 let expected_signature = self.0.get_impl_signature(
                     span,
                     &call_type,
-                    associated_trait.as_ref().unwrap(),
+                    &associated_trait.as_ref().unwrap().trt,
                 )?;
 
                 if let Some(given_signature) = impl_signature {

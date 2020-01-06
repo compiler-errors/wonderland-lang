@@ -1,11 +1,11 @@
 use crate::parser::ast::{AstType, VariableId};
 use crate::util::PResult;
 use either::Either;
-use inkwell::types::{BasicTypeEnum, FunctionType, PointerType, StructType};
+use inkwell::context::Context;
+use inkwell::types::{BasicTypeEnum, FunctionType, PointerType};
 use inkwell::values::{BasicValueEnum, CallSiteValue, IntValue};
 use inkwell::AddressSpace;
 use std::collections::HashMap;
-use inkwell::context::Context;
 
 pub const GLOBAL: AddressSpace = AddressSpace::Generic; /* Wot. */
 pub const GC: AddressSpace = AddressSpace::Global; /* addrspace(1) is Managed, i swear */
@@ -29,7 +29,8 @@ impl TrClosureCaptureEnvironment {
 }
 
 pub fn opaque_fn_type(context: &Context) -> PointerType {
-    context.struct_type(&[], false)
+    context
+        .struct_type(&[], false)
         .fn_type(&[], false)
         .ptr_type(GLOBAL)
 }
