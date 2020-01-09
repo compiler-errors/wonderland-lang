@@ -200,7 +200,7 @@ impl AstAdapter for AnalyzeOperators {
                     args: vec![*expr, args],
                     associated_trait: Some(AstTraitTypeWithAssocs::new(
                         self.construct_ref("Call")?,
-                        vec![AstType::tuple(arg_tys), AstType::infer()],
+                        vec![AstType::tuple(arg_tys)],
                         BTreeMap::new(),
                     )),
                     impl_signature: None,

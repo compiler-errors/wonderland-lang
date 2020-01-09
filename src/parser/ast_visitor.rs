@@ -79,6 +79,9 @@ pub trait AstAdapter {
     fn enter_impl(&mut self, i: AstImpl) -> PResult<AstImpl> {
         Ok(i)
     }
+    fn enter_impl_signature(&mut self, i: AstImplSignature) -> PResult<AstImplSignature> {
+        Ok(i)
+    }
     fn enter_global_variable(&mut self, g: AstGlobalVariable) -> PResult<AstGlobalVariable> {
         Ok(g)
     }
@@ -158,6 +161,9 @@ pub trait AstAdapter {
         Ok(e)
     }
     fn exit_impl(&mut self, i: AstImpl) -> PResult<AstImpl> {
+        Ok(i)
+    }
+    fn exit_impl_signature(&mut self, i: AstImplSignature) -> PResult<AstImplSignature> {
         Ok(i)
     }
     fn exit_global_variable(&mut self, g: AstGlobalVariable) -> PResult<AstGlobalVariable> {
@@ -437,7 +443,7 @@ impl<T: AstAdapter> Visit<T> for AstExpression {
                 fn_generics: fn_generics.visit(adapter)?,
                 args: args.visit(adapter)?,
                 associated_trait: associated_trait.visit(adapter)?,
-                impl_signature, //TODO: should I visit this?
+                impl_signature: impl_signature.visit(adapter)?,
             },
             AstExpressionData::ArrayAccess { accessible, idx } => AstExpressionData::ArrayAccess {
                 accessible: accessible.visit(adapter)?,
@@ -883,5 +889,18 @@ impl<T: AstAdapter> Visit<T> for AstGlobalVariable {
         };
 
         adapter.exit_global_variable(i)
+    }
+}
+
+impl<T: AstAdapter> Visit<T> for AstImplSignature {
+    fn visit(self, adapter: &mut T) -> PResult<AstImplSignature> {
+        let AstImplSignature { impl_id, generics } = adapter.enter_impl_signature(self)?;
+
+        let i = AstImplSignature {
+            impl_id,
+            generics: generics.visit(adapter)?,
+        };
+
+        adapter.exit_impl_signature(i)
     }
 }

@@ -34,7 +34,7 @@ trait Compare<_T> {
     fn le(self, other: _T) -> Bool.
 }
 
-fn min<_T>(a: _T, b: _T) where _T: Compare<_T> {
+fn min<_T>(a: _T, b: _T) -> _T where _T: Compare<_T> {
     if a < b {
         a
     } else {
@@ -42,7 +42,7 @@ fn min<_T>(a: _T, b: _T) where _T: Compare<_T> {
     }
 }
 
-fn max<_T>(a: _T, b: _T) where _T: Compare<_T> {
+fn max<_T>(a: _T, b: _T) -> _T where _T: Compare<_T> {
     if a > b {
         a
     } else {
@@ -96,12 +96,9 @@ trait Len {
     fn len(self) -> Int.
 }
 
-trait Call<_Args, _Ret> {
-    // TODO: associated bounds, e.g. Call<(Int, Int), CallReturn=Int>
-    // type CallReturn.
-    // fn call(self, args: _Args) -> <Self as Call<_Args>>::CallReturn.
-
-    fn call(self, args: _Args) -> _Ret.
+trait Call<_Args> {
+    type CallReturn.
+    fn call(self, args: _Args) -> <Self as Call<_Args>>::CallReturn.
 }
 
 trait AllocateArray {

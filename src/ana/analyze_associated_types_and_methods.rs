@@ -4,7 +4,7 @@ use crate::parser::ast::{
     AstExpression, AstExpressionData, AstFunction, AstImpl, AstObjectFunction, AstType,
 };
 use crate::parser::ast_visitor::AstAdapter;
-use crate::util::{IntoError, PError, PResult, Visit};
+use crate::util::{IntoError, PResult, Visit};
 
 pub struct AnalyzeAssociatedTypesAndMethods {
     program: AnalyzedProgram,
@@ -110,7 +110,7 @@ impl AstAdapter for AnalyzeAssociatedTypesAndMethods {
                 associated_trait,
                 impl_signature,
             } => {
-                if let Some(associated_trait) = associated_trait {
+                if let Some(associated_trait) = &associated_trait {
                     if !self.program.analyzed_traits[&associated_trait.trt.name]
                         .methods
                         .contains_key(&fn_name)

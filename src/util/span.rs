@@ -1,7 +1,7 @@
 use crate::util::FileId;
 use std::cmp::{max, min};
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct Span {
     pub file: FileId,
     pub start: usize,

@@ -54,10 +54,7 @@ impl<_It> Iterator for Limit<_It> where _It: Iterator {
 
 impl<_I> FromIterator<_I> for [_I] {
     fn from_iterator<_It>(it: _It) -> [_I] where _It: Iterator<::IterItem=_I> {
-        let s = it:size_hint().
-        if s < 1 {
-            s = 1.
-        }
+        let s = max(1, it:size_hint()).
 
         let last = -1.
 

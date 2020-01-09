@@ -32,14 +32,14 @@ impl Into<String> for () {
 
 impl<_T> Into<String> for (_T,) where _T: Into<String> {
     fn into(self) -> String {
-        "(" + self:0:into() + ",)"
+        "(" + to_string(self:0) + ",)"
     }
 }
 
 impl<_T, _S> Into<String> for (_T, _S) where _T: Into<String>,
                                              _S: Into<String> {
     fn into(self) -> String {
-        "(" + self:0:into() + ", " + self:1:into() + ")"
+        "(" + to_string(self:0) + ", " + to_string(self:1) + ")"
     }
 }
 
@@ -55,9 +55,13 @@ impl<_T> Into<String> for [_T] where _T: Into<String> {
                 s = s + ", ".
             }
 
-            s = s + i:into().
+            s = s + to_string(i).
         }
 
         s + "]"
     }
+}
+
+fn to_string<_T>(t: _T) -> String where _T: Into<String> {
+    <_T as Into<String>>:into(t)
 }

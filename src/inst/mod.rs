@@ -222,10 +222,7 @@ impl InstantiationAdapter {
         }
 
         self.instantiated_impls.insert(sig.clone(), None);
-        let objective = TyckObjective {
-            obj_ty: ty.clone(),
-            trait_ty: trt.clone(),
-        };
+        let objective = TyckObjective::Impl(ty.clone(), trt.clone());
 
         // Ensure that this is the only impl for this specific `<ty as trt>::...`
         self.solved_impls
@@ -233,25 +230,16 @@ impl InstantiationAdapter {
             .is_not_expected(self.impls[&id].name_span, "impl", "<conflicting types>")?;
 
         let ids = &self.analyzed_program.clone().analyzed_impls[&id].generics;
-        let mut instantiate = GenericsInstantiator::from_generics(ids, generics)?;
+        let mut instantiate = GenericsAdapter::new(ids, generics);
 
-        let mut imp = self.impls[&id].clone();
-        imp.impl_ty = imp.impl_ty.visit(&mut instantiate)?;
-        imp.trait_ty = imp.trait_ty.visit(&mut instantiate)?;
-        imp.restrictions = imp.restrictions.visit(&mut instantiate)?;
-        imp.associated_types = imp.associated_types.visit(&mut instantiate)?;
+        let imp = self.impls[&id].clone().visit(&mut instantiate)?;
 
-        let (mut imp, solution) =
-            typecheck_impl(self.analyzed_program.clone(), &self.base_solver, imp)?;
-        let mut post_solve = PostSolveAdapter(solution, self.analyzed_program.clone());
+        let imp = typecheck_impl(&self.base_solver, imp)?;
+        let mut post_solve = PostSolveAdapter(self.analyzed_program.clone());
 
-        imp.impl_ty = imp.impl_ty.visit(&mut post_solve)?.visit(self)?;
-        imp.trait_ty = imp.trait_ty.visit(&mut post_solve)?.visit(self)?;
-        imp.restrictions = imp.restrictions.visit(&mut post_solve)?.visit(self)?;
-        imp.associated_types = imp.associated_types.visit(&mut post_solve)?.visit(self)?;
+        let imp = imp.visit(&mut post_solve)?.visit(self)?;
 
         self.instantiated_impls.insert(sig, Some(imp));
-
         Ok(())
     }
 
@@ -288,22 +276,15 @@ impl InstantiationAdapter {
         let fn_ids = &fn_data.generics;
 
         // Let's first instantiate it.
-        let mut obj_instantiate = GenericsInstantiator::from_generics(obj_ids, obj_generics)?;
-        let mut fn_instantiate = GenericsInstantiator::from_generics(fn_ids, fn_generics)?;
+        let mut obj_instantiate = GenericsAdapter::new(obj_ids, obj_generics);
+        let mut fn_instantiate = GenericsAdapter::new(fn_ids, fn_generics);
         let f = self.obj_fns[&(id, fn_name.into())]
             .clone()
             .visit(&mut obj_instantiate)?
             .visit(&mut fn_instantiate)?;
 
-        let (f, solution) = typecheck_impl_fn(
-            self.analyzed_program.clone(),
-            &self.base_solver,
-            f,
-            call_type,
-            trt,
-            fn_generics,
-        )?;
-        let mut post_solve = PostSolveAdapter(solution, self.analyzed_program.clone());
+        let f = typecheck_impl_fn(&self.base_solver, f, call_type, trt, fn_generics)?;
+        let mut post_solve = PostSolveAdapter(self.analyzed_program.clone());
         let f = f.visit(&mut post_solve)?.visit(self)?;
 
         self.instantiated_object_fns.insert(sig, Some(f));
@@ -313,19 +294,21 @@ impl InstantiationAdapter {
 
     fn process_simple<T>(&mut self, t: T, ids: &[AstGeneric], tys: &[AstType]) -> PResult<T>
     where
-        T: Visit<GenericsInstantiator>
-            + Visit<TyckObjectiveAdapter>
+        T: Visit<GenericsAdapter>
+            + Visit<TyckSolver>
             + Visit<PostSolveAdapter>
             + Visit<InstantiationAdapter>
-            + Debug,
+            + for<'a> Visit<TypeAmbiguityAdapter<'a>>
+            + Debug
+            + Eq
+            + Clone,
     {
         // Let's first instantiate it.
-        let mut instantiate = GenericsInstantiator::from_generics(ids, tys)?;
+        let mut instantiate = GenericsAdapter::new(ids, tys);
         let t = t.visit(&mut instantiate)?;
 
-        let (t, solution) = typecheck_simple(self.analyzed_program.clone(), &self.base_solver, t)?;
-        let mut post_solve = PostSolveAdapter(solution, self.analyzed_program.clone());
-
+        let t = typecheck_simple(&self.base_solver, t)?;
+        let mut post_solve = PostSolveAdapter(self.analyzed_program.clone());
         let t = t.visit(&mut post_solve)?.visit(self)?;
 
         Ok(t)

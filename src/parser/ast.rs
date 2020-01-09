@@ -82,7 +82,7 @@ lazy_static! {
     static ref GENERIC_ID_COUNTER: RwLock<usize> = RwLock::new(1);
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct AstGeneric(pub GenericId, pub String);
 
 impl AstGeneric {
@@ -100,7 +100,7 @@ impl From<AstGeneric> for AstType {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct AstFunction {
     /// The beginning position of the function
     pub name_span: Span,
@@ -155,7 +155,7 @@ lazy_static! {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct VariableId(pub usize);
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 /// A name and type associated with a parameter, along
 /// with the position where this parameter is named.
 pub struct AstNamedVariable {
@@ -366,7 +366,7 @@ impl AstType {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 /// A collection of statements, given by a `{}` block.
 pub struct AstBlock {
     pub statements: Vec<AstStatement>,
@@ -389,7 +389,7 @@ impl AstBlock {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum AstStatement {
     Let {
         pattern: AstMatchPattern,
@@ -468,7 +468,7 @@ impl AstStatement {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct AstExpression {
     pub data: AstExpressionData,
     pub ty: AstType,
@@ -477,7 +477,7 @@ pub struct AstExpression {
 
 type SubExpression = Box<AstExpression>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum AstExpressionData {
     Unimplemented,
     SelfRef,
@@ -983,19 +983,19 @@ impl AstExpression {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct AstMatchBranch {
     pub pattern: AstMatchPattern,
     pub expression: AstExpression,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct AstMatchPattern {
     pub data: AstMatchPatternData,
     pub ty: AstType,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum AstMatchPatternData {
     Underscore,
     Identifier(AstNamedVariable),
@@ -1109,7 +1109,7 @@ impl AstMatchPattern {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum AstLiteral {
     True,
     False,
@@ -1136,7 +1136,7 @@ pub enum BinOpKind {
     Or,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct AstObject {
     pub name_span: Span,
     pub module_ref: ModuleRef,
@@ -1170,7 +1170,7 @@ impl AstObject {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct AstObjectFunction {
     pub name_span: Span,
 
@@ -1220,7 +1220,7 @@ impl AstObjectFunction {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct AstObjectMember {
     pub span: Span,
     pub name: String,
@@ -1237,7 +1237,7 @@ impl AstObjectMember {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct AstTrait {
     pub name_span: Span,
 
@@ -1273,7 +1273,7 @@ impl AstTrait {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct AstAssociatedType {
     pub name: String,
     pub restrictions: Vec<AstTraitTypeWithAssocs>,
@@ -1294,7 +1294,7 @@ impl AstTypeRestriction {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ImplId(pub usize);
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct AstImpl {
     pub impl_id: ImplId,
     pub name_span: Span,
@@ -1347,7 +1347,7 @@ impl AstImpl {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct AstGlobalVariable {
     pub name_span: Span,
 
@@ -1376,7 +1376,7 @@ impl AstGlobalVariable {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct AstEnum {
     pub name_span: Span,
 
@@ -1408,7 +1408,7 @@ impl AstEnum {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct AstEnumVariant {
     pub name_span: Span,
     pub name: String,

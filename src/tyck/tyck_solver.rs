@@ -1,517 +1,119 @@
-use crate::ana::represent::*;
+use crate::ana::represent::{AnImplData, AnalyzedProgram};
+use crate::ana::represent_visitor::AnAdapter;
 use crate::parser::ast::*;
 use crate::parser::ast_visitor::AstAdapter;
-use crate::tyck::tyck_instantiate::GenericsInstantiator;
-use crate::tyck::TyckObjective;
-use crate::util::{Comment, IntoError, PError, PResult, Span, Visit, ZipExact};
-use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use crate::tyck::tyck_instantiation::*;
+use crate::tyck::{TyckAdapter, TyckInstantiatedObjectFunction, TYCK_MAX_DEPTH};
+use crate::util::{IntoError, PResult, Visit, ZipExact};
+use std::collections::{HashMap, HashSet};
+use std::fmt::Debug;
 use std::rc::Rc;
 
 #[derive(Debug, Clone)]
 pub struct TyckSolver {
-    solution: TyckSolution,
-
-    /// Objectives that are used to explore the type space.
-    pub objectives: VecDeque<TyckObjective>,
-
-    /// Objectives which may only be solved after further inference or normalization.
-    pub delayed_objectives: Vec<TyckDelayedObjective>,
-
-    /// Type-space, so we make sure that every encountered type is normalized...
-    types: HashSet<AstType>,
-
     analyzed_program: Rc<AnalyzedProgram>,
+    epochs: Vec<TyckEpoch>,
+
+    // Temporary values
+    return_type: Option<AstType>,
+    variables: HashMap<VariableId, AstType>,
+}
+
+#[derive(Hash, Eq, PartialEq, Debug, Clone)]
+pub enum TyckObjective {
+    Impl(AstType, AstTraitType),
+    Method(AstType, String),
+    AssociatedType(AstType, String),
+    WellFormed(ModuleRef, Vec<AstType>),
 }
 
 #[derive(Debug, Clone)]
-pub struct TyckSolution {
-    analyzed_program: Rc<AnalyzedProgram>,
+struct TyckEpoch {
     inferences: HashMap<InferId, AstType>,
-    pub impl_signatures: HashMap<TyckObjective, AstImplSignature>,
+    successes: HashMap<TyckObjective, Option<AstImplSignature>>,
+
+    // Type solver iteration values
+    ambiguous: Option<String>,
 }
+
+macro_rules! top_epoch {
+    ( $x:expr ) => {
+        $x.epochs.last().unwrap()
+    };
+}
+
+macro_rules! top_epoch_mut {
+    ( $x:expr ) => {
+        $x.epochs.last_mut().unwrap()
+    };
+}
+
+const INDENT: &'static str = "   ";
 
 impl TyckSolver {
     pub fn new(analyzed_program: Rc<AnalyzedProgram>) -> TyckSolver {
         TyckSolver {
-            solution: TyckSolution {
-                analyzed_program: analyzed_program.clone(),
-                inferences: HashMap::new(),
-                impl_signatures: HashMap::new(),
-            },
-
             analyzed_program,
-            objectives: VecDeque::new(),
-            delayed_objectives: Vec::new(),
-            types: HashSet::new(),
+            epochs: vec![TyckEpoch {
+                inferences: HashMap::new(),
+                successes: HashMap::new(),
+                ambiguous: None,
+            }],
+            return_type: None,
+            variables: HashMap::new(),
         }
     }
-}
 
-#[derive(Debug, Clone)]
-pub enum TyckDelayedObjective {
-    Unify(AstType, AstType),
-    TupleAccess(AstType, usize, AstType),
-    ObjectAccess(AstType, String, AstType),
-}
+    pub fn typecheck_loop<T>(&mut self, t: T) -> PResult<T>
+    where
+        T: for<'a> Visit<TypeAmbiguityAdapter<'a>> + Visit<TyckSolver> + Clone + Eq + Debug,
+    {
+        println!("\n\n\n===== ===== Start ze loop! ===== =====");
+        let mut t = t;
 
-static MAX_ITERATIONS: usize = 1_000_000_usize;
+        for i in 0.. {
+            println!("\n===== LOOP ({}) =====", i);
 
-impl TyckSolver {
-    fn error<T>(why: &str) -> PResult<T> {
-        PResult::error(why.to_string())
-    }
+            let new_t = t
+                .clone()
+                .visit(self)?
+                .visit(&mut TypeAmbiguityAdapter(self))?;
+            let epoch = top_epoch_mut!(self);
 
-    fn is_solved(&self) -> bool {
-        self.delayed_objectives.is_empty() && self.objectives.is_empty()
-    }
+            if new_t == t {
+                if let Some(ambiguity) = &epoch.ambiguous {
+                    println!("Yikes:");
 
-    fn is_deadlocked(&self) -> bool {
-        self.objectives.is_empty()
-    }
-
-    pub fn solve(self) -> PResult<TyckSolution> {
-        let mut multiverse = VecDeque::new();
-
-        let mut universe = self;
-        universe.normalize()?;
-
-        while !universe.objectives.is_empty() && universe.next_objective_candidate_heuristic() <= 1
-        {
-            universe = universe.elaborate_one()?;
-        }
-
-        multiverse.push_back(universe);
-
-        let iterations = 0usize;
-        while let Some(universe) = multiverse.pop_front() {
-            if iterations > MAX_ITERATIONS {
-                break;
-            }
-
-            if universe.is_solved() {
-                // println!("Done!");
-                return Ok(universe.solution);
-            }
-
-            if universe.is_deadlocked() {
-                println!("Deadlocked universe...");
-                continue;
-            }
-
-            if let Ok(children) = universe.elaborate_all() {
-                for c in children {
-                    multiverse.push_back(c);
-                }
-            }
-
-            /* Otherwise, just throw it away. */
-        }
-
-        TyckSolver::error("No more solutions")
-    }
-
-    pub fn add_objective(
-        &mut self,
-        obj_ty: &AstType,
-        trait_ty_with_assocs: &AstTraitTypeWithAssocs,
-    ) -> PResult<()> {
-        let (trait_ty, assoc_bindings) = trait_ty_with_assocs.clone().split();
-
-        let t = TyckObjective {
-            obj_ty: obj_ty.clone(),
-            trait_ty: trait_ty.clone(),
-        };
-
-        if !self.objectives.contains(&t) {
-            self.objectives.push_back(t);
-        }
-
-        for (name, ty) in assoc_bindings {
-            self.unify(
-                &ty,
-                &AstType::AssociatedType {
-                    obj_ty: Box::new(obj_ty.clone()),
-                    // We populate this with no bindings because we would loop infinitely.
-                    // It's also not necessary, due to the fact that we are enforcing these bindings
-                    // right here and now, so no need to enforce it later.
-                    trait_ty: Some(AstTraitTypeWithAssocs {
-                        trt: trait_ty.clone(),
-                        assoc_bindings: BTreeMap::new(),
-                    }),
-                    name,
-                },
-            )?;
-        }
-
-        Ok(())
-    }
-
-    pub fn add_objectives(&mut self, objectives: &[AstTypeRestriction]) -> PResult<()> {
-        for AstTypeRestriction { ty, trt } in objectives {
-            self.add_objective(ty, trt)?;
-        }
-
-        Ok(())
-    }
-
-    pub fn add_objective_object_well_formed(
-        &mut self,
-        obj_name: &ModuleRef,
-        generics: &[AstType],
-    ) -> PResult<()> {
-        let program = self.analyzed_program.clone();
-        let obj_data = &program.analyzed_objects[obj_name];
-        let mut instantiate = GenericsInstantiator::from_generics(&obj_data.generics, &generics)?;
-
-        for r in &obj_data.restrictions.clone().visit(&mut instantiate)? {
-            self.add_objective(&r.ty, &r.trt)?;
-        }
-
-        Ok(())
-    }
-
-    pub fn add_objective_enum_well_formed(
-        &mut self,
-        en_name: &ModuleRef,
-        generics: &[AstType],
-    ) -> PResult<()> {
-        let program = self.analyzed_program.clone();
-        let en_data = &program.analyzed_enums[en_name];
-        let mut instantiate = GenericsInstantiator::from_generics(&en_data.generics, &generics)?;
-
-        for r in &en_data.restrictions.clone().visit(&mut instantiate)? {
-            self.add_objective(&r.ty, &r.trt)?;
-        }
-
-        Ok(())
-    }
-
-    pub fn add_type(&mut self, t: &AstType) -> PResult<()> {
-        self.types.insert(t.clone());
-
-        Ok(())
-    }
-
-    pub fn add_delayed_unify(&mut self, a: &AstType, b: &AstType) -> PResult<()> {
-        if let AstType::AssociatedType {
-            obj_ty, trait_ty, ..
-        } = a
-        {
-            self.add_objective(obj_ty.as_ref(), trait_ty.as_ref().unwrap())?;
-        }
-
-        if let AstType::AssociatedType {
-            obj_ty, trait_ty, ..
-        } = b
-        {
-            self.add_objective(obj_ty.as_ref(), trait_ty.as_ref().unwrap())?;
-        }
-
-        self.delayed_objectives
-            .push(TyckDelayedObjective::Unify(a.clone(), b.clone()));
-        Ok(())
-    }
-
-    pub fn add_delayed_tuple_access(
-        &mut self,
-        tuple_ty: &AstType,
-        idx: usize,
-        element_ty: &AstType,
-    ) -> PResult<()> {
-        self.delayed_objectives
-            .push(TyckDelayedObjective::TupleAccess(
-                tuple_ty.clone(),
-                idx,
-                element_ty.clone(),
-            ));
-        Ok(())
-    }
-
-    pub fn add_delayed_object_access(
-        &mut self,
-        object_ty: &AstType,
-        member_name: &str,
-        member_ty: &AstType,
-    ) -> PResult<()> {
-        self.delayed_objectives
-            .push(TyckDelayedObjective::ObjectAccess(
-                object_ty.clone(),
-                member_name.into(),
-                member_ty.clone(),
-            ));
-        Ok(())
-    }
-
-    fn elaborate_all(mut self) -> PResult<Vec<TyckSolver>> {
-        let objective = self.objectives.pop_front().unwrap();
-
-        if self.solution.impl_signatures.contains_key(&objective) {
-            self.normalize()?;
-            return Ok(vec![self]);
-        }
-
-        let mut new_universes = Vec::new();
-
-        for i in self.get_impls(&objective.trait_ty) {
-            if let Ok(new_universe) = self.clone().elaborate_impl(i, &objective) {
-                new_universes.push(new_universe);
-            }
-        }
-
-        Ok(new_universes)
-    }
-
-    fn elaborate_one(mut self) -> PResult<TyckSolver> {
-        let objective = self.objectives.pop_front().unwrap();
-
-        if self.solution.impl_signatures.contains_key(&objective) {
-            self.normalize()?;
-            return Ok(self);
-        }
-
-        let mut ret_universe = None;
-        let mut why_fail = None;
-
-        for i in self.get_impls(&objective.trait_ty) {
-            match self.clone().elaborate_impl(i, &objective) {
-                Ok(new_universe) => {
-                    if ret_universe.is_some() {
-                        panic!("ICE: Unification predicted 1 passing universe... but we got 2?");
+                    for (x, y) in &epoch.inferences {
+                        println!("_{} => {}", x.0, y);
                     }
 
-                    ret_universe = Some(new_universe);
-                }
-
-                Err(e) => why_fail = Some(e),
-            }
-        }
-
-        let mut ret = ret_universe
-            .ok_or_else(|| PError::new(format!("Failed to solve objective `{}`", objective)));
-
-        if ret.is_err() && why_fail.is_some() {
-            ret.add_comment(|| format!("Perhaps due to: {}", why_fail.unwrap().why()));
-        }
-
-        ret
-    }
-
-    fn elaborate_impl(mut self, impl_id: ImplId, objective: &TyckObjective) -> PResult<TyckSolver> {
-        let program = self.analyzed_program.clone();
-        let impl_data = &program.analyzed_impls[&impl_id];
-        let generics = impl_data
-            .generics
-            .iter()
-            .map(|_| AstType::infer())
-            .collect();
-        let impl_signature = AstImplSignature { impl_id, generics };
-        let instantiate =
-            &mut GenericsInstantiator::from_signature(&*self.analyzed_program, &impl_signature)?;
-
-        let obj_ty = impl_data.impl_ty.clone().visit(instantiate)?;
-        let trait_ty = impl_data.trait_ty.clone().visit(instantiate)?;
-
-        self.unify(&objective.obj_ty, &obj_ty)?;
-        self.unify_traits(&objective.trait_ty, &trait_ty)?;
-
-        for r in &impl_data.restrictions.clone().visit(instantiate)? {
-            self.add_objective(&r.ty, &r.trt)?;
-        }
-
-        if let Some(_) = self
-            .solution
-            .impl_signatures
-            .insert(objective.clone(), impl_signature)
-        {
-            // This legitimately should never happen, because:
-            // 1. Already-satisfied objectives should be skipped in the solve loop.
-            // 2. Conflicting impls should fail during normalization.
-            unreachable!();
-        }
-
-        self.normalize()?;
-        Ok(self)
-    }
-
-    fn get_impls(&self, objective: &AstTraitType) -> Vec<ImplId> {
-        let mut impls = Vec::new();
-
-        for (id, i) in &self.analyzed_program.analyzed_impls {
-            if i.trait_ty.name == objective.name {
-                impls.push(*id);
-            }
-        }
-
-        impls
-    }
-
-    fn next_objective_candidate_heuristic(&self) -> usize {
-        let objective = self.objectives.front().unwrap();
-        let mut heuristic = 0usize;
-
-        for i in self.get_impls(&objective.trait_ty) {
-            if self.elaborate_heuristic(i, &objective).is_ok() {
-                heuristic += 1;
-            }
-        }
-
-        heuristic
-    }
-
-    fn elaborate_heuristic(&self, impl_id: ImplId, objective: &TyckObjective) -> PResult<()> {
-        let program = self.analyzed_program.clone();
-        let impl_data = &program.analyzed_impls[&impl_id];
-        let generics = impl_data
-            .generics
-            .iter()
-            .map(|_| AstType::infer())
-            .collect();
-        let impl_signature = AstImplSignature { impl_id, generics };
-        let instantiate =
-            &mut GenericsInstantiator::from_signature(&*self.analyzed_program, &impl_signature)?;
-
-        let obj_ty = impl_data.impl_ty.clone().visit(instantiate)?;
-        let trait_ty = impl_data.trait_ty.clone().visit(instantiate)?;
-
-        self.unify_heuristic(&objective.obj_ty, &obj_ty)?;
-        self.unify_traits_heuristic(&objective.trait_ty, &trait_ty)?;
-
-        Ok(())
-    }
-
-    /// This heuristic will return `Err` if it is guaranteed to never unify, `Ok` if it will
-    /// unify or if it is unclear (not enough inference information).
-    pub fn unify_heuristic(&self, lhs: &AstType, rhs: &AstType) -> PResult<()> {
-        let lhs = self.normalize_ty(lhs)?;
-        let rhs = self.normalize_ty(rhs)?;
-
-        match (&lhs, &rhs) {
-            /* Generics should have been repl'ed out. */
-            (AstType::Generic(..), _)
-            | (_, AstType::Generic(..))
-            | (AstType::GenericPlaceholder(..), _)
-            | (_, AstType::GenericPlaceholder(..)) => unreachable!(),
-
-            (AstType::AssociatedType { .. }, _) | (_, AstType::AssociatedType { .. }) => Ok(()),
-
-            (AstType::Infer(_), _) | (_, AstType::Infer(_)) => Ok(()),
-
-            (AstType::Int, AstType::Int)
-            | (AstType::Char, AstType::Char)
-            | (AstType::Bool, AstType::Bool)
-            | (AstType::String, AstType::String) => Ok(()),
-
-            (_, AstType::SelfType) | (AstType::SelfType, _) => unreachable!(
-                "Self is not allowed as a non-instantiated type. Attempted to unify {:?} and {:?}",
-                lhs, rhs
-            ),
-
-            (AstType::DummyGeneric(a, ..), AstType::DummyGeneric(b, ..)) if a == b => Ok(()),
-            (AstType::Dummy(a), AstType::Dummy(b)) if a == b => Ok(()),
-
-            (AstType::Array { ty: a_ty }, AstType::Array { ty: b_ty }) => {
-                self.unify_heuristic(&a_ty, &b_ty)
-            }
-            (AstType::Tuple { types: a_tys }, AstType::Tuple { types: b_tys }) => {
-                for (a_ty, b_ty) in ZipExact::zip_exact(a_tys, b_tys, "tuple types")? {
-                    self.unify_heuristic(a_ty, b_ty)?;
-                }
-
-                Ok(())
-            }
-            (AstType::Object(a_name, a_tys), AstType::Object(b_name, b_tys)) => {
-                if a_name != b_name {
-                    TyckSolver::error(&format!(
-                        "Object names won't unify: {} and {}",
-                        a_name.full_name()?,
-                        b_name.full_name()?
-                    ))
+                    println!("{:#?}", t);
+                    return PResult::error(format!("Tyck: {}", ambiguity));
                 } else {
-                    for (a_ty, b_ty) in ZipExact::zip_exact(a_tys, b_tys, "object generics")? {
-                        self.unify_heuristic(a_ty, b_ty)?;
-                    }
-
-                    Ok(())
-                }
-            }
-            (AstType::Enum(a_name, a_tys), AstType::Enum(b_name, b_tys)) => {
-                if a_name != b_name {
-                    TyckSolver::error(&format!(
-                        "Enum names won't unify: {} and {}",
-                        a_name.full_name()?,
-                        b_name.full_name()?
-                    ))
-                } else {
-                    for (a_ty, b_ty) in ZipExact::zip_exact(a_tys, b_tys, "enum generics")? {
-                        self.unify_heuristic(a_ty, b_ty)?;
-                    }
-
-                    Ok(())
+                    return Ok(t);
                 }
             }
 
-            (
-                AstType::ClosureType {
-                    args: a_args,
-                    ret_ty: a_ret,
-                },
-                AstType::ClosureType {
-                    args: b_args,
-                    ret_ty: b_ret,
-                },
-            ) => {
-                for (a_ty, b_ty) in ZipExact::zip_exact(a_args, b_args, "closure arguments")? {
-                    self.unify_heuristic(a_ty, b_ty)?;
-                }
-
-                self.unify_heuristic(a_ret, b_ret)?;
-                Ok(())
-            }
-            (
-                AstType::FnPointerType {
-                    args: a_args,
-                    ret_ty: a_ret,
-                },
-                AstType::FnPointerType {
-                    args: b_args,
-                    ret_ty: b_ret,
-                },
-            ) => {
-                for (a_ty, b_ty) in ZipExact::zip_exact(a_args, b_args, "closure arguments")? {
-                    self.unify_heuristic(a_ty, b_ty)?;
-                }
-
-                self.unify_heuristic(a_ret, b_ret)?;
-                Ok(())
-            }
-
-            (a, b) => TyckSolver::error(&format!("Type non-union: {} and {}", a, b)),
+            t = new_t;
+            epoch.ambiguous = None;
         }
+
+        unreachable!()
     }
 
-    pub fn unify_traits_heuristic(&self, lhs: &AstTraitType, rhs: &AstTraitType) -> PResult<()> {
-        if lhs.name == rhs.name {
-            for (l, r) in ZipExact::zip_exact(&lhs.generics, &rhs.generics, "trait generics")? {
-                self.unify_heuristic(l, r)?;
-            }
+    fn unify(&mut self, full_unify: bool, a: &AstType, b: &AstType) -> PResult<()> {
+        println!(
+            "{}Unifying {} and {} (full? {})",
+            INDENT.repeat(self.epochs.len()),
+            a,
+            b,
+            full_unify
+        );
 
-            Ok(())
-        } else {
-            TyckSolver::error(&format!(
-                "Trait types won't unify: {} and {}",
-                lhs.name.full_name()?,
-                rhs.name.full_name()?
-            ))
-        }
-    }
+        let (a, b) = (self.normalize_ty(a.clone())?, self.normalize_ty(b.clone())?);
 
-    pub fn unify(&mut self, lhs: &AstType, rhs: &AstType) -> PResult<()> {
-        let lhs = self.normalize_ty(lhs)?;
-        let rhs = self.normalize_ty(rhs)?;
-
-        // println!("; Unifying {} and {}", lhs, rhs);
-
-        match (&lhs, &rhs) {
+        match (a, b) {
             /* Generics should have been repl'ed out. */
             (AstType::Generic(..), _)
             | (_, AstType::Generic(..))
@@ -520,82 +122,87 @@ impl TyckSolver {
             | (AstType::ObjectEnum(..), _)
             | (_, AstType::ObjectEnum(..)) => unreachable!(),
 
-            (a @ AstType::AssociatedType { .. }, b) | (a, b @ AstType::AssociatedType { .. }) => {
-                self.add_delayed_unify(&a, &b)?;
-
-                Ok(())
+            (AstType::AssociatedType { .. }, _) | (_, AstType::AssociatedType { .. }) => {
+                // Can't do nothin'. At least make sure the normalization process
+                // marked this as ambiguous.
+                assert!(top_epoch_mut!(self).ambiguous.is_some());
             }
+
             (AstType::Infer(lid), AstType::Infer(rid)) if lid == rid => {
                 /* Do nothing. No cycles in this house. */
-
-                Ok(())
             }
-            (AstType::Infer(lid), rhs) => {
-                if self.solution.inferences.insert(*lid, rhs.clone()).is_some() {
-                    panic!("ICE: Duplicated inference");
+            (AstType::Infer(id), ty) => {
+                if top_epoch_mut!(self)
+                    .inferences
+                    .insert(id, ty.clone())
+                    .is_some()
+                {
+                    panic!("ICE: Duplicated inference, normalization should not let this happen!");
+                }
+            }
+
+            (ty, AstType::Infer(id)) => {
+                if !full_unify && top_epoch!(self).ambiguous.is_none() {
+                    top_epoch_mut!(self).ambiguous =
+                        Some(format!("Ambiguous unify: {} <- {}", ty, AstType::Infer(id)));
                 }
 
-                Ok(())
-            }
-            (lhs, AstType::Infer(rid)) => {
-                if self.solution.inferences.insert(*rid, lhs.clone()).is_some() {
-                    panic!("ICE: Duplicated inference");
+                if full_unify {
+                    if top_epoch_mut!(self)
+                        .inferences
+                        .insert(id, ty.clone())
+                        .is_some()
+                    {
+                        panic!(
+                            "ICE: Duplicated inference, normalization should not let this happen!"
+                        );
+                    }
                 }
-
-                Ok(())
             }
 
             (AstType::Int, AstType::Int)
             | (AstType::Char, AstType::Char)
             | (AstType::Bool, AstType::Bool)
-            | (AstType::String, AstType::String) => Ok(()),
+            | (AstType::String, AstType::String) => {}
 
-            (lhs, rhs @ AstType::SelfType) | (lhs @ AstType::SelfType, rhs) => unreachable!(
-                "Self is not allowed as a non-instantiated type. Attempted to unify {:?} and {:?}",
-                lhs, rhs
-            ),
-
-            (AstType::DummyGeneric(a, ..), AstType::DummyGeneric(b, ..)) if a == b => Ok(()),
-            (AstType::Dummy(a), AstType::Dummy(b)) if a == b => Ok(()),
+            (AstType::DummyGeneric(a, ..), AstType::DummyGeneric(b, ..)) if a == b => {}
+            (AstType::Dummy(a), AstType::Dummy(b)) if a == b => {}
 
             (AstType::Array { ty: a_ty }, AstType::Array { ty: b_ty }) => {
-                self.unify(&*a_ty, &*b_ty)
+                self.unify(full_unify, &a_ty, &b_ty)?;
             }
+
             (AstType::Tuple { types: a_tys }, AstType::Tuple { types: b_tys }) => {
                 for (a_ty, b_ty) in ZipExact::zip_exact(a_tys, b_tys, "tuple types")? {
-                    self.unify(a_ty, b_ty)?;
+                    self.unify(full_unify, &a_ty, &b_ty)?;
                 }
-
-                Ok(())
             }
+
             (AstType::Object(a_name, a_tys), AstType::Object(b_name, b_tys)) => {
                 if a_name != b_name {
-                    TyckSolver::error(&format!(
-                        "Object names won't unify: {} and {}",
+                    return PResult::error(format!(
+                        "Cannot equate distinct objects: {} and {}",
                         a_name.full_name()?,
                         b_name.full_name()?
-                    ))
+                    ));
                 } else {
                     for (a_ty, b_ty) in ZipExact::zip_exact(a_tys, b_tys, "object generics")? {
-                        self.unify(a_ty, b_ty)?;
+                        self.unify(full_unify, &a_ty, &b_ty)?;
                     }
-
-                    Ok(())
                 }
             }
+
             (AstType::Enum(a_name, a_tys), AstType::Enum(b_name, b_tys)) => {
                 if a_name != b_name {
-                    TyckSolver::error(&format!(
-                        "Enum names won't unify: {} and {}",
+                    return PResult::error(format!(
+                        "Cannot equate distinct enums: {} and {}",
                         a_name.full_name()?,
                         b_name.full_name()?
-                    ))
+                    ));
                 } else {
                     for (a_ty, b_ty) in ZipExact::zip_exact(a_tys, b_tys, "enum generics")? {
-                        self.unify(a_ty, b_ty)?;
+                        self.unify(full_unify, &a_ty, &b_ty)?;
                     }
-
-                    Ok(())
                 }
             }
 
@@ -610,12 +217,12 @@ impl TyckSolver {
                 },
             ) => {
                 for (a_ty, b_ty) in ZipExact::zip_exact(a_args, b_args, "closure arguments")? {
-                    self.unify(a_ty, b_ty)?;
+                    self.unify(full_unify, &a_ty, &b_ty)?;
                 }
 
-                self.unify(a_ret, b_ret)?;
-                Ok(())
+                self.unify(full_unify, &a_ret, &b_ret)?;
             }
+
             (
                 AstType::FnPointerType {
                     args: a_args,
@@ -627,294 +234,1308 @@ impl TyckSolver {
                 },
             ) => {
                 for (a_ty, b_ty) in ZipExact::zip_exact(a_args, b_args, "closure arguments")? {
-                    self.unify(a_ty, b_ty)?;
+                    self.unify(full_unify, &a_ty, &b_ty)?;
                 }
 
-                self.unify(a_ret, b_ret)?;
-                Ok(())
+                self.unify(full_unify, &a_ret, &b_ret)?;
             }
 
-            (a, b) => TyckSolver::error(&format!("Type non-union, {} and {}", a, b)),
-        }
-    }
+            (a, b) => {
+                if &format!("Type non-union, {} and {}", a, b) == "Type non-union, () and _T101(dg)"
+                {
+                    panic!("Right here, baby!");
+                }
 
-    pub fn unify_all(&mut self, a: &[AstType], b: &[AstType]) -> PResult<()> {
-        for (a, b) in ZipExact::zip_exact(a, b, "arguments")? {
-            self.unify(a, b)?;
+                return PResult::error(format!("Type non-union, {} and {}", a, b));
+            }
         }
 
         Ok(())
     }
 
-    pub fn unify_traits(&mut self, lhs: &AstTraitType, rhs: &AstTraitType) -> PResult<()> {
-        if lhs.name == rhs.name {
-            for (l, r) in ZipExact::zip_exact(&lhs.generics, &rhs.generics, "trait generics")? {
-                self.unify(l, r)?;
+    fn unify_all(&mut self, full_unify: bool, a: &[AstType], b: &[AstType]) -> PResult<()> {
+        assert_eq!(a.len(), b.len());
+
+        for (a, b) in Iterator::zip(a.iter(), b.iter()) {
+            self.unify(full_unify, a, b)?;
+        }
+
+        Ok(())
+    }
+
+    fn full_unify_pattern(&mut self, pattern: &AstMatchPattern, other_ty: &AstType) -> PResult<()> {
+        self.unify(true, &pattern.ty, other_ty)?;
+
+        match &pattern.data {
+            AstMatchPatternData::Underscore => {}
+            AstMatchPatternData::Identifier(v) => self.unify(true, &v.ty, other_ty)?,
+            AstMatchPatternData::Tuple(children) => {
+                let mut children_tys = Vec::new();
+
+                for child in children {
+                    let child_ty = AstType::infer();
+                    self.full_unify_pattern(child, &child_ty)?;
+                    children_tys.push(child_ty);
+                }
+
+                self.unify(true, &AstType::tuple(children_tys), other_ty)?;
+            }
+            AstMatchPatternData::Literal(lit) => match lit {
+                AstLiteral::True | AstLiteral::False => {
+                    self.unify(true, &AstType::Bool, other_ty)?
+                }
+                AstLiteral::Int(..) => self.unify(true, &AstType::Int, other_ty)?,
+                AstLiteral::Char(..) => self.unify(true, &AstType::Char, other_ty)?,
+                AstLiteral::String { .. } => self.unify(true, &AstType::String, other_ty)?,
+            },
+            AstMatchPatternData::PositionalEnum {
+                enumerable,
+                generics,
+                variant,
+                children,
+                ..
+            } => {
+                let expected_tys = instantiate_enum_pattern(
+                    &self.analyzed_program,
+                    enumerable,
+                    &generics,
+                    &variant,
+                )?;
+
+                for (child, ty) in
+                    ZipExact::zip_exact(children, expected_tys, "positional elements")?
+                {
+                    self.full_unify_pattern(child, &ty)?;
+                }
+
+                self.unify(
+                    true,
+                    &other_ty,
+                    &AstType::enumerable(enumerable.clone(), generics.clone()),
+                )?;
+            }
+            AstMatchPatternData::PlainEnum { .. } | AstMatchPatternData::NamedEnum { .. } => {
+                unreachable!()
+            }
+        }
+
+        Ok(())
+    }
+
+    fn commit_epoch(&mut self) -> PResult<()> {
+        let inferences = top_epoch!(self).inferences.clone().visit(self)?;
+
+        let mut successes = HashMap::new();
+        for (obj, imp) in top_epoch!(self).successes.clone() {
+            let obj = match obj {
+                TyckObjective::Impl(ty, trt) => {
+                    TyckObjective::Impl(ty.visit(self)?, trt.visit(self)?)
+                }
+                TyckObjective::Method(ty, name) => TyckObjective::Method(ty.visit(self)?, name),
+                TyckObjective::AssociatedType(ty, name) => {
+                    TyckObjective::AssociatedType(ty.visit(self)?, name)
+                }
+                TyckObjective::WellFormed(name, tys) => {
+                    TyckObjective::WellFormed(name, tys.visit(self)?)
+                }
+            };
+
+            let imp = imp.visit(self)?;
+
+            if let Some(other_imp) = successes.get(&obj) {
+                if imp != *other_imp {
+                    return PResult::error(format!("Conflict impls.... TODO: better message",));
+                }
+            } else {
+                successes.insert(obj, imp);
+            }
+        }
+
+        let epoch = self.epochs.pop().unwrap();
+        let top = top_epoch_mut!(self);
+
+        // Copy pre-normalized values over.
+        top.successes = successes;
+        top.inferences = inferences;
+
+        // Inherit ambiguity
+        if top.ambiguous.is_none() {
+            top.ambiguous = epoch.ambiguous;
+        }
+
+        Ok(())
+    }
+
+    fn rollback_epoch(&mut self) -> TyckEpoch {
+        self.epochs.pop().unwrap_or_else(|| {
+            panic!("ICE: Cannot roll back when there are no epochs on the stack!")
+        })
+    }
+
+    fn push_new_epoch(&mut self) -> PResult<()> {
+        if self.epochs.len() > TYCK_MAX_DEPTH {
+            panic!("ICE: OVERFLOW");
+        }
+
+        let top = top_epoch!(self);
+        let new = TyckEpoch {
+            inferences: top.inferences.clone(),
+            successes: top.successes.clone(),
+            ambiguous: None,
+        };
+
+        self.epochs.push(new);
+        Ok(())
+    }
+
+    fn push_epoch(&mut self, t: TyckEpoch) {
+        self.epochs.push(t);
+    }
+
+    fn satisfy_impl(
+        &mut self,
+        ty: &AstType,
+        trt: &AstTraitTypeWithAssocs,
+    ) -> PResult<Option<AstImplSignature>> {
+        let key = TyckObjective::Impl(ty.clone(), trt.trt.clone());
+
+        if let Some(Some(imp)) = top_epoch!(self).successes.get(&key) {
+            return Ok(Some(imp.clone()));
+        }
+
+        println!(
+            "{}Satisfying {} :- {}",
+            INDENT.repeat(self.epochs.len()),
+            ty,
+            trt
+        );
+
+        let trait_data = &self.analyzed_program.clone().analyzed_traits[&trt.trt.name];
+        let mut solutions = Vec::new();
+
+        for imp in &trait_data.impls {
+            let impl_generics: Vec<_> = self.analyzed_program.analyzed_impls[imp]
+                .generics
+                .iter()
+                .map(|_| AstType::infer())
+                .collect();
+
+            self.push_new_epoch()?;
+            let sol = self.elaborate_impl(*imp, &impl_generics, ty, &trt.trt);
+            let epoch = self.rollback_epoch();
+
+            print!("{}", INDENT.repeat(self.epochs.len()));
+            if let Err(e) = &sol {
+                println!("... Err: {}", e.why());
+            } else if let Some(a) = &epoch.ambiguous {
+                println!("... Amb: {}", a);
+            } else {
+                println!("... Ok!");
             }
 
-            Ok(())
-        } else {
-            TyckSolver::error(&format!(
-                "Trait types won't unify: {} and {}",
-                lhs.name.full_name()?,
-                rhs.name.full_name()?
-            ))
+            solutions.push((sol, epoch));
+        }
+
+        match self.internal_disambiguate(solutions) {
+            Ok(Some(imp)) => {
+                let (a, b, c) = instantiate_impl_signature(
+                    &self.analyzed_program,
+                    imp.impl_id,
+                    &imp.generics,
+                    ty,
+                )?;
+                println!(
+                    "{}>Ok impl {} for {} where {:?}",
+                    INDENT.repeat(self.epochs.len()),
+                    b,
+                    a,
+                    c
+                );
+                // Make sure we finally apply the trait bindings!
+                for (name, bound_ty) in &trt.assoc_bindings {
+                    self.unify(
+                        true,
+                        &instantiate_associated_ty(
+                            &self.analyzed_program,
+                            imp.impl_id,
+                            &imp.generics,
+                            name,
+                            ty,
+                        )?,
+                        bound_ty,
+                    )?;
+                }
+
+                // NOTE: we don't key this objective, since it gets memoized in the internal fn.
+                Ok(Some(imp))
+            }
+            Ok(None) => {
+                println!("{}>Ambig", INDENT.repeat(self.epochs.len()),);
+                if top_epoch!(self).ambiguous.is_none() {
+                    top_epoch_mut!(self).ambiguous =
+                        Some(format!("Ambiguous impl `{}` for `{}`", trt, ty));
+                }
+                Ok(None)
+            }
+            Err(_) => {
+                println!("{}>Err", INDENT.repeat(self.epochs.len()),);
+                PResult::error(format!(
+                    "No suitable solution for impl `{}` for `{}`",
+                    trt, ty
+                ))
+            }
         }
     }
 
-    fn normalize(&mut self) -> PResult<()> {
-        let types = std::mem::take(&mut self.types);
+    fn elaborate_impl(
+        &mut self,
+        impl_id: ImplId,
+        impl_generics: &[AstType],
+        ty: &AstType,
+        trt: &AstTraitType,
+    ) -> PResult<AstImplSignature> {
+        let impl_info = &self.analyzed_program.clone().analyzed_impls[&impl_id];
+        println!(
+            "{}Trying impl {} for {} where {:?}",
+            INDENT.repeat(self.epochs.len()),
+            impl_info.trait_ty,
+            impl_info.impl_ty,
+            impl_info.restrictions
+        );
 
-        for ty in types {
-            let ty = self.normalize_ty(&ty)?;
+        let (expected_ty, expected_trt, restrictions) =
+            instantiate_impl_signature(&self.analyzed_program, impl_id, impl_generics, ty)?;
 
-            if let AstType::AssociatedType {
-                obj_ty, trait_ty, ..
-            } = &ty
-            {
-                self.add_objective(obj_ty.as_ref(), trait_ty.as_ref().unwrap())?;
-            }
+        self.unify(false, &expected_ty, ty)?;
+        self.unify_all(false, &expected_trt.generics, &trt.generics)?;
 
-            self.types.insert(ty);
+        if top_epoch!(self).ambiguous.is_none() {
+            self.satisfy_restrictions(&restrictions)?;
         }
 
-        let inferences = std::mem::take(&mut self.solution.inferences);
+        Ok(AstImplSignature {
+            impl_id,
+            generics: self.normalize_tys(impl_generics)?,
+        })
+    }
 
-        for (id, ty) in inferences {
-            self.solution.inferences.insert(id, self.normalize_ty(&ty)?);
+    fn satisfy_associated_type(
+        &mut self,
+        ty: &AstType,
+        name: &str,
+    ) -> PResult<Option<AstImplSignature>> {
+        let key = TyckObjective::AssociatedType(ty.clone(), name.to_owned());
+
+        if let Some(Some(imp)) = top_epoch!(self).successes.get(&key) {
+            return Ok(Some(imp.clone()));
         }
 
-        let impl_signatures = std::mem::take(&mut self.solution.impl_signatures);
+        println!(
+            "{}Satisfying {} assoc ty {}",
+            INDENT.repeat(self.epochs.len()),
+            ty,
+            name
+        );
 
-        for (obj, sig) in impl_signatures {
-            let obj = self.normalize_objective(&obj)?;
-            let sig = self.normalize_impl_signature(&sig)?;
+        let mut solutions = Vec::new();
+        for trt in &self.analyzed_program.clone().methods_to_traits[name] {
+            let trait_data = &self.analyzed_program.clone().analyzed_traits[&trt];
 
-            if let Some(other_sig) = self
-                .solution
-                .impl_signatures
-                .insert(obj.clone(), sig.clone())
-            {
-                // It's possible that we got to the same impl through different objectives.
-                // In this case, it's fine that they now point to the same objective.
-                // However, they MUST be equivalent.
-                if other_sig.impl_id == sig.impl_id {
-                    self.unify_all(&sig.generics, &other_sig.generics)?;
+            for imp in &trait_data.impls {
+                let impl_generics: Vec<_> = self.analyzed_program.analyzed_impls[imp]
+                    .generics
+                    .iter()
+                    .map(|_| AstType::infer())
+                    .collect();
+
+                self.push_new_epoch()?;
+                let sol = self.elaborate_impl(
+                    *imp,
+                    &impl_generics,
+                    ty,
+                    &instantiate_impl_trait_ty(&self.analyzed_program, *imp, &impl_generics, ty)?
+                        .trt,
+                );
+                let epoch = self.rollback_epoch();
+
+                print!("{}", INDENT.repeat(self.epochs.len()));
+                if let Err(e) = &sol {
+                    println!("... Err: {}", e.why());
+                } else if let Some(a) = &epoch.ambiguous {
+                    println!("... Amb: {}", a);
                 } else {
-                    TyckSolver::error(&format!(
-                        "Impl objective {} provided by two impls: {:?} and {:?}",
-                        obj, sig, other_sig
-                    ))?;
+                    println!("... Ok!");
                 }
+
+                solutions.push((sol, epoch));
             }
         }
 
-        let objectives = std::mem::take(&mut self.objectives);
+        match self.internal_disambiguate(solutions) {
+            Ok(Some(imp)) => {
+                let (a, b, c) = instantiate_impl_signature(
+                    &self.analyzed_program,
+                    imp.impl_id,
+                    &imp.generics,
+                    ty,
+                )?;
+                println!(
+                    "{}>Ok assoc = impl {} for {} where {:?}",
+                    INDENT.repeat(self.epochs.len()),
+                    b,
+                    a,
+                    c
+                );
+                top_epoch_mut!(self)
+                    .successes
+                    .insert(key, Some(imp.clone()));
+                Ok(Some(imp))
+            }
+            Ok(None) => {
+                println!("{}>Ambig assoc", INDENT.repeat(self.epochs.len()),);
+                if top_epoch!(self).ambiguous.is_none() {
+                    top_epoch_mut!(self).ambiguous =
+                        Some(format!("Ambiguous associated type `<{}>::{}`", ty, name));
+                }
+                Ok(None)
+            }
+            Err(_) => {
+                println!("{}>Err assoc", INDENT.repeat(self.epochs.len()),);
+                PResult::error(format!(
+                    "No suitable trait for associated type `<{}>::{}`",
+                    ty, name
+                ))
+            }
+        }
+    }
 
-        for obj in &objectives {
-            let obj = self.normalize_objective(obj)?;
+    fn satisfy_method(
+        &mut self,
+        ty: &AstType,
+        name: &str,
+        generics: &[AstType],
+        arg_tys: &[AstType],
+        return_ty: &AstType,
+    ) -> PResult<Option<(AstTraitTypeWithAssocs, AstImplSignature)>> {
+        let key = TyckObjective::Method(ty.clone(), name.to_owned());
 
-            if self.objectives.contains(&obj) {
+        if let Some(Some(imp)) = top_epoch!(self).successes.get(&key) {
+            return Ok(Some((
+                instantiate_impl_trait_ty(&self.analyzed_program, imp.impl_id, &imp.generics, ty)?,
+                imp.clone(),
+            )));
+        }
+
+        println!(
+            "{}Satisfying {} method {}",
+            INDENT.repeat(self.epochs.len()),
+            ty,
+            name
+        );
+
+        let mut solutions = Vec::new();
+        for trt in &self.analyzed_program.clone().methods_to_traits[name] {
+            let trait_data = &self.analyzed_program.clone().analyzed_traits[&trt];
+            let fn_data = &trait_data.methods[name];
+
+            if fn_data.parameters.len() != arg_tys.len() {
                 continue;
             }
 
-            self.objectives.push_back(obj);
-        }
+            let fn_generics: Vec<_> = if generics.len() == 0 {
+                fn_data.generics.iter().map(|_| AstType::infer()).collect()
+            } else if generics.len() == fn_data.generics.len() {
+                generics.to_vec()
+            } else {
+                continue;
+            };
 
-        let mut progress = true;
-        while progress {
-            progress = false;
+            for imp in &trait_data.impls {
+                let impl_generics: Vec<_> = self.analyzed_program.analyzed_impls[imp]
+                    .generics
+                    .iter()
+                    .map(|_| AstType::infer())
+                    .collect();
 
-            // The next step will push all still-delayed unifications into the set.
-            // We do this iteratively because sometimes one unstuck objective will cause
-            // another objective to become unstuck.
-            // I know, I hate that too.
-            let delayed_objectives = std::mem::take(&mut self.delayed_objectives);
+                self.push_new_epoch()?;
+                let sol = self.elaborate_method(
+                    *imp,
+                    &impl_generics,
+                    name,
+                    &fn_generics,
+                    arg_tys,
+                    return_ty,
+                    ty,
+                );
+                let epoch = self.rollback_epoch();
 
-            for d in delayed_objectives {
-                match d {
-                    TyckDelayedObjective::Unify(a, b) => {
-                        let norm_a = self.normalize_ty(&a)?;
-                        let norm_b = self.normalize_ty(&b)?;
-
-                        self.unify(&norm_a, &norm_b)?;
-
-                        if a != norm_a || b != norm_b {
-                            progress = true;
-                        }
-                    }
-                    TyckDelayedObjective::TupleAccess(tuple, idx, element) => {
-                        let tuple = self.normalize_ty(&tuple)?;
-                        let element = self.normalize_ty(&element)?;
-
-                        if let AstType::Tuple { types } = &tuple {
-                            if types.len() > idx {
-                                self.unify(&element, &types[idx])?;
-                                progress = true;
-                            } else {
-                                TyckSolver::error("Tuple has wrong number of arguments")?;
-                            }
-                        } else if let AstType::Infer(..) = &tuple {
-                            self.delayed_objectives
-                                .push(TyckDelayedObjective::TupleAccess(tuple, idx, element));
-                        } else {
-                            TyckSolver::error(&format!("Tuple type expected, got {:?}", tuple))?;
-                        }
-                    }
-                    TyckDelayedObjective::ObjectAccess(object, member_name, member) => {
-                        let object = self.normalize_ty(&object)?;
-                        let member = self.normalize_ty(&member)?;
-
-                        if let AstType::Object(object_name, generics) = &object {
-                            let expected_member = GenericsInstantiator::instantiate_object_member(
-                                &*self.analyzed_program,
-                                object_name,
-                                generics,
-                                &member_name,
-                            )?;
-                            self.unify(&expected_member, &member)?;
-                            progress = true;
-                        } else if let AstType::Infer(..) = &object {
-                            self.delayed_objectives
-                                .push(TyckDelayedObjective::ObjectAccess(
-                                    object,
-                                    member_name,
-                                    member,
-                                ));
-                        } else {
-                            TyckSolver::error(&format!("Object type expected, got {:?}", object))?;
-                        }
-                    }
+                print!("{}", INDENT.repeat(self.epochs.len()));
+                if let Err(e) = &sol {
+                    println!("... Err: {}", e.why());
+                } else if let Some(a) = &epoch.ambiguous {
+                    println!("... Amb: {}", a);
+                } else {
+                    println!("... Ok!");
                 }
+
+                solutions.push((sol, epoch));
             }
         }
 
-        Ok(())
+        match self.internal_disambiguate(solutions) {
+            Ok(Some(imp)) => {
+                top_epoch_mut!(self)
+                    .successes
+                    .insert(key, Some(imp.clone()));
+
+                Ok(Some((
+                    instantiate_impl_trait_ty(
+                        &self.analyzed_program,
+                        imp.impl_id,
+                        &imp.generics,
+                        ty,
+                    )?,
+                    imp,
+                )))
+            }
+            Ok(None) => {
+                if top_epoch!(self).ambiguous.is_none() {
+                    top_epoch_mut!(self).ambiguous =
+                        Some(format!("Ambiguous method `<{}>:{}(...)`", ty, name));
+                }
+                Ok(None)
+            }
+            Err(_) => PResult::error(format!(
+                "No suitable trait for method `<{}>:{}(...)`",
+                ty, name
+            )),
+        }
     }
 
-    fn normalize_ty(&self, t: &AstType) -> PResult<AstType> {
-        self.solution.normalize_ty(t)
-    }
+    fn elaborate_method(
+        &mut self,
+        impl_id: ImplId,
+        impl_generics: &[AstType],
+        fn_name: &str,
+        fn_generics: &[AstType],
+        fn_args: &[AstType],
+        return_ty: &AstType,
+        call_ty: &AstType,
+    ) -> PResult<AstImplSignature> {
+        let impl_info = &self.analyzed_program.clone().analyzed_impls[&impl_id];
+        println!(
+            "{}Trying impl {} for {} where {:?}",
+            INDENT.repeat(self.epochs.len()),
+            impl_info.trait_ty,
+            impl_info.impl_ty,
+            impl_info.restrictions
+        );
 
-    fn normalize_trait_ty(&self, t: &AstTraitType) -> PResult<AstTraitType> {
-        self.solution.normalize_trait_ty(t)
-    }
+        let (expected_call_ty, _, restrictions) =
+            instantiate_impl_signature(&self.analyzed_program, impl_id, impl_generics, call_ty)?;
+        self.unify(false, &expected_call_ty, call_ty)?;
 
-    fn normalize_objective(&self, t: &TyckObjective) -> PResult<TyckObjective> {
-        let obj_ty = self.normalize_ty(&t.obj_ty)?;
-        let trait_ty = self.normalize_trait_ty(&t.trait_ty)?;
+        if !impl_info.is_dummy {
+            let (expected_args, expected_return_ty, _) = instantiate_impl_fn_signature(
+                &self.analyzed_program,
+                impl_id,
+                impl_generics,
+                fn_name,
+                fn_generics,
+                call_ty,
+            )?;
+            self.unify_all(true, &expected_args, fn_args)?;
+            self.unify(true, &expected_return_ty, return_ty)?;
+        }
 
-        Ok(TyckObjective { obj_ty, trait_ty })
-    }
-
-    fn normalize_impl_signature(&self, i: &AstImplSignature) -> PResult<AstImplSignature> {
-        let generics = i.generics.clone().visit(&mut Normalize(&self.solution))?;
+        if top_epoch!(self).ambiguous.is_none() {
+            self.satisfy_restrictions(&restrictions)?;
+        }
 
         Ok(AstImplSignature {
-            impl_id: i.impl_id,
-            generics,
+            impl_id,
+            generics: self.normalize_tys(impl_generics)?,
         })
     }
-}
 
-impl TyckSolution {
-    pub fn get_impl_signature(
+    fn internal_disambiguate(
         &mut self,
-        span: Span,
-        obj_ty: &AstType,
-        trait_ty: &AstTraitType,
-    ) -> PResult<AstImplSignature> {
-        let t = TyckObjective {
-            obj_ty: obj_ty.clone(),
-            trait_ty: trait_ty.clone(),
-        };
+        solutions: Vec<(PResult<AstImplSignature>, TyckEpoch)>,
+    ) -> PResult<Option<AstImplSignature>> {
+        let mut solution: Option<(AstImplSignature, TyckEpoch)> = None;
 
-        if let Some(sig) = self.impl_signatures.get(&t) {
-            Ok(sig.clone())
+        for (result, epoch) in solutions {
+            if let Ok(signature) = result {
+                if epoch.ambiguous.is_some() {
+                    return Ok(None);
+                }
+
+                if let Some((older_signature, _)) = &solution {
+                    if self.analyzed_program.analyzed_impls[&older_signature.impl_id].is_dummy {
+                        continue;
+                    }
+
+                    if !self.analyzed_program.analyzed_impls[&signature.impl_id].is_dummy {
+                        return PResult::error(format!("Conflicting solutions!"));
+                    }
+                }
+
+                solution = Some((signature, epoch));
+            }
+        }
+
+        if let Some((signature, epoch)) = solution {
+            self.push_epoch(epoch);
+            self.commit_epoch()?;
+
+            Ok(Some(signature))
         } else {
-            PResult::error_at(
-                span,
-                format!(
-                    "Can't find implementation for {:?} :- {:?}",
-                    obj_ty, trait_ty
-                ),
-            )
+            PResult::error(format!("No solutions!"))
         }
     }
 
-    pub fn normalize_ty(&self, t: &AstType) -> PResult<AstType> {
-        t.clone().visit(&mut Normalize(self))
-    }
+    fn satisfy_restrictions(&mut self, restrictions: &[AstTypeRestriction]) -> PResult<bool> {
+        let mut totally_satisfied = true;
 
-    pub fn normalize_trait_ty(&self, t: &AstTraitType) -> PResult<AstTraitType> {
-        t.clone().visit(&mut Normalize(self))
-    }
-
-    pub fn normalize_trait_ty_with_assocs(
-        &self,
-        t: &AstTraitTypeWithAssocs,
-    ) -> PResult<AstTraitTypeWithAssocs> {
-        t.clone().visit(&mut Normalize(self))
-    }
-
-    pub fn augment(&mut self, other: TyckSolution) -> PResult<()> {
-        for (id, ty) in other.inferences {
-            if let Some(other_ty) = self.inferences.insert(id, ty.clone()) {
-                if ty != other_ty {
-                    panic!("_{}: Cannot unify {} and {}", id.0, ty, other_ty);
-                }
-            }
+        for AstTypeRestriction { ty, trt } in restrictions {
+            totally_satisfied &= self.satisfy_impl(ty, trt)?.is_some();
         }
 
-        for (obj, sig) in other.impl_signatures {
-            if let Some(other_sig) = self.impl_signatures.insert(obj.clone(), sig.clone()) {
-                if sig != other_sig {
-                    panic!("{}: Cannot unify {:?} and {:?}", obj, sig, other_sig);
-                }
-            }
+        Ok(totally_satisfied)
+    }
+
+    fn satisfy_well_formed_object(
+        &mut self,
+        name: &ModuleRef,
+        generics: &[AstType],
+    ) -> PResult<()> {
+        let key = TyckObjective::WellFormed(name.clone(), generics.to_vec());
+        if top_epoch!(self).successes.contains_key(&key) {
+            return Ok(());
+        }
+
+        println!(
+            "{}Satisfying {} is well formed",
+            INDENT.repeat(self.epochs.len()),
+            AstType::Object(name.clone(), generics.to_vec())
+        );
+
+        if self.satisfy_restrictions(&instantiate_object_restrictions(
+            &self.analyzed_program,
+            name,
+            generics,
+        )?)? {
+            top_epoch_mut!(self).successes.insert(key, None);
         }
 
         Ok(())
     }
+
+    fn satisfy_well_formed_enum(&mut self, name: &ModuleRef, generics: &[AstType]) -> PResult<()> {
+        let key = TyckObjective::WellFormed(name.clone(), generics.to_vec());
+        if top_epoch!(self).successes.contains_key(&key) {
+            return Ok(());
+        }
+
+        println!(
+            "{}Satisfying {} is well formed",
+            INDENT.repeat(self.epochs.len()),
+            AstType::Enum(name.clone(), generics.to_vec())
+        );
+
+        if self.satisfy_restrictions(&instantiate_enum_restrictions(
+            &self.analyzed_program,
+            name,
+            generics,
+        )?)? {
+            top_epoch_mut!(self).successes.insert(key, None);
+        }
+
+        Ok(())
+    }
+
+    fn normalize_ty(&mut self, t: AstType) -> PResult<AstType> {
+        t.visit(&mut NormalizationAdapter(self))
+    }
+
+    fn normalize_tys(&mut self, tys: &[AstType]) -> PResult<Vec<AstType>> {
+        let mut ret_tys = Vec::new();
+
+        for t in tys {
+            ret_tys.push(self.normalize_ty(t.clone())?);
+        }
+
+        Ok(ret_tys)
+    }
 }
 
-struct Normalize<'a>(&'a TyckSolution);
+impl AstAdapter for TyckSolver {
+    fn enter_impl(&mut self, i: AstImpl) -> PResult<AstImpl> {
+        self.satisfy_restrictions(&instantiate_trait_restrictions(
+            &self.analyzed_program,
+            &i.trait_ty,
+            &i.impl_ty,
+        )?)?;
 
-impl<'a> AstAdapter for Normalize<'a> {
-    /* We do this as we walk the tree back up, just in case some replacement of a child causes
-     * a type to now associate correctly to an impl signature.
-     *
-     * Imagine we have <_0 as Trait>::I, but then _0 gets replaced with Int by normalization.
-     * Then if we have an impl candidate already chosen for <Int as Trait>, then we can match it! */
+        for (name, ty) in &i.associated_types {
+            let restrictions: Vec<_> = instantiate_associated_ty_restrictions(
+                &self.analyzed_program,
+                &i.trait_ty,
+                &name,
+                &ty,
+            )?
+            .into_iter()
+            .map(|trt| AstTypeRestriction::new(ty.clone(), trt))
+            .collect();
+
+            self.satisfy_restrictions(&restrictions)?;
+        }
+
+        Ok(i)
+    }
+
+    fn enter_trait(&mut self, t: AstTrait) -> PResult<AstTrait> {
+        self.satisfy_restrictions(&t.restrictions)?;
+
+        Ok(t)
+    }
+
+    fn enter_object(&mut self, o: AstObject) -> PResult<AstObject> {
+        self.satisfy_restrictions(&o.restrictions)?;
+
+        // Nothing special here to do.
+        Ok(o)
+    }
+
+    fn enter_enum(&mut self, e: AstEnum) -> PResult<AstEnum> {
+        self.satisfy_restrictions(&e.restrictions)?;
+
+        Ok(e)
+    }
+
+    fn enter_function(&mut self, f: AstFunction) -> PResult<AstFunction> {
+        self.satisfy_restrictions(&f.restrictions)?;
+
+        self.return_type = Some(f.return_type.clone());
+        self.variables = f
+            .variables
+            .iter()
+            .map(|(&k, v)| (k, v.ty.clone()))
+            .collect();
+
+        if let Some(block) = &f.definition {
+            self.unify(true, &f.return_type, &block.expression.ty)?;
+        }
+
+        Ok(f)
+    }
+
+    fn enter_object_function(&mut self, o: AstObjectFunction) -> PResult<AstObjectFunction> {
+        self.satisfy_restrictions(&o.restrictions)?;
+
+        self.return_type = Some(o.return_type.clone());
+        self.variables = o
+            .variables
+            .iter()
+            .map(|(&k, v)| (k, v.ty.clone()))
+            .collect();
+
+        if let Some(block) = &o.definition {
+            self.unify(true, &o.return_type, &block.expression.ty)?;
+        }
+
+        Ok(o)
+    }
+
+    fn exit_global_variable(&mut self, g: AstGlobalVariable) -> PResult<AstGlobalVariable> {
+        self.unify(true, &g.ty, &g.init.ty)?;
+
+        Ok(g)
+    }
+
+    fn exit_statement(&mut self, s: AstStatement) -> PResult<AstStatement> {
+        match &s {
+            // Removed in earlier stages
+            AstStatement::For { .. } => unreachable!(),
+
+            AstStatement::Expression { .. } | AstStatement::Break | AstStatement::Continue => {}
+            AstStatement::Let { pattern, value } => {
+                self.full_unify_pattern(pattern, &value.ty)?;
+            }
+            AstStatement::While { condition, .. } => {
+                self.unify(true, &condition.ty, &AstType::Bool)?;
+            }
+            AstStatement::Return { value } => {
+                let return_ty = self.return_type.clone().unwrap();
+                self.unify(true, &value.ty, &return_ty)?;
+            }
+            AstStatement::Assert { condition } => {
+                self.unify(true, &condition.ty, &AstType::Bool)?;
+            }
+        }
+
+        Ok(s)
+    }
+
+    fn exit_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
+        let AstExpression { mut data, ty, span } = e;
+
+        match &mut data {
+            AstExpressionData::Unimplemented => {}
+            AstExpressionData::Block { block } => {
+                self.unify(true, &block.expression.ty, &ty)?;
+            }
+            AstExpressionData::If {
+                condition,
+                block,
+                else_block,
+            } => {
+                self.unify(true, &condition.ty, &AstType::Bool)?;
+                self.unify(true, &ty, &block.expression.ty)?;
+                self.unify(true, &block.expression.ty, &else_block.expression.ty)?;
+            }
+            AstExpressionData::Match {
+                expression,
+                branches,
+            } => {
+                let match_expr_ty = &expression.ty;
+
+                for AstMatchBranch {
+                    pattern,
+                    expression,
+                } in branches
+                {
+                    self.full_unify_pattern(pattern, match_expr_ty)?;
+                    self.unify(true, &expression.ty, &ty)?;
+                }
+            }
+            AstExpressionData::Literal(lit) => match lit {
+                AstLiteral::True | AstLiteral::False => {
+                    self.unify(true, &ty, &AstType::Bool)?;
+                }
+                AstLiteral::String { .. } => self.unify(true, &ty, &AstType::String)?,
+                AstLiteral::Int(..) => {
+                    self.unify(true, &ty, &AstType::Int)?;
+                }
+                AstLiteral::Char(..) => {
+                    self.unify(true, &ty, &AstType::Char)?;
+                }
+            },
+            AstExpressionData::Identifier { variable_id, .. } => {
+                // TODO: I should really split this and the actual type checker...
+                let variable_ty = self.variables[variable_id.as_ref().unwrap()].clone();
+                self.unify(true, &ty, &variable_ty)?;
+            }
+            AstExpressionData::GlobalVariable { name } => {
+                self.unify(
+                    true,
+                    &ty,
+                    &self.analyzed_program.clone().analyzed_globals[name],
+                )?;
+            }
+            AstExpressionData::Tuple { values } => {
+                let tuple_tys = into_types(values);
+                self.unify(true, &ty, &AstType::tuple(tuple_tys))?;
+            }
+            AstExpressionData::ArrayLiteral { elements } => {
+                let _tuple_tys = into_types(elements);
+                let elem_ty = AstType::infer();
+
+                for elem in elements {
+                    self.unify(true, &elem.ty, &elem_ty)?;
+                }
+
+                self.unify(true, &AstType::array(elem_ty), &ty)?;
+            }
+
+            // A regular function call
+            AstExpressionData::FnCall {
+                fn_name,
+                generics,
+                args,
+            } => {
+                let (param_tys, return_ty, objectives) =
+                    instantiate_fn_signature(&self.analyzed_program, fn_name, generics)?;
+                let arg_tys = into_types(args);
+                self.unify_all(true, &param_tys, &arg_tys)?;
+                self.unify(true, &return_ty, &ty)?;
+                self.satisfy_restrictions(&objectives)?; // Add fn restrictions
+            }
+            // Call an object's static function
+            AstExpressionData::StaticCall {
+                call_type,
+                fn_name,
+                fn_generics,
+                args,
+                associated_trait,
+                impl_signature,
+            } => {
+                if associated_trait.is_none() {
+                    if let Some((trait_candidate, impl_candidate)) = self.satisfy_method(
+                        call_type,
+                        fn_name,
+                        fn_generics,
+                        &into_types(&args),
+                        &ty,
+                    )? {
+                        *associated_trait = Some(trait_candidate);
+                        *impl_signature = Some(impl_candidate);
+                    }
+                }
+
+                if let Some(associated_trait) = associated_trait {
+                    let fn_data = &self.analyzed_program.analyzed_traits
+                        [&associated_trait.trt.name]
+                        .methods[fn_name];
+
+                    let expected_args = fn_data.parameters.len();
+                    if args.len() != expected_args {
+                        return PResult::error(format!(
+                            "Incorrect number of arguments for \
+                method `<{} as {}>:{}(...)`. Expected {}, found {}.",
+                            call_type,
+                            associated_trait,
+                            fn_name,
+                            expected_args,
+                            args.len()
+                        ));
+                    }
+
+                    let expected_generics = fn_data.generics.len();
+                    if fn_generics.len() == expected_generics {
+                        /* Don't do anything. */
+                    } else if fn_generics.len() == 0 {
+                        *fn_generics = (0..expected_generics).map(|_| AstType::infer()).collect();
+                    } else {
+                        return PResult::error(format!(
+                            "Incorrect number of generics for symbol `<{} as {}>:{}(...)`. \
+                Expected {}, found {}.",
+                            call_type,
+                            associated_trait,
+                            fn_name,
+                            expected_generics,
+                            fn_generics.len()
+                        ));
+                    };
+
+                    let (param_tys, return_ty, objectives) = instantiate_trait_fn_signature(
+                        &*self.analyzed_program,
+                        &associated_trait.trt.name,
+                        &associated_trait.trt.generics,
+                        fn_name,
+                        fn_generics,
+                        &call_type,
+                    )?;
+                    let arg_tys = into_types(args);
+                    self.unify_all(true, &param_tys, &arg_tys)?;
+                    self.unify(true, &return_ty, &ty)?;
+                    self.satisfy_restrictions(&objectives)?;
+
+                    if impl_signature.is_none() {
+                        let impl_candidate = self.satisfy_impl(&call_type, &associated_trait)?;
+                        *impl_signature = impl_candidate;
+                    }
+                }
+
+                if let Some(impl_signature) = impl_signature {
+                    if !self.analyzed_program.analyzed_impls[&impl_signature.impl_id].is_dummy {
+                        let (param_tys, return_ty, objectives) = instantiate_impl_fn_signature(
+                            &*self.analyzed_program,
+                            impl_signature.impl_id,
+                            &impl_signature.generics,
+                            fn_name,
+                            fn_generics,
+                            &call_type,
+                        )?;
+
+                        let arg_tys = into_types(args);
+                        self.unify_all(true, &param_tys, &arg_tys)?;
+                        self.unify(true, &return_ty, &ty)?;
+                        self.satisfy_restrictions(&objectives)?;
+                    }
+                }
+            }
+            // A tuple access `a:1`
+            AstExpressionData::TupleAccess { accessible, idx } => {
+                let tuple_ty = &accessible.ty;
+
+                match tuple_ty {
+                    AstType::Tuple { types } => {
+                        if types.len() <= *idx {
+                            return PResult::error(format!(
+                                "Cannot access tuple `{}` at index {}",
+                                tuple_ty, idx,
+                            ));
+                        }
+
+                        self.unify(true, &ty, &types[*idx])?;
+                    }
+                    AstType::AssociatedType { .. } | AstType::Infer(_) => {
+                        if top_epoch_mut!(self).ambiguous.is_none() {
+                            top_epoch_mut!(self).ambiguous =
+                                Some(format!("Ambiguous tuple access {}:{}", tuple_ty, idx));
+                        }
+                    }
+                    t => {
+                        return PResult::error(format!(
+                            "Cannot perform tuple access on type `{}`",
+                            t,
+                        ));
+                    }
+                }
+            }
+            // Call an object's member
+            AstExpressionData::ObjectAccess {
+                object, mem_name, ..
+            } => {
+                let object_ty = &object.ty;
+
+                match object_ty {
+                    AstType::Object(name, generics) => {
+                        if !self.analyzed_program.analyzed_objects[name]
+                            .member_tys
+                            .contains_key(mem_name)
+                        {
+                            return PResult::error(format!(
+                                "Cannot access object `{}` at member `{}`",
+                                object_ty, mem_name,
+                            ));
+                        }
+
+                        let member_ty = instantiate_object_member(
+                            &self.analyzed_program,
+                            name,
+                            generics,
+                            mem_name,
+                        )?;
+                        self.unify(true, &ty, &member_ty)?;
+                    }
+                    AstType::AssociatedType { .. } | AstType::Infer(_) => {
+                        if top_epoch_mut!(self).ambiguous.is_none() {
+                            top_epoch_mut!(self).ambiguous = Some(format!(
+                                "Ambiguous object access {}:{}",
+                                object_ty, mem_name
+                            ));
+                        }
+                    }
+                    t => {
+                        return PResult::error(format!(
+                            "Cannot perform object access on type `{}`",
+                            t,
+                        ));
+                    }
+                }
+            }
+
+            AstExpressionData::AllocateObject {
+                object,
+                generics,
+                children,
+                ..
+            } => {
+                let expected_tys =
+                    instantiate_object_members(&self.analyzed_program, object, &generics)?;
+
+                for (child, expr) in children {
+                    self.unify(true, &expected_tys[child], &expr.ty)?;
+                }
+
+                self.unify(
+                    true,
+                    &AstType::Object(object.clone(), generics.clone()),
+                    &ty,
+                )?;
+            }
+
+            AstExpressionData::Not(subexpression) => {
+                let sub_ty = &subexpression.ty;
+                self.unify(true, sub_ty, &AstType::Bool)?;
+                self.unify(true, &ty, &AstType::Bool)?;
+            }
+            AstExpressionData::Negate(subexpression) => {
+                let sub_ty = &subexpression.ty;
+                self.unify(true, sub_ty, &AstType::Int)?;
+                self.unify(true, &ty, &AstType::Int)?;
+            }
+
+            AstExpressionData::Assign { lhs, rhs } => {
+                let lhs_ty = &lhs.ty;
+                let rhs_ty = &rhs.ty;
+                self.unify(true, lhs_ty, rhs_ty)?;
+                self.unify(true, lhs_ty, &ty)?;
+            }
+
+            AstExpressionData::GlobalFn { name } => {
+                let fn_data = &self.analyzed_program.analyzed_functions[name];
+                let fn_ptr_ty =
+                    AstType::fn_ptr_type(fn_data.parameters.clone(), fn_data.return_type.clone());
+                self.unify(true, &ty, &fn_ptr_ty)?;
+            }
+
+            AstExpressionData::Closure {
+                params,
+                expr,
+                variables,
+                ..
+            } => {
+                self.variables.extend(
+                    variables
+                        .as_ref()
+                        .unwrap()
+                        .iter()
+                        .map(|(&k, v)| (k, v.ty.clone())),
+                );
+
+                let ret_ty = expr.ty.clone();
+                let param_tys = params.iter().map(|p| p.ty.clone()).collect();
+                self.unify(true, &ty, &AstType::closure_type(param_tys, ret_ty))?;
+            }
+
+            AstExpressionData::PositionalEnum {
+                enumerable,
+                generics,
+                variant,
+                children,
+            } => {
+                self.unify(
+                    true,
+                    &ty,
+                    &AstType::enumerable(enumerable.clone(), generics.clone()),
+                )?;
+
+                let expected_tys = instantiate_enum_pattern(
+                    &self.analyzed_program,
+                    enumerable,
+                    &generics,
+                    &variant,
+                )?;
+
+                for (child, ty) in
+                    ZipExact::zip_exact(children, expected_tys, "positional elements")?
+                {
+                    self.unify(true, &child.ty, &ty)?;
+                }
+            }
+
+            AstExpressionData::SelfRef
+            | AstExpressionData::AllocateArray { .. }
+            | AstExpressionData::ExprCall { .. }
+            | AstExpressionData::ObjectCall { .. }
+            | AstExpressionData::ArrayAccess { .. }
+            | AstExpressionData::NamedEnum { .. }
+            | AstExpressionData::PlainEnum { .. }
+            | AstExpressionData::BinOp { .. } => unreachable!(),
+        }
+
+        Ok(AstExpression { data, ty, span })
+    }
+
     fn exit_type(&mut self, t: AstType) -> PResult<AstType> {
-        match &t {
+        match self.normalize_ty(t)? {
+            AstType::Object(name, generics) => {
+                self.satisfy_well_formed_object(&name, &generics)?;
+                Ok(AstType::Object(name, generics))
+            }
+            AstType::Enum(name, generics) => {
+                self.satisfy_well_formed_enum(&name, &generics)?;
+                Ok(AstType::Enum(name, generics))
+            }
+            t => Ok(t),
+        }
+    }
+
+    fn exit_pattern(&mut self, p: AstMatchPattern) -> PResult<AstMatchPattern> {
+        self.full_unify_pattern(&p, &AstType::infer())?;
+
+        Ok(p)
+    }
+
+    fn exit_function(&mut self, f: AstFunction) -> PResult<AstFunction> {
+        self.return_type = None;
+        self.variables.clear();
+
+        Ok(f)
+    }
+
+    fn exit_object_function(&mut self, o: AstObjectFunction) -> PResult<AstObjectFunction> {
+        self.return_type = None;
+        self.variables.clear();
+
+        Ok(o)
+    }
+}
+
+impl TyckAdapter for TyckSolver {
+    fn exit_tyck_object_fn(
+        &mut self,
+        i: TyckInstantiatedObjectFunction,
+    ) -> PResult<TyckInstantiatedObjectFunction> {
+        let TyckInstantiatedObjectFunction {
+            fun,
+            impl_ty,
+            trait_ty,
+            fn_generics,
+        } = &i;
+
+        let (expected_params, expected_ret_ty, expected_constraints) =
+            instantiate_trait_fn_signature(
+                &self.analyzed_program,
+                &trait_ty.name,
+                &trait_ty.generics,
+                &fun.name,
+                &fn_generics,
+                &impl_ty,
+            )?;
+
+        for (given_param, expected_ty) in
+            ZipExact::zip_exact(&fun.parameter_list, &expected_params, "parameter")?
+        {
+            self.unify(true, expected_ty, &given_param.ty)?;
+        }
+
+        self.unify(true, &expected_ret_ty, &fun.return_type)?;
+        self.satisfy_restrictions(&expected_constraints)?;
+
+        if top_epoch!(self).ambiguous.is_none() {
+            let given_constraints: HashSet<_> = fun.restrictions.iter().cloned().collect();
+
+            // Normalize our expected constraints
+            let expected_constraints: HashSet<_> =
+                expected_constraints.visit(self)?.into_iter().collect();
+
+            for c in &given_constraints {
+                if !expected_constraints.contains(c) {
+                    top_epoch_mut!(self).ambiguous = Some(format!(
+                        "The impl method has an additional constraint \
+                    not specified in the trait prototype: \n{:?}\n{:?}",
+                        expected_constraints, given_constraints
+                    ));
+                    break;
+                }
+            }
+
+            /* NOTE: I don't particularly care if the constraints are subset here... I THINK.
+
+            for c in &expected_constraints {
+                if !given_constraints.contains(c) {
+                    return PResult::error(format!(
+                        "The impl method has an additional \
+                    constraint not specified in the trait prototype"
+                    ));
+                }
+            } */
+        }
+
+        Ok(i)
+    }
+}
+
+impl AnAdapter for TyckSolver {
+    fn enter_analyzed_impl(&mut self, i: AnImplData) -> PResult<AnImplData> {
+        assert!(i.is_dummy);
+
+        self.satisfy_restrictions(&instantiate_trait_restrictions(
+            &self.analyzed_program,
+            &i.trait_ty,
+            &i.impl_ty,
+        )?)?;
+
+        for (name, ty) in &i.associated_tys {
+            let restrictions: Vec<_> = instantiate_associated_ty_restrictions(
+                &self.analyzed_program,
+                &i.trait_ty,
+                &name,
+                &ty,
+            )?
+            .into_iter()
+            .map(|trt| AstTypeRestriction::new(ty.clone(), trt))
+            .collect();
+
+            self.satisfy_restrictions(&restrictions)?;
+        }
+
+        Ok(i)
+    }
+}
+
+fn into_types(values: &[AstExpression]) -> Vec<AstType> {
+    values.iter().map(|e| e.ty.clone()).collect()
+}
+
+struct NormalizationAdapter<'a>(&'a mut TyckSolver);
+
+impl<'a> AstAdapter for NormalizationAdapter<'a> {
+    fn exit_type(&mut self, t: AstType) -> PResult<AstType> {
+        match t {
             AstType::Infer(id) => {
-                if let Some(t) = self.0.inferences.get(id) {
-                    return t.clone().visit(self);
+                if let Some(t) = top_epoch!(self.0).inferences.get(&id) {
+                    t.clone().visit(self)
+                } else {
+                    Ok(AstType::Infer(id))
                 }
             }
             AstType::AssociatedType {
                 obj_ty,
-                trait_ty,
+                trait_ty: None,
                 name,
             } => {
-                let typecheck_objective = &TyckObjective {
-                    obj_ty: *obj_ty.clone(),
-                    trait_ty: trait_ty.as_ref().unwrap().trt.clone(),
-                };
-
-                if let Some(impl_signature) = self.0.impl_signatures.get(typecheck_objective) {
-                    let instantiate = GenericsInstantiator::instantiate_associated_ty(
-                        &*self.0.analyzed_program,
-                        impl_signature,
+                if let Some(imp) = self.0.satisfy_associated_type(&obj_ty, &name)? {
+                    instantiate_associated_ty(
+                        &self.0.analyzed_program,
+                        imp.impl_id,
+                        &imp.generics,
+                        &name,
+                        &obj_ty,
+                    )?
+                    .visit(self)
+                } else {
+                    Ok(AstType::AssociatedType {
+                        obj_ty,
+                        trait_ty: None,
                         name,
-                    )?;
-                    return instantiate.visit(self);
+                    })
                 }
             }
-            _ => {}
+            AstType::AssociatedType {
+                obj_ty,
+                trait_ty: Some(trait_ty),
+                name,
+            } => {
+                if let Some(imp) = self.0.satisfy_impl(&obj_ty, &trait_ty)? {
+                    instantiate_associated_ty(
+                        &self.0.analyzed_program,
+                        imp.impl_id,
+                        &imp.generics,
+                        &name,
+                        &obj_ty,
+                    )?
+                    .visit(self)
+                } else {
+                    Ok(AstType::AssociatedType {
+                        obj_ty,
+                        trait_ty: Some(trait_ty),
+                        name,
+                    })
+                }
+            }
+            t => Ok(t),
+        }
+    }
+}
+
+pub struct TypeAmbiguityAdapter<'a>(&'a mut TyckSolver);
+
+impl<'a> AstAdapter for TypeAmbiguityAdapter<'a> {
+    fn exit_type(&mut self, t: AstType) -> PResult<AstType> {
+        if let AstType::Infer(_) = &t {
+            if top_epoch!(self.0).ambiguous.is_none() {
+                top_epoch_mut!(self.0).ambiguous = Some(format!("Ambiguous infer type `{}`", t));
+            }
         }
 
         Ok(t)
     }
 }
+
+impl<'a> AnAdapter for TypeAmbiguityAdapter<'a> {}
+impl<'a> TyckAdapter for TypeAmbiguityAdapter<'a> {}

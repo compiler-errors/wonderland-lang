@@ -1,8 +1,9 @@
 use crate::ana::represent::*;
 use crate::parser::ast::*;
 use crate::parser::ast_visitor::AstAdapter;
-use crate::tyck::tyck_instantiate::GenericsInstantiator;
-use crate::util::{PError, PResult, Visit};
+use crate::tyck::tyck_instantiation::instantiate_associated_ty_restrictions;
+use crate::tyck::TYCK_MAX_DEPTH;
+use crate::util::{IntoError, PError, PResult};
 use std::collections::{BTreeMap, HashMap};
 
 pub struct TyckConstraintAssumptionAdapter {
@@ -23,29 +24,50 @@ impl TyckConstraintAssumptionAdapter {
         }
     }
 
-    pub fn assume(&mut self, ty: &AstType, trt: &AstTraitTypeWithAssocs) -> PResult<AnImplData> {
+    pub fn assume(
+        &mut self,
+        ty: &AstType,
+        trt: &AstTraitTypeWithAssocs,
+        depth: usize,
+    ) -> PResult<AnImplData> {
+        if depth > TYCK_MAX_DEPTH {
+            return PResult::error(format!(
+                "Typechecker overflow while assuming {} :- {}",
+                ty, trt
+            ));
+        }
+
         println!("Assuming {} :- {}", ty, trt);
 
-        let trt_data = &self.analyzed_program.analyzed_traits[&trt.trt.name];
+        let trt_data = self
+            .analyzed_program
+            .analyzed_traits
+            .get_mut(&trt.trt.name)
+            .unwrap();
         let impl_id = AstImpl::new_id();
+        trt_data.impls.push(impl_id);
 
         let mut associated_tys = HashMap::new();
-        for (name, assoc_ty) in trt_data.associated_tys.clone() {
+        for (name, _) in trt_data.associated_tys.clone() {
             if &name == "Self" {
-                panic!("ICE: this should never happen.");
+                panic!("ICE: this should never happen. (I removed assoc-Self a long time ago...)");
             } else {
-                let mut instantiate =
-                    GenericsInstantiator::from_trait(&self.analyzed_program, &trt.trt)?;
-
                 let dummy_ty = if let Some(ty) = trt.assoc_bindings.get(&name) {
                     ty.clone()
                 } else {
                     AstType::dummy()
                 };
 
-                for c in &assoc_ty.restrictions {
+                let restrictions = instantiate_associated_ty_restrictions(
+                    &self.analyzed_program,
+                    &trt.trt,
+                    &name,
+                    &ty,
+                )?;
+
+                for c in restrictions {
                     // Alas, this means that we might have assumption bounds that are literally unprovable.
-                    self.assume(&dummy_ty, &c.clone().visit(&mut instantiate)?)?;
+                    self.assume(&dummy_ty, &c, depth + 1)?;
                 }
 
                 println!(
@@ -96,7 +118,7 @@ impl AstAdapter for TyckConstraintAssumptionAdapter {
     }
 
     fn exit_type_restriction(&mut self, t: AstTypeRestriction) -> PResult<AstTypeRestriction> {
-        self.assume(&t.ty, &t.trt)?;
+        self.assume(&t.ty, &t.trt, 0)?;
 
         Ok(t)
     }
@@ -108,7 +130,7 @@ impl AstAdapter for TyckConstraintAssumptionAdapter {
             BTreeMap::new(),
         );
 
-        self.assume(&self.self_ty.clone().unwrap(), &self_trt)?;
+        self.assume(&self.self_ty.clone().unwrap(), &self_trt, 0)?;
         self.self_ty = None;
 
         Ok(t)

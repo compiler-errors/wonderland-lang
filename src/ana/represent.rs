@@ -1,4 +1,4 @@
-use crate::ana::analyze_modules::{ModuleItem, SharedModule};
+use crate::ana::analyze_modules::SharedModule;
 use crate::parser::ast::*;
 use crate::util::FileId;
 use std::collections::HashMap;
@@ -53,7 +53,7 @@ pub struct AnTraitData {
     pub impls: Vec<ImplId>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct AnFunctionData {
     pub name: Option<ModuleRef>,
     pub generics: Vec<AstGeneric>,
@@ -62,7 +62,7 @@ pub struct AnFunctionData {
     pub restrictions: Vec<AstTypeRestriction>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct AnImplData {
     pub impl_id: ImplId,
     pub generics: Vec<AstGeneric>,

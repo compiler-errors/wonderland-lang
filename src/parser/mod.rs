@@ -692,8 +692,11 @@ impl Parser {
             AstType::none()
         };
 
+        let mut bindings = BTreeMap::new();
+        bindings.insert("CallReturn".to_owned(), ret_ty);
+
         Ok((
-            AstTraitTypeWithAssocs::new(call_trait, vec![args, ret_ty], BTreeMap::new()),
+            AstTraitTypeWithAssocs::new(call_trait, vec![args], bindings),
             span,
         ))
     }

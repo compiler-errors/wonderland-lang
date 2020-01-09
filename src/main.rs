@@ -24,9 +24,6 @@ use crate::tr::translate;
 #[cfg(feature = "tyck")]
 use crate::tyck::typecheck;
 
-#[cfg(feature = "tyck2")]
-use crate::tyck2::typecheck;
-
 use crate::util::{report_err, FileId, FileRegistry, PError, PResult};
 use getopts::{Matches, Options};
 
@@ -54,9 +51,6 @@ mod tr;
 #[cfg(feature = "tyck")]
 mod tyck;
 
-#[cfg(feature = "tyck2")]
-mod tyck2;
-
 mod util;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -70,7 +64,7 @@ enum Mode {
     Translate,
 }
 
-const DEFAULT_MODE: Mode = Mode::Typecheck;
+const DEFAULT_MODE: Mode = Mode::Translate;
 
 fn main() {
     let args: Vec<_> = std::env::args().collect();
@@ -88,7 +82,7 @@ fn main() {
     if cfg!(feature = "ana") {
         opts.optflag("a", "analyze", "Analyze file(s)");
     }
-    if cfg!(feature = "tyck") || cfg!(feature = "tyck2") {
+    if cfg!(feature = "tyck") {
         opts.optflag("t", "tyck", "Typecheck file(s)");
     }
     if cfg!(feature = "inst") {
@@ -208,7 +202,7 @@ fn match_mode(
         Mode::Parse => try_parse(files),
         #[cfg(feature = "ana")]
         Mode::Analyze => try_analyze(files),
-        #[cfg(any(feature = "tyck", feature = "tyck2"))]
+        #[cfg(feature = "tyck")]
         Mode::Typecheck => try_typecheck(files),
         #[cfg(feature = "inst")]
         Mode::Instantiate => try_instantiate(files),
@@ -327,7 +321,7 @@ fn try_analyze(files: Vec<FileId>) -> PResult<()> {
     Ok(())
 }
 
-#[cfg(any(feature = "tyck", feature = "tyck2"))]
+#[cfg(any(feature = "tyck"))]
 fn try_typecheck(files: Vec<FileId>) -> PResult<()> {
     let program = parse_program(files)?;
     let (a, p) = analyze(program)?;

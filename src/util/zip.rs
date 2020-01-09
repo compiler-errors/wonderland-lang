@@ -1,4 +1,3 @@
-use crate::util::len::Len;
 use crate::util::result::{IntoError, PResult};
 
 use std::iter::Zip;
@@ -10,17 +9,26 @@ where
     fn zip_exact(self, other: S, what: &str) -> PResult<Zip<Self::IntoIter, S::IntoIter>>;
 }
 
-impl<S: IntoIterator + Len, T: IntoIterator + Len> ZipExact<S> for T {
-    fn zip_exact(self, other: S, what: &str) -> PResult<Zip<Self::IntoIter, S::IntoIter>> {
-        if self.len() != other.len() {
+impl<
+        S: IntoIterator<IntoIter = SI>,
+        SI: ExactSizeIterator<Item = S::Item>,
+        T: IntoIterator<IntoIter = TI>,
+        TI: ExactSizeIterator<Item = T::Item>,
+    > ZipExact<T> for S
+{
+    fn zip_exact(self, other: T, what: &str) -> PResult<Zip<S::IntoIter, T::IntoIter>> {
+        let s = self.into_iter();
+        let t = other.into_iter();
+
+        if s.len() != t.len() {
             PResult::error(format!(
                 "Mismatched {}! LHS has {}, RHS has {}.",
                 what,
-                self.len(),
-                other.len()
+                s.len(),
+                t.len()
             ))
         } else {
-            Ok(Iterator::zip(self.into_iter(), other.into_iter()))
+            Ok(Iterator::zip(s, t))
         }
     }
 }

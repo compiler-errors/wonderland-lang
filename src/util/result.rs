@@ -43,8 +43,8 @@ impl PError {
         }
     }
 
-    pub fn why(self) -> String {
-        self.error_string
+    pub fn why(&self) -> String {
+        self.error_string.clone()
     }
 }
 
