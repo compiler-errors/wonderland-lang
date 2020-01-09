@@ -20,7 +20,7 @@ export fn call_fn<_Args, _Ret>(f: fn(), args: _Args) -> _Ret.
 export fn call_closure<_Args, _Ret>(f: ||, args: _Args) -> _Ret.
 
 impl Add<Int> for Int {
-    type AddResult = Int.
+    type Result = Int.
 
     fn add(self, other: Int) -> Int {
         add_int(self, other)
@@ -28,7 +28,7 @@ impl Add<Int> for Int {
 }
 
 impl Subtract<Int> for Int {
-    type SubtractResult = Int.
+    type Result = Int.
 
     fn sub(self, other: Int) -> Int {
         self + (-other)
@@ -36,7 +36,7 @@ impl Subtract<Int> for Int {
 }
 
 impl Multiply<Int> for Int {
-    type MultiplyResult = Int.
+    type Result = Int.
 
     fn mul(self, other: Int) -> Int {
         mul_int(self, other)
@@ -44,7 +44,7 @@ impl Multiply<Int> for Int {
 }
 
 impl Divide<Int> for Int {
-    type DivideResult = Int.
+    type Result = Int.
 
     fn div(self, other: Int) -> Int {
         div_int(self, other)
@@ -52,7 +52,7 @@ impl Divide<Int> for Int {
 }
 
 impl Modulo<Int> for Int {
-    type ModuloResult = Int.
+    type Result = Int.
 
     fn rem(self, other: Int) -> Int {
         mod_int(self, other)
@@ -97,7 +97,7 @@ impl<_S, _T> Equals<_T> for _S where _S: PartialCompare<_T> {
 }
 
 impl Negate for Int {
-    type NegateResult = Int.
+    type Result = Int.
 
     fn negate(self) -> Int {
         neg_int(self)
@@ -105,7 +105,7 @@ impl Negate for Int {
 }
 
 impl And<Bool> for Bool {
-    type AndResult = Bool.
+    type Result = Bool.
 
     fn and(self, other: Bool) -> Bool {
         if self {
@@ -117,7 +117,7 @@ impl And<Bool> for Bool {
 }
 
 impl Or<Bool> for Bool {
-    type OrResult = Bool.
+    type Result = Bool.
 
     fn or(self, other: Bool) -> Bool {
         if self {
@@ -129,7 +129,7 @@ impl Or<Bool> for Bool {
 }
 
 impl Not for Bool {
-    type NotResult = Bool.
+    type Result = Bool.
 
     fn not(self) -> Bool {
         if self {
@@ -141,7 +141,7 @@ impl Not for Bool {
 }
 
 impl Add<String> for String {
-    type AddResult = String.
+    type Result = String.
     
     fn add(self, other: String) -> String {
         add_string(self, other)
@@ -149,8 +149,8 @@ impl Add<String> for String {
 }
 
 impl<_T> Deref for [_T] {
-    type DerefIdx = Int.
-    type DerefResult = _T.
+    type Idx = Int.
+    type Result = _T.
 
     fn deref(self, idx: Int) -> _T {
         deref_array(self, idx)
@@ -158,8 +158,8 @@ impl<_T> Deref for [_T] {
 }
 
 impl Deref for String {
-    type DerefIdx = Int.
-    type DerefResult = Char.
+    type Idx = Int.
+    type Result = Char.
 
     fn deref(self, idx: Int) -> Char {
         get_char(self, idx)
@@ -167,8 +167,8 @@ impl Deref for String {
 }
 
 impl<_T> DerefAssign for [_T] {
-    type DerefAssignIdx = Int.
-    type DerefAssignValue = _T.
+    type Idx = Int.
+    type Value = _T.
 
     fn deref_assign(self, idx: Int, value: _T) -> _T {
         deref_array_assign(self, idx, value)
@@ -200,7 +200,7 @@ impl<_T> AllocateArray for _T where _T: Default {
         let a = cursed_allocate_array:<_T>(n).
 
         for i in Range!Finite(0, n) {
-          a[i] = <_T as Default>:default().
+          a[i] = <_T>:default().
         }
 
         a

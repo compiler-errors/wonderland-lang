@@ -842,7 +842,8 @@ impl Translator {
             | AstExpressionData::ExprCall { .. }
             | AstExpressionData::NamedEnum { .. }
             | AstExpressionData::PlainEnum { .. }
-            | AstExpressionData::AllocateArray { .. } => unreachable!(),
+            | AstExpressionData::AllocateArray { .. }
+            | AstExpressionData::As { .. } => unreachable!(),
 
             c @ AstExpressionData::Closure { .. } => {
                 let env = self.translate_closure_capture_environment(c)?;

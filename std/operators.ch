@@ -1,26 +1,26 @@
 trait Add<_T> {
-    type AddResult.
-    fn add(self, other: _T) -> <Self as Add<_T>>::AddResult.
+    type Result.
+    fn add(self, other: _T) -> <Self as Add<_T>>::Result.
 }
 
 trait Subtract<_T> {
-    type SubtractResult.
-    fn sub(self, other: _T) -> <Self as Subtract<_T>>::SubtractResult.
+    type Result.
+    fn sub(self, other: _T) -> <Self as Subtract<_T>>::Result.
 }
 
 trait Multiply<_T> {
-    type MultiplyResult.
-    fn mul(self, other: _T) -> <Self as Multiply<_T>>::MultiplyResult.
+    type Result.
+    fn mul(self, other: _T) -> <Self as Multiply<_T>>::Result.
 }
 
 trait Divide<_T> {
-    type DivideResult.
-    fn div(self, other: _T) -> <Self as Divide<_T>>::DivideResult.
+    type Result.
+    fn div(self, other: _T) -> <Self as Divide<_T>>::Result.
 }
 
 trait Modulo<_T> {
-    type ModuloResult.
-    fn rem(self, other: _T) -> <Self as Modulo<_T>>::ModuloResult.
+    type Result.
+    fn rem(self, other: _T) -> <Self as Modulo<_T>>::Result.
 }
 
 trait PartialCompare<_T> {
@@ -56,40 +56,40 @@ trait Equals<_T> {
 }
 
 trait And<_T> {
-    type AndResult.
-    fn and(self, other: _T) -> <Self as And<_T>>::AndResult.
+    type Result.
+    fn and(self, other: _T) -> <Self as And<_T>>::Result.
 }
 
 trait Or<_T> {
-    type OrResult.
-    fn or(self, other: _T) -> <Self as Or<_T>>::OrResult.
+    type Result.
+    fn or(self, other: _T) -> <Self as Or<_T>>::Result.
 }
 
 trait Not {
-    type NotResult.
-    fn not(self) -> <Self as Not>::NotResult.
+    type Result.
+    fn not(self) -> <Self as Not>::Result.
 }
 
 trait Negate {
-    type NegateResult.
-    fn negate(self) -> <Self as Negate>::NegateResult.
+    type Result.
+    fn negate(self) -> <Self as Negate>::Result.
 }
 
 trait Deref {
-    type DerefIdx.
-    type DerefResult.
+    type Idx.
+    type Result.
 
-    fn deref(self, idx: <Self as Deref>::DerefIdx) -> <Self as Deref>::DerefResult.
+    fn deref(self, idx: <Self as Deref>::Idx) -> <Self as Deref>::Result.
 }
 
 trait DerefAssign {
-    type DerefAssignIdx.
-    type DerefAssignValue.
+    type Idx.
+    type Value.
 
     fn deref_assign(
         self,
-        idx: <Self as DerefAssign>::DerefAssignIdx,
-        value: <Self as DerefAssign>::DerefAssignValue) -> <Self as DerefAssign>::DerefAssignValue.
+        idx: <Self as DerefAssign>::Idx,
+        value: <Self as DerefAssign>::Value) -> <Self as DerefAssign>::Value.
 }
 
 trait Len {
@@ -97,10 +97,14 @@ trait Len {
 }
 
 trait Call<_Args> {
-    type CallReturn.
-    fn call(self, args: _Args) -> <Self as Call<_Args>>::CallReturn.
+    type Return.
+    fn call(self, args: _Args) -> <Self as Call<_Args>>::Return.
 }
 
 trait AllocateArray {
     fn allocate_array(n: Int) -> [Self].
+}
+
+trait Into<_T> {
+    fn into(self) -> _T.
 }

@@ -218,6 +218,18 @@ impl AstAdapter for AnalyzeOperators {
                 )),
                 impl_signature: None,
             },
+            AstExpressionData::As { expression, ty } => AstExpressionData::StaticCall {
+                call_type: AstType::infer(),
+                fn_name: "into".into(),
+                fn_generics: vec![],
+                args: vec![*expression],
+                associated_trait: Some(AstTraitTypeWithAssocs::new(
+                    self.construct_ref("Into")?,
+                    vec![ty],
+                    BTreeMap::new(),
+                )),
+                impl_signature: None,
+            },
             e => e,
         };
 

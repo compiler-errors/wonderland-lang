@@ -693,7 +693,7 @@ impl Parser {
         };
 
         let mut bindings = BTreeMap::new();
-        bindings.insert("CallReturn".to_owned(), ret_ty);
+        bindings.insert("Return".to_owned(), ret_ty);
 
         Ok((
             AstTraitTypeWithAssocs::new(call_trait, vec![args], bindings),
@@ -1035,7 +1035,8 @@ impl Parser {
             | Token::Equals
             | Token::Colon
             | Token::LSqBracket
-            | Token::LParen => true,
+            | Token::LParen
+            | Token::As => true,
             _ => false,
         }
     }
@@ -1116,6 +1117,13 @@ impl Parser {
                     let (args, args_span) = self.parse_expr_args()?;
                     span = span.unite(args_span);
                     lhs = AstExpression::expr_call(span, lhs, args);
+                    continue;
+                }
+                Token::As => {
+                    self.bump()?;
+                    let (ty, ty_span) = self.parse_type()?;
+                    span = span.unite(ty_span);
+                    lhs = AstExpression::as_type(span, lhs, ty);
                     continue;
                 }
                 _ => {}

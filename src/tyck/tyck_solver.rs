@@ -466,7 +466,9 @@ impl TyckSolver {
                     )?;
                 }
 
-                // NOTE: we don't key this objective, since it gets memoized in the internal fn.
+                top_epoch_mut!(self)
+                    .successes
+                    .insert(key, Some(imp.clone()));
                 Ok(Some(imp))
             }
             Ok(None) => {
@@ -977,10 +979,34 @@ impl AstAdapter for TyckSolver {
         Ok(s)
     }
 
+    fn enter_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
+        if let AstExpressionData::Closure { variables, .. } = &e.data {
+            self.variables.extend(
+                variables
+                    .as_ref()
+                    .unwrap()
+                    .iter()
+                    .map(|(&k, v)| (k, v.ty.clone())),
+            );
+        }
+
+        Ok(e)
+    }
+
     fn exit_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
         let AstExpression { mut data, ty, span } = e;
 
         match &mut data {
+            AstExpressionData::SelfRef
+            | AstExpressionData::AllocateArray { .. }
+            | AstExpressionData::ExprCall { .. }
+            | AstExpressionData::ObjectCall { .. }
+            | AstExpressionData::ArrayAccess { .. }
+            | AstExpressionData::NamedEnum { .. }
+            | AstExpressionData::PlainEnum { .. }
+            | AstExpressionData::BinOp { .. }
+            | AstExpressionData::As { .. } => unreachable!(),
+
             AstExpressionData::Unimplemented => {}
             AstExpressionData::Block { block } => {
                 self.unify(true, &block.expression.ty, &ty)?;
@@ -1278,14 +1304,6 @@ impl AstAdapter for TyckSolver {
                 variables,
                 ..
             } => {
-                self.variables.extend(
-                    variables
-                        .as_ref()
-                        .unwrap()
-                        .iter()
-                        .map(|(&k, v)| (k, v.ty.clone())),
-                );
-
                 let ret_ty = expr.ty.clone();
                 let param_tys = params.iter().map(|p| p.ty.clone()).collect();
                 self.unify(true, &ty, &AstType::closure_type(param_tys, ret_ty))?;
@@ -1316,15 +1334,6 @@ impl AstAdapter for TyckSolver {
                     self.unify(true, &child.ty, &ty)?;
                 }
             }
-
-            AstExpressionData::SelfRef
-            | AstExpressionData::AllocateArray { .. }
-            | AstExpressionData::ExprCall { .. }
-            | AstExpressionData::ObjectCall { .. }
-            | AstExpressionData::ArrayAccess { .. }
-            | AstExpressionData::NamedEnum { .. }
-            | AstExpressionData::PlainEnum { .. }
-            | AstExpressionData::BinOp { .. } => unreachable!(),
         }
 
         Ok(AstExpression { data, ty, span })

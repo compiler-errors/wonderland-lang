@@ -605,6 +605,10 @@ pub enum AstExpressionData {
         generics: Vec<AstType>,
         variant: String,
     },
+    As {
+        expression: SubExpression,
+        ty: AstType,
+    },
 }
 
 impl AstExpression {
@@ -978,6 +982,17 @@ impl AstExpression {
         AstExpression {
             span,
             data: AstExpressionData::SelfRef,
+            ty: AstType::infer(),
+        }
+    }
+
+    pub fn as_type(span: Span, expr: AstExpression, ty: AstType) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::As {
+                expression: Box::new(expr),
+                ty,
+            },
             ty: AstType::infer(),
         }
     }

@@ -519,6 +519,10 @@ impl<T: AstAdapter> Visit<T> for AstExpression {
                 generics: generics.visit(adapter)?,
                 variant,
             },
+            AstExpressionData::As { expression, ty } => AstExpressionData::As {
+                expression: expression.visit(adapter)?,
+                ty: ty.visit(adapter)?,
+            },
         };
 
         adapter.exit_expression(AstExpression { data, ty, span })

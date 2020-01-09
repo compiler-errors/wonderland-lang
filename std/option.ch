@@ -15,7 +15,3 @@ impl<_T> for Option<_T> {
 trait Default {
     fn default() -> Self.
 }
-
-fn default<_T>() -> _T where _T: Default {
-    <_T as Default>:default()
-}
