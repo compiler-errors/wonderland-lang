@@ -1,5 +1,4 @@
 use crate::ana::represent::*;
-use crate::inst::post_solve::PostSolveAdapter;
 pub use crate::inst::represent::*;
 use crate::parser::ast::*;
 use crate::parser::ast_visitor::AstAdapter;
@@ -11,7 +10,6 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::rc::Rc;
 
-mod post_solve;
 mod represent;
 
 struct InstantiationAdapter {
@@ -232,12 +230,12 @@ impl InstantiationAdapter {
         let ids = &self.analyzed_program.clone().analyzed_impls[&id].generics;
         let mut instantiate = GenericsAdapter::new(ids, generics);
 
-        let imp = self.impls[&id].clone().visit(&mut instantiate)?;
+        let mut imp = self.impls[&id].clone().visit(&mut instantiate)?;
 
-        let imp = typecheck_impl(&self.base_solver, imp)?;
-        let mut post_solve = PostSolveAdapter(self.analyzed_program.clone());
+        // These will be instantiated later...
+        imp.fns.clear();
 
-        let imp = imp.visit(&mut post_solve)?.visit(self)?;
+        let imp = typecheck_impl(&self.base_solver, imp)?.visit(self)?;
 
         self.instantiated_impls.insert(sig, Some(imp));
         Ok(())
@@ -252,6 +250,11 @@ impl InstantiationAdapter {
         fn_generics: &[AstType],
     ) -> PResult<()> {
         self.instantiate_impl(impl_sig, call_type, trt)?;
+
+        debug!(
+            "Instantiating <{} as {}>:{} with {:?} generics",
+            call_type, trt, fn_name, fn_generics
+        );
 
         let id = impl_sig.impl_id;
         let sig = InstObjectFunctionSignature(
@@ -283,10 +286,8 @@ impl InstantiationAdapter {
             .visit(&mut obj_instantiate)?
             .visit(&mut fn_instantiate)?;
 
-        let f = typecheck_impl_fn(&self.base_solver, f, call_type, trt, fn_generics)?;
-        let mut post_solve = PostSolveAdapter(self.analyzed_program.clone());
-        let f = f.visit(&mut post_solve)?.visit(self)?;
-
+        let f =
+            typecheck_impl_fn(&self.base_solver, f, call_type, trt, fn_generics)?.visit(self)?;
         self.instantiated_object_fns.insert(sig, Some(f));
 
         Ok(())
@@ -296,7 +297,6 @@ impl InstantiationAdapter {
     where
         T: Visit<GenericsAdapter>
             + Visit<TyckSolver>
-            + Visit<PostSolveAdapter>
             + Visit<InstantiationAdapter>
             + for<'a> Visit<TypeAmbiguityAdapter<'a>>
             + Debug
@@ -307,16 +307,12 @@ impl InstantiationAdapter {
         let mut instantiate = GenericsAdapter::new(ids, tys);
         let t = t.visit(&mut instantiate)?;
 
-        let t = typecheck_simple(&self.base_solver, t)?;
-        let mut post_solve = PostSolveAdapter(self.analyzed_program.clone());
-        let t = t.visit(&mut post_solve)?.visit(self)?;
-
-        Ok(t)
+        Ok(typecheck_simple(&self.base_solver, t)?.visit(self)?)
     }
 
     fn solve_enum_representation(&self, e: AstEnum) -> InstEnumRepresentation {
-        print!(
-            "Enum {} is represented with ",
+        debug!(
+            "Enum {} is represented with ...",
             e.module_ref.full_name().unwrap()
         );
 
@@ -336,7 +332,7 @@ impl InstantiationAdapter {
             let mut member_idxes = Vec::new();
 
             for f in variant.fields {
-                for t in self.flatten_type(f) {
+                for t in self.flatten_ty(f) {
                     // Try to find a type that matches this one in the free fields. If we can't,
                     // then add that field to the end of the representation. Maybe it'll get used
                     // by another variant.
@@ -354,7 +350,7 @@ impl InstantiationAdapter {
         }
 
         fields.insert(0, AstType::Int); // Discriminant always goes first
-        println!(
+        debug!(
             "{} fields: [{}]",
             fields.len(),
             fields
@@ -365,7 +361,7 @@ impl InstantiationAdapter {
         );
 
         for (n, d) in &discriminants {
-            println!("{}!{} -> {}", e.module_ref.full_name().unwrap(), n, d);
+            debug!("{}!{} -> {}", e.module_ref.full_name().unwrap(), n, d);
         }
 
         InstEnumRepresentation {
@@ -375,11 +371,11 @@ impl InstantiationAdapter {
         }
     }
 
-    fn flatten_type(&self, t: AstType) -> Vec<AstType> {
+    fn flatten_ty(&self, t: AstType) -> Vec<AstType> {
         match t {
             AstType::Tuple { types } => types
                 .iter()
-                .flat_map(|t| self.flatten_type(t.clone()))
+                .flat_map(|t| self.flatten_ty(t.clone()))
                 .collect(),
             AstType::Enum(name, generics) => {
                 let sig = InstEnumSignature(name.clone(), generics.clone());

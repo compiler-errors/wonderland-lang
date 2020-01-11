@@ -70,7 +70,7 @@ impl AstAdapter for AnalyzeInfo {
 
             let ana_obj = AnObjectData {
                 name: obj.module_ref.clone(),
-                self_type: AstType::Object(
+                self_ty: AstType::Object(
                     obj.module_ref.clone(),
                     obj.generics.iter().map(|g| g.clone().into()).collect(),
                 ),
@@ -108,7 +108,7 @@ impl AstAdapter for AnalyzeInfo {
 
             let ana_en = AnEnumData {
                 name: en.module_ref.clone(),
-                self_type: AstType::Enum(
+                self_ty: AstType::Enum(
                     en.module_ref.clone(),
                     en.generics.iter().map(|g| g.clone().into()).collect(),
                 ),

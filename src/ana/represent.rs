@@ -20,7 +20,7 @@ pub struct AnalyzedProgram {
 #[derive(Debug, Clone)]
 pub struct AnObjectData {
     pub name: ModuleRef,
-    pub self_type: AstType,
+    pub self_ty: AstType,
     pub generics: Vec<AstGeneric>,
     pub member_tys: HashMap<String, AstType>,
     pub member_indices: HashMap<String, usize>,
@@ -30,7 +30,7 @@ pub struct AnObjectData {
 #[derive(Debug, Clone)]
 pub struct AnEnumData {
     pub name: ModuleRef,
-    pub self_type: AstType,
+    pub self_ty: AstType,
     pub generics: Vec<AstGeneric>,
     pub variants: HashMap<String, AnEnumVariantData>,
     pub restrictions: Vec<AstTypeRestriction>,

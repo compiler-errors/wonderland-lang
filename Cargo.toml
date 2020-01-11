@@ -20,3 +20,5 @@ inkwell = { git = "https://github.com/TheDan64/inkwell", branch = "llvm8-0" }
 either = "1.5.2"
 getopts = "0.2"
 tempfile = "3.1.0"
+log = "0.4"
+env_logger = "0.7"

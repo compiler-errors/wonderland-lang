@@ -109,7 +109,7 @@ impl Iterator for RangeIterator {
     fn size_hint(self) -> Int {
         match self:end {
             Option!Some(end) -> end - self:idx,
-            Option!None -> 0,
+            Option!None -> -1,
         }
     }
 }

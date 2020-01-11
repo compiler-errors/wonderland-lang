@@ -203,7 +203,7 @@ pub fn import(
 ) -> PResult<bool> {
     if this_children.contains_key(name) {
         if this_children[name] != child {
-            print!("{:#?} VS. {:#?}", this_children[name], child);
+            debug!("{:#?} VS. {:#?}", this_children[name], child);
 
             return PResult::error(format!(
                 "Cannot import symbol `{}` from module `{}` when it already exists in the module `{}`!",

@@ -37,7 +37,7 @@ impl TyckConstraintAssumptionAdapter {
             ));
         }
 
-        println!("Assuming {} :- {}", ty, trt);
+        debug!("Assuming {} :- {}", ty, trt);
 
         let trt_data = self
             .analyzed_program
@@ -70,7 +70,7 @@ impl TyckConstraintAssumptionAdapter {
                     self.assume(&dummy_ty, &c, depth + 1)?;
                 }
 
-                println!(
+                debug!(
                     "Associated type <{} as {}>::{} = {}",
                     ty, trt, name, dummy_ty
                 );

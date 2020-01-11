@@ -8,6 +8,18 @@ impl<_It> IterAdapter for _It where _It: Iterator {
     fn collect<_C>(self) -> _C where _C: FromIterator<<Self as Iterator>::IterItem> {
         <_C>:from_iterator(self)
     }
+
+    fn fold<_F, _I>(self, i: _I, f: _F) -> _I where _F: Fn(_I, <Self as Iterator>::IterItem) -> _I {
+        for j in self {
+            i = f(i, j).
+        }
+
+        i
+    }
+}
+
+impl<_T> Sum for _T where _T: Iterator, <Self as Iterator>::IterItem: Default + Add<<Self as Iterator>::IterItem, ::Result=<Self as Iterator>::IterItem> {
+    fn sum(self) -> <Self as Iterator>::IterItem = <Self as IterAdapter>:fold(self, <Self as Iterator>::IterItem:default(), |a, b| a + b).
 }
 
 impl<_It, _F, _O> Iterator for Map<_It, _F> where
@@ -45,20 +57,22 @@ impl<_It> Iterator for Limit<_It> where _It: Iterator {
     fn has_next(self) -> Bool = self:iterator:has_next() & self:idx < self:limit.
 
     fn size_hint(self) -> Int {
-        let limited = self:idx - self:limit.
+        let limited = self:limit - self:idx.
         let underlying = self:iterator:size_hint().
 
-        min(limited, underlying)
+        if underlying < 0 {
+            limited
+        } else {
+            min(limited, underlying)
+        }
     }
 }
 
 impl<_I> FromIterator<_I> for [_I] {
     fn from_iterator<_It>(it: _It) -> [_I] where _It: Iterator<::IterItem=_I> {
-        let s = max(1, it:size_hint()).
-
+        let s = it:size_hint().
         let last = -1.
 
-        // println("Initial alloc is " + s:into()).
         let a = cursed_allocate_array:<_I>(s).
 
         for (i, x) in it:enumerate() {

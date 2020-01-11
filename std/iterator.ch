@@ -22,6 +22,11 @@ trait IterAdapter: Iterator {
     fn enumerate(self) -> Enumerate<Self>.
     fn limit(self, n: Int) -> Limit<Self>.
     fn collect<_C>(self) -> _C where _C: FromIterator<<Self as Iterator>::IterItem>.
+    fn fold<_F, _I>(self, i: _I, f: _F) -> _I where _F: Fn(_I, <Self as Iterator>::IterItem) -> _I.
+}
+
+trait Sum: Iterator where <Self as Iterator>::IterItem: Default + Add<<Self as Iterator>::IterItem, ::Result=<Self as Iterator>::IterItem> {
+    fn sum(self) -> <Self as Iterator>::IterItem.
 }
 
 object Map<_It, _F> {
@@ -35,8 +40,8 @@ object Enumerate<_It> {
 }
 
 object Limit<_It> {
-    idx: Int.
     limit: Int.
+    idx: Int.
     iterator: _It.
 }
 

@@ -146,6 +146,10 @@ pub fn typecheck_impl_fn(
     trait_ty: &AstTraitType,
     fn_generics: &[AstType],
 ) -> PResult<AstObjectFunction> {
+    debug!("{:?} => {:?}", &fun.generics, fn_generics);
+    let mut a = GenericsAdapter::new(&fun.generics, fn_generics);
+    let fun = fun.visit(&mut a)?;
+
     let t = TyckInstantiatedObjectFunction {
         fun,
         impl_ty: impl_ty.clone(),

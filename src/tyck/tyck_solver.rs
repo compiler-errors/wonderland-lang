@@ -11,7 +11,7 @@ use std::rc::Rc;
 
 #[derive(Debug, Clone)]
 pub struct TyckSolver {
-    analyzed_program: Rc<AnalyzedProgram>,
+    program: Rc<AnalyzedProgram>,
     epochs: Vec<TyckEpoch>,
 
     // Temporary values
@@ -53,7 +53,7 @@ const INDENT: &'static str = "   ";
 impl TyckSolver {
     pub fn new(analyzed_program: Rc<AnalyzedProgram>) -> TyckSolver {
         TyckSolver {
-            analyzed_program,
+            program: analyzed_program,
             epochs: vec![TyckEpoch {
                 inferences: HashMap::new(),
                 successes: HashMap::new(),
@@ -64,15 +64,15 @@ impl TyckSolver {
         }
     }
 
-    pub fn typecheck_loop<T>(&mut self, t: T) -> PResult<T>
+    pub fn typecheck_loop<T>(&mut self, mut t: T) -> PResult<T>
     where
         T: for<'a> Visit<TypeAmbiguityAdapter<'a>> + Visit<TyckSolver> + Clone + Eq + Debug,
     {
-        println!("\n\n\n===== ===== Start ze loop! ===== =====");
-        let mut t = t;
+        debug!("===== ===== Start ze loop! ===== =====");
+        debug!("{:#?}", t);
 
         for i in 0.. {
-            println!("\n===== LOOP ({}) =====", i);
+            debug!("===== LOOP ({}) =====", i);
 
             let new_t = t
                 .clone()
@@ -82,15 +82,16 @@ impl TyckSolver {
 
             if new_t == t {
                 if let Some(ambiguity) = &epoch.ambiguous {
-                    println!("Yikes:");
+                    debug!("Yikes:");
 
                     for (x, y) in &epoch.inferences {
-                        println!("_{} => {}", x.0, y);
+                        debug!("_{} => {}", x.0, y);
                     }
 
-                    println!("{:#?}", t);
+                    debug!("{:#?}", t);
                     return PResult::error(format!("Tyck: {}", ambiguity));
                 } else {
+                    debug!("End ze loop!\n{:#?}", t);
                     return Ok(t);
                 }
             }
@@ -103,7 +104,7 @@ impl TyckSolver {
     }
 
     fn unify(&mut self, full_unify: bool, a: &AstType, b: &AstType) -> PResult<()> {
-        println!(
+        debug!(
             "{}Unifying {} and {} (full? {})",
             INDENT.repeat(self.epochs.len()),
             a,
@@ -295,12 +296,8 @@ impl TyckSolver {
                 children,
                 ..
             } => {
-                let expected_tys = instantiate_enum_pattern(
-                    &self.analyzed_program,
-                    enumerable,
-                    &generics,
-                    &variant,
-                )?;
+                let expected_tys =
+                    instantiate_enum_pattern(&self.program, enumerable, &generics, &variant)?;
 
                 for (child, ty) in
                     ZipExact::zip_exact(children, expected_tys, "positional elements")?
@@ -403,18 +400,18 @@ impl TyckSolver {
             return Ok(Some(imp.clone()));
         }
 
-        println!(
+        debug!(
             "{}Satisfying {} :- {}",
             INDENT.repeat(self.epochs.len()),
             ty,
             trt
         );
 
-        let trait_data = &self.analyzed_program.clone().analyzed_traits[&trt.trt.name];
+        let trait_data = &self.program.clone().analyzed_traits[&trt.trt.name];
         let mut solutions = Vec::new();
 
         for imp in &trait_data.impls {
-            let impl_generics: Vec<_> = self.analyzed_program.analyzed_impls[imp]
+            let impl_generics: Vec<_> = self.program.analyzed_impls[imp]
                 .generics
                 .iter()
                 .map(|_| AstType::infer())
@@ -424,13 +421,12 @@ impl TyckSolver {
             let sol = self.elaborate_impl(*imp, &impl_generics, ty, &trt.trt);
             let epoch = self.rollback_epoch();
 
-            print!("{}", INDENT.repeat(self.epochs.len()));
             if let Err(e) = &sol {
-                println!("... Err: {}", e.why());
+                debug!("{}... Err: {}", INDENT.repeat(self.epochs.len()), e.why());
             } else if let Some(a) = &epoch.ambiguous {
-                println!("... Amb: {}", a);
+                debug!("{}... Amb: {}", INDENT.repeat(self.epochs.len()), a);
             } else {
-                println!("... Ok!");
+                debug!("{}... Ok!", INDENT.repeat(self.epochs.len()));
             }
 
             solutions.push((sol, epoch));
@@ -438,13 +434,9 @@ impl TyckSolver {
 
         match self.internal_disambiguate(solutions) {
             Ok(Some(imp)) => {
-                let (a, b, c) = instantiate_impl_signature(
-                    &self.analyzed_program,
-                    imp.impl_id,
-                    &imp.generics,
-                    ty,
-                )?;
-                println!(
+                let (a, b, c) =
+                    instantiate_impl_signature(&self.program, imp.impl_id, &imp.generics, ty)?;
+                debug!(
                     "{}>Ok impl {} for {} where {:?}",
                     INDENT.repeat(self.epochs.len()),
                     b,
@@ -456,7 +448,7 @@ impl TyckSolver {
                     self.unify(
                         true,
                         &instantiate_associated_ty(
-                            &self.analyzed_program,
+                            &self.program,
                             imp.impl_id,
                             &imp.generics,
                             name,
@@ -472,7 +464,7 @@ impl TyckSolver {
                 Ok(Some(imp))
             }
             Ok(None) => {
-                println!("{}>Ambig", INDENT.repeat(self.epochs.len()),);
+                debug!("{}>Ambig", INDENT.repeat(self.epochs.len()),);
                 if top_epoch!(self).ambiguous.is_none() {
                     top_epoch_mut!(self).ambiguous =
                         Some(format!("Ambiguous impl `{}` for `{}`", trt, ty));
@@ -480,7 +472,7 @@ impl TyckSolver {
                 Ok(None)
             }
             Err(_) => {
-                println!("{}>Err", INDENT.repeat(self.epochs.len()),);
+                debug!("{}>Err", INDENT.repeat(self.epochs.len()),);
                 PResult::error(format!(
                     "No suitable solution for impl `{}` for `{}`",
                     trt, ty
@@ -496,8 +488,8 @@ impl TyckSolver {
         ty: &AstType,
         trt: &AstTraitType,
     ) -> PResult<AstImplSignature> {
-        let impl_info = &self.analyzed_program.clone().analyzed_impls[&impl_id];
-        println!(
+        let impl_info = &self.program.clone().analyzed_impls[&impl_id];
+        debug!(
             "{}Trying impl {} for {} where {:?}",
             INDENT.repeat(self.epochs.len()),
             impl_info.trait_ty,
@@ -506,7 +498,7 @@ impl TyckSolver {
         );
 
         let (expected_ty, expected_trt, restrictions) =
-            instantiate_impl_signature(&self.analyzed_program, impl_id, impl_generics, ty)?;
+            instantiate_impl_signature(&self.program, impl_id, impl_generics, ty)?;
 
         self.unify(false, &expected_ty, ty)?;
         self.unify_all(false, &expected_trt.generics, &trt.generics)?;
@@ -532,7 +524,7 @@ impl TyckSolver {
             return Ok(Some(imp.clone()));
         }
 
-        println!(
+        debug!(
             "{}Satisfying {} assoc ty {}",
             INDENT.repeat(self.epochs.len()),
             ty,
@@ -540,11 +532,11 @@ impl TyckSolver {
         );
 
         let mut solutions = Vec::new();
-        for trt in &self.analyzed_program.clone().methods_to_traits[name] {
-            let trait_data = &self.analyzed_program.clone().analyzed_traits[&trt];
+        for trt in &self.program.clone().methods_to_traits[name] {
+            let trait_data = &self.program.clone().analyzed_traits[&trt];
 
             for imp in &trait_data.impls {
-                let impl_generics: Vec<_> = self.analyzed_program.analyzed_impls[imp]
+                let impl_generics: Vec<_> = self.program.analyzed_impls[imp]
                     .generics
                     .iter()
                     .map(|_| AstType::infer())
@@ -555,18 +547,16 @@ impl TyckSolver {
                     *imp,
                     &impl_generics,
                     ty,
-                    &instantiate_impl_trait_ty(&self.analyzed_program, *imp, &impl_generics, ty)?
-                        .trt,
+                    &instantiate_impl_trait_ty(&self.program, *imp, &impl_generics, ty)?.trt,
                 );
                 let epoch = self.rollback_epoch();
 
-                print!("{}", INDENT.repeat(self.epochs.len()));
                 if let Err(e) = &sol {
-                    println!("... Err: {}", e.why());
+                    debug!("{}... Err: {}", INDENT.repeat(self.epochs.len()), e.why());
                 } else if let Some(a) = &epoch.ambiguous {
-                    println!("... Amb: {}", a);
+                    debug!("{}... Amb: {}", INDENT.repeat(self.epochs.len()), a);
                 } else {
-                    println!("... Ok!");
+                    debug!("{}... Ok!", INDENT.repeat(self.epochs.len()));
                 }
 
                 solutions.push((sol, epoch));
@@ -575,13 +565,9 @@ impl TyckSolver {
 
         match self.internal_disambiguate(solutions) {
             Ok(Some(imp)) => {
-                let (a, b, c) = instantiate_impl_signature(
-                    &self.analyzed_program,
-                    imp.impl_id,
-                    &imp.generics,
-                    ty,
-                )?;
-                println!(
+                let (a, b, c) =
+                    instantiate_impl_signature(&self.program, imp.impl_id, &imp.generics, ty)?;
+                debug!(
                     "{}>Ok assoc = impl {} for {} where {:?}",
                     INDENT.repeat(self.epochs.len()),
                     b,
@@ -594,7 +580,7 @@ impl TyckSolver {
                 Ok(Some(imp))
             }
             Ok(None) => {
-                println!("{}>Ambig assoc", INDENT.repeat(self.epochs.len()),);
+                debug!("{}>Ambig assoc", INDENT.repeat(self.epochs.len()),);
                 if top_epoch!(self).ambiguous.is_none() {
                     top_epoch_mut!(self).ambiguous =
                         Some(format!("Ambiguous associated type `<{}>::{}`", ty, name));
@@ -602,7 +588,7 @@ impl TyckSolver {
                 Ok(None)
             }
             Err(_) => {
-                println!("{}>Err assoc", INDENT.repeat(self.epochs.len()),);
+                debug!("{}>Err assoc", INDENT.repeat(self.epochs.len()),);
                 PResult::error(format!(
                     "No suitable trait for associated type `<{}>::{}`",
                     ty, name
@@ -623,12 +609,12 @@ impl TyckSolver {
 
         if let Some(Some(imp)) = top_epoch!(self).successes.get(&key) {
             return Ok(Some((
-                instantiate_impl_trait_ty(&self.analyzed_program, imp.impl_id, &imp.generics, ty)?,
+                instantiate_impl_trait_ty(&self.program, imp.impl_id, &imp.generics, ty)?,
                 imp.clone(),
             )));
         }
 
-        println!(
+        debug!(
             "{}Satisfying {} method {}",
             INDENT.repeat(self.epochs.len()),
             ty,
@@ -636,8 +622,8 @@ impl TyckSolver {
         );
 
         let mut solutions = Vec::new();
-        for trt in &self.analyzed_program.clone().methods_to_traits[name] {
-            let trait_data = &self.analyzed_program.clone().analyzed_traits[&trt];
+        for trt in &self.program.clone().methods_to_traits[name] {
+            let trait_data = &self.program.clone().analyzed_traits[&trt];
             let fn_data = &trait_data.methods[name];
 
             if fn_data.parameters.len() != arg_tys.len() {
@@ -653,7 +639,7 @@ impl TyckSolver {
             };
 
             for imp in &trait_data.impls {
-                let impl_generics: Vec<_> = self.analyzed_program.analyzed_impls[imp]
+                let impl_generics: Vec<_> = self.program.analyzed_impls[imp]
                     .generics
                     .iter()
                     .map(|_| AstType::infer())
@@ -671,13 +657,12 @@ impl TyckSolver {
                 );
                 let epoch = self.rollback_epoch();
 
-                print!("{}", INDENT.repeat(self.epochs.len()));
                 if let Err(e) = &sol {
-                    println!("... Err: {}", e.why());
+                    debug!("{}... Err: {}", INDENT.repeat(self.epochs.len()), e.why());
                 } else if let Some(a) = &epoch.ambiguous {
-                    println!("... Amb: {}", a);
+                    debug!("{}... Amb: {}", INDENT.repeat(self.epochs.len()), a);
                 } else {
-                    println!("... Ok!");
+                    debug!("{}... Ok!", INDENT.repeat(self.epochs.len()));
                 }
 
                 solutions.push((sol, epoch));
@@ -691,12 +676,7 @@ impl TyckSolver {
                     .insert(key, Some(imp.clone()));
 
                 Ok(Some((
-                    instantiate_impl_trait_ty(
-                        &self.analyzed_program,
-                        imp.impl_id,
-                        &imp.generics,
-                        ty,
-                    )?,
+                    instantiate_impl_trait_ty(&self.program, imp.impl_id, &imp.generics, ty)?,
                     imp,
                 )))
             }
@@ -724,8 +704,8 @@ impl TyckSolver {
         return_ty: &AstType,
         call_ty: &AstType,
     ) -> PResult<AstImplSignature> {
-        let impl_info = &self.analyzed_program.clone().analyzed_impls[&impl_id];
-        println!(
+        let impl_info = &self.program.clone().analyzed_impls[&impl_id];
+        debug!(
             "{}Trying impl {} for {} where {:?}",
             INDENT.repeat(self.epochs.len()),
             impl_info.trait_ty,
@@ -734,12 +714,12 @@ impl TyckSolver {
         );
 
         let (expected_call_ty, _, restrictions) =
-            instantiate_impl_signature(&self.analyzed_program, impl_id, impl_generics, call_ty)?;
+            instantiate_impl_signature(&self.program, impl_id, impl_generics, call_ty)?;
         self.unify(false, &expected_call_ty, call_ty)?;
 
         if !impl_info.is_dummy {
             let (expected_args, expected_return_ty, _) = instantiate_impl_fn_signature(
-                &self.analyzed_program,
+                &self.program,
                 impl_id,
                 impl_generics,
                 fn_name,
@@ -773,11 +753,11 @@ impl TyckSolver {
                 }
 
                 if let Some((older_signature, _)) = &solution {
-                    if self.analyzed_program.analyzed_impls[&older_signature.impl_id].is_dummy {
+                    if self.program.analyzed_impls[&older_signature.impl_id].is_dummy {
                         continue;
                     }
 
-                    if !self.analyzed_program.analyzed_impls[&signature.impl_id].is_dummy {
+                    if !self.program.analyzed_impls[&signature.impl_id].is_dummy {
                         return PResult::error(format!("Conflicting solutions!"));
                     }
                 }
@@ -816,14 +796,14 @@ impl TyckSolver {
             return Ok(());
         }
 
-        println!(
+        debug!(
             "{}Satisfying {} is well formed",
             INDENT.repeat(self.epochs.len()),
             AstType::Object(name.clone(), generics.to_vec())
         );
 
         if self.satisfy_restrictions(&instantiate_object_restrictions(
-            &self.analyzed_program,
+            &self.program,
             name,
             generics,
         )?)? {
@@ -839,14 +819,14 @@ impl TyckSolver {
             return Ok(());
         }
 
-        println!(
+        debug!(
             "{}Satisfying {} is well formed",
             INDENT.repeat(self.epochs.len()),
             AstType::Enum(name.clone(), generics.to_vec())
         );
 
         if self.satisfy_restrictions(&instantiate_enum_restrictions(
-            &self.analyzed_program,
+            &self.program,
             name,
             generics,
         )?)? {
@@ -872,49 +852,6 @@ impl TyckSolver {
 }
 
 impl AstAdapter for TyckSolver {
-    fn enter_impl(&mut self, i: AstImpl) -> PResult<AstImpl> {
-        self.satisfy_restrictions(&instantiate_trait_restrictions(
-            &self.analyzed_program,
-            &i.trait_ty,
-            &i.impl_ty,
-        )?)?;
-
-        for (name, ty) in &i.associated_types {
-            let restrictions: Vec<_> = instantiate_associated_ty_restrictions(
-                &self.analyzed_program,
-                &i.trait_ty,
-                &name,
-                &ty,
-            )?
-            .into_iter()
-            .map(|trt| AstTypeRestriction::new(ty.clone(), trt))
-            .collect();
-
-            self.satisfy_restrictions(&restrictions)?;
-        }
-
-        Ok(i)
-    }
-
-    fn enter_trait(&mut self, t: AstTrait) -> PResult<AstTrait> {
-        self.satisfy_restrictions(&t.restrictions)?;
-
-        Ok(t)
-    }
-
-    fn enter_object(&mut self, o: AstObject) -> PResult<AstObject> {
-        self.satisfy_restrictions(&o.restrictions)?;
-
-        // Nothing special here to do.
-        Ok(o)
-    }
-
-    fn enter_enum(&mut self, e: AstEnum) -> PResult<AstEnum> {
-        self.satisfy_restrictions(&e.restrictions)?;
-
-        Ok(e)
-    }
-
     fn enter_function(&mut self, f: AstFunction) -> PResult<AstFunction> {
         self.satisfy_restrictions(&f.restrictions)?;
 
@@ -930,6 +867,27 @@ impl AstAdapter for TyckSolver {
         }
 
         Ok(f)
+    }
+
+    fn enter_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
+        if let AstExpressionData::Closure { variables, .. } = &e.data {
+            self.variables.extend(
+                variables
+                    .as_ref()
+                    .unwrap()
+                    .iter()
+                    .map(|(&k, v)| (k, v.ty.clone())),
+            );
+        }
+
+        Ok(e)
+    }
+
+    fn enter_object(&mut self, o: AstObject) -> PResult<AstObject> {
+        self.satisfy_restrictions(&o.restrictions)?;
+
+        // Nothing special here to do.
+        Ok(o)
     }
 
     fn enter_object_function(&mut self, o: AstObjectFunction) -> PResult<AstObjectFunction> {
@@ -949,10 +907,63 @@ impl AstAdapter for TyckSolver {
         Ok(o)
     }
 
-    fn exit_global_variable(&mut self, g: AstGlobalVariable) -> PResult<AstGlobalVariable> {
+    fn enter_trait(&mut self, t: AstTrait) -> PResult<AstTrait> {
+        self.satisfy_restrictions(&t.restrictions)?;
+
+        Ok(t)
+    }
+
+    fn enter_enum(&mut self, e: AstEnum) -> PResult<AstEnum> {
+        self.satisfy_restrictions(&e.restrictions)?;
+
+        Ok(e)
+    }
+
+    fn enter_impl(&mut self, i: AstImpl) -> PResult<AstImpl> {
+        self.satisfy_restrictions(&instantiate_trait_restrictions(
+            &self.program,
+            &i.trait_ty,
+            &i.impl_ty,
+        )?)?;
+
+        for (name, ty) in &i.associated_types {
+            let restrictions: Vec<_> =
+                instantiate_associated_ty_restrictions(&self.program, &i.trait_ty, &name, &ty)?
+                    .into_iter()
+                    .map(|trt| AstTypeRestriction::new(ty.clone(), trt))
+                    .collect();
+
+            self.satisfy_restrictions(&restrictions)?;
+        }
+
+        Ok(i)
+    }
+
+    fn enter_global_variable(&mut self, g: AstGlobalVariable) -> PResult<AstGlobalVariable> {
         self.unify(true, &g.ty, &g.init.ty)?;
 
         Ok(g)
+    }
+
+    fn exit_function(&mut self, f: AstFunction) -> PResult<AstFunction> {
+        self.return_type = None;
+        self.variables.clear();
+
+        Ok(f)
+    }
+
+    fn exit_type(&mut self, t: AstType) -> PResult<AstType> {
+        match self.normalize_ty(t)? {
+            AstType::Object(name, generics) => {
+                self.satisfy_well_formed_object(&name, &generics)?;
+                Ok(AstType::Object(name, generics))
+            }
+            AstType::Enum(name, generics) => {
+                self.satisfy_well_formed_enum(&name, &generics)?;
+                Ok(AstType::Enum(name, generics))
+            }
+            t => Ok(t),
+        }
     }
 
     fn exit_statement(&mut self, s: AstStatement) -> PResult<AstStatement> {
@@ -977,20 +988,6 @@ impl AstAdapter for TyckSolver {
         }
 
         Ok(s)
-    }
-
-    fn enter_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
-        if let AstExpressionData::Closure { variables, .. } = &e.data {
-            self.variables.extend(
-                variables
-                    .as_ref()
-                    .unwrap()
-                    .iter()
-                    .map(|(&k, v)| (k, v.ty.clone())),
-            );
-        }
-
-        Ok(e)
     }
 
     fn exit_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
@@ -1053,11 +1050,7 @@ impl AstAdapter for TyckSolver {
                 self.unify(true, &ty, &variable_ty)?;
             }
             AstExpressionData::GlobalVariable { name } => {
-                self.unify(
-                    true,
-                    &ty,
-                    &self.analyzed_program.clone().analyzed_globals[name],
-                )?;
+                self.unify(true, &ty, &self.program.clone().analyzed_globals[name])?;
             }
             AstExpressionData::Tuple { values } => {
                 let tuple_tys = into_types(values);
@@ -1081,7 +1074,7 @@ impl AstAdapter for TyckSolver {
                 args,
             } => {
                 let (param_tys, return_ty, objectives) =
-                    instantiate_fn_signature(&self.analyzed_program, fn_name, generics)?;
+                    instantiate_fn_signature(&self.program, fn_name, generics)?;
                 let arg_tys = into_types(args);
                 self.unify_all(true, &param_tys, &arg_tys)?;
                 self.unify(true, &return_ty, &ty)?;
@@ -1110,9 +1103,8 @@ impl AstAdapter for TyckSolver {
                 }
 
                 if let Some(associated_trait) = associated_trait {
-                    let fn_data = &self.analyzed_program.analyzed_traits
-                        [&associated_trait.trt.name]
-                        .methods[fn_name];
+                    let fn_data =
+                        &self.program.analyzed_traits[&associated_trait.trt.name].methods[fn_name];
 
                     let expected_args = fn_data.parameters.len();
                     if args.len() != expected_args {
@@ -1145,7 +1137,7 @@ impl AstAdapter for TyckSolver {
                     };
 
                     let (param_tys, return_ty, objectives) = instantiate_trait_fn_signature(
-                        &*self.analyzed_program,
+                        &*self.program,
                         &associated_trait.trt.name,
                         &associated_trait.trt.generics,
                         fn_name,
@@ -1164,9 +1156,9 @@ impl AstAdapter for TyckSolver {
                 }
 
                 if let Some(impl_signature) = impl_signature {
-                    if !self.analyzed_program.analyzed_impls[&impl_signature.impl_id].is_dummy {
+                    if !self.program.analyzed_impls[&impl_signature.impl_id].is_dummy {
                         let (param_tys, return_ty, objectives) = instantiate_impl_fn_signature(
-                            &*self.analyzed_program,
+                            &*self.program,
                             impl_signature.impl_id,
                             &impl_signature.generics,
                             fn_name,
@@ -1212,13 +1204,15 @@ impl AstAdapter for TyckSolver {
             }
             // Call an object's member
             AstExpressionData::ObjectAccess {
-                object, mem_name, ..
+                object,
+                mem_name,
+                mem_idx,
             } => {
                 let object_ty = &object.ty;
 
                 match object_ty {
-                    AstType::Object(name, generics) => {
-                        if !self.analyzed_program.analyzed_objects[name]
+                    AstType::Object(obj_name, generics) => {
+                        if !self.program.analyzed_objects[obj_name]
                             .member_tys
                             .contains_key(mem_name)
                         {
@@ -1228,13 +1222,13 @@ impl AstAdapter for TyckSolver {
                             ));
                         }
 
-                        let member_ty = instantiate_object_member(
-                            &self.analyzed_program,
-                            name,
-                            generics,
-                            mem_name,
-                        )?;
+                        let member_ty =
+                            instantiate_object_member(&self.program, obj_name, generics, mem_name)?;
                         self.unify(true, &ty, &member_ty)?;
+
+                        *mem_idx = Some(
+                            self.program.analyzed_objects[&*obj_name].member_indices[&*mem_name],
+                        );
                     }
                     AstType::AssociatedType { .. } | AstType::Infer(_) => {
                         if top_epoch_mut!(self).ambiguous.is_none() {
@@ -1259,8 +1253,7 @@ impl AstAdapter for TyckSolver {
                 children,
                 ..
             } => {
-                let expected_tys =
-                    instantiate_object_members(&self.analyzed_program, object, &generics)?;
+                let expected_tys = instantiate_object_members(&self.program, object, &generics)?;
 
                 for (child, expr) in children {
                     self.unify(true, &expected_tys[child], &expr.ty)?;
@@ -1292,18 +1285,13 @@ impl AstAdapter for TyckSolver {
             }
 
             AstExpressionData::GlobalFn { name } => {
-                let fn_data = &self.analyzed_program.analyzed_functions[name];
+                let fn_data = &self.program.analyzed_functions[name];
                 let fn_ptr_ty =
                     AstType::fn_ptr_type(fn_data.parameters.clone(), fn_data.return_type.clone());
                 self.unify(true, &ty, &fn_ptr_ty)?;
             }
 
-            AstExpressionData::Closure {
-                params,
-                expr,
-                variables,
-                ..
-            } => {
+            AstExpressionData::Closure { params, expr, .. } => {
                 let ret_ty = expr.ty.clone();
                 let param_tys = params.iter().map(|p| p.ty.clone()).collect();
                 self.unify(true, &ty, &AstType::closure_type(param_tys, ret_ty))?;
@@ -1321,12 +1309,8 @@ impl AstAdapter for TyckSolver {
                     &AstType::enumerable(enumerable.clone(), generics.clone()),
                 )?;
 
-                let expected_tys = instantiate_enum_pattern(
-                    &self.analyzed_program,
-                    enumerable,
-                    &generics,
-                    &variant,
-                )?;
+                let expected_tys =
+                    instantiate_enum_pattern(&self.program, enumerable, &generics, &variant)?;
 
                 for (child, ty) in
                     ZipExact::zip_exact(children, expected_tys, "positional elements")?
@@ -1339,31 +1323,10 @@ impl AstAdapter for TyckSolver {
         Ok(AstExpression { data, ty, span })
     }
 
-    fn exit_type(&mut self, t: AstType) -> PResult<AstType> {
-        match self.normalize_ty(t)? {
-            AstType::Object(name, generics) => {
-                self.satisfy_well_formed_object(&name, &generics)?;
-                Ok(AstType::Object(name, generics))
-            }
-            AstType::Enum(name, generics) => {
-                self.satisfy_well_formed_enum(&name, &generics)?;
-                Ok(AstType::Enum(name, generics))
-            }
-            t => Ok(t),
-        }
-    }
-
     fn exit_pattern(&mut self, p: AstMatchPattern) -> PResult<AstMatchPattern> {
         self.full_unify_pattern(&p, &AstType::infer())?;
 
         Ok(p)
-    }
-
-    fn exit_function(&mut self, f: AstFunction) -> PResult<AstFunction> {
-        self.return_type = None;
-        self.variables.clear();
-
-        Ok(f)
     }
 
     fn exit_object_function(&mut self, o: AstObjectFunction) -> PResult<AstObjectFunction> {
@@ -1388,7 +1351,7 @@ impl TyckAdapter for TyckSolver {
 
         let (expected_params, expected_ret_ty, expected_constraints) =
             instantiate_trait_fn_signature(
-                &self.analyzed_program,
+                &self.program,
                 &trait_ty.name,
                 &trait_ty.generics,
                 &fun.name,
@@ -1444,21 +1407,17 @@ impl AnAdapter for TyckSolver {
         assert!(i.is_dummy);
 
         self.satisfy_restrictions(&instantiate_trait_restrictions(
-            &self.analyzed_program,
+            &self.program,
             &i.trait_ty,
             &i.impl_ty,
         )?)?;
 
         for (name, ty) in &i.associated_tys {
-            let restrictions: Vec<_> = instantiate_associated_ty_restrictions(
-                &self.analyzed_program,
-                &i.trait_ty,
-                &name,
-                &ty,
-            )?
-            .into_iter()
-            .map(|trt| AstTypeRestriction::new(ty.clone(), trt))
-            .collect();
+            let restrictions: Vec<_> =
+                instantiate_associated_ty_restrictions(&self.program, &i.trait_ty, &name, &ty)?
+                    .into_iter()
+                    .map(|trt| AstTypeRestriction::new(ty.clone(), trt))
+                    .collect();
 
             self.satisfy_restrictions(&restrictions)?;
         }
@@ -1490,7 +1449,7 @@ impl<'a> AstAdapter for NormalizationAdapter<'a> {
             } => {
                 if let Some(imp) = self.0.satisfy_associated_type(&obj_ty, &name)? {
                     instantiate_associated_ty(
-                        &self.0.analyzed_program,
+                        &self.0.program,
                         imp.impl_id,
                         &imp.generics,
                         &name,
@@ -1512,7 +1471,7 @@ impl<'a> AstAdapter for NormalizationAdapter<'a> {
             } => {
                 if let Some(imp) = self.0.satisfy_impl(&obj_ty, &trait_ty)? {
                     instantiate_associated_ty(
-                        &self.0.analyzed_program,
+                        &self.0.program,
                         imp.impl_id,
                         &imp.generics,
                         &name,

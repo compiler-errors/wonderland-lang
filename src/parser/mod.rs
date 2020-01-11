@@ -761,20 +761,22 @@ impl Parser {
             let statement = self.parse_statement()?;
 
             // Either parse a `.`, or an expr to end the block.
-            // If there's no
-            if self.check_consume(Token::Dot)? {
-                statements.push(statement);
-                span = span.unite(self.next_span);
-            } else if self.check(Token::RBrace) {
+            // If there's no dot (e.g. block, if) then that's ok.
+            span = span.unite(self.next_span);
+            if self.check(Token::RBrace) {
                 if let AstStatement::Expression { expression } = statement {
                     self.bump()?; // Consume the rbrace.
                     break expression;
                 } else {
-                    self.error_here(format!("Expected expression to end block, got statement."))?;
+                    self.error_here(format!("Expected `.` to end statement at end of block"))?;
                 }
             } else {
-                self.ensure_no_dot(span, &statement)?;
+                if !self.check_consume(Token::Dot)? {
+                    self.ensure_no_dot(span, &statement)?;
+                }
+
                 statements.push(statement);
+                span = span.unite(self.next_span);
             }
         };
 
@@ -1744,6 +1746,13 @@ impl Parser {
                         ..
                     },
             }
+            | AstStatement::Expression {
+                expression:
+                    AstExpression {
+                        data: AstExpressionData::Match { .. },
+                        ..
+                    },
+            }
             | AstStatement::While { .. } => Ok(()),
             AstStatement::For { .. } => Ok(()),
             _ => PResult::error_at(span, format!("Statement must be ended with a `.`")),
@@ -1940,7 +1949,7 @@ impl Parser {
 
             let fn_sigs = fns
                 .iter()
-                .map(|(k, v)| (k.clone(), self.into_sig(v)))
+                .map(|(k, v)| (k.clone(), self.method_to_signature(v)))
                 .collect();
 
             let trait_name = temp_name();
@@ -2017,7 +2026,7 @@ impl Parser {
         }
     }
 
-    fn into_sig(&mut self, o: &AstObjectFunction) -> AstObjectFunction {
+    fn method_to_signature(&mut self, o: &AstObjectFunction) -> AstObjectFunction {
         AstObjectFunction {
             name_span: o.name_span,
             has_self: o.has_self,

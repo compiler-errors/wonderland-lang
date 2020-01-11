@@ -78,7 +78,7 @@ pub fn translate(
 
     if let Result::Err(why) = module.verify() {
         if output_file != "-" {
-            println!("{}", module.print_to_string().to_string());
+            error!("{}", module.print_to_string().to_string());
             std::io::stdout().flush().unwrap();
         }
 
@@ -201,7 +201,7 @@ fn emit_module(
 
 fn execute_command(mut command: Command) -> PResult<()> {
     let command = command.stdin(Stdio::null()).stdout(Stdio::null());
-    println!("Executing command: {:?}", command);
+    info!("Executing command: {:?}", command);
     let clang_status = command
         .status()
         .map_err(|e| PError::new(format!("Command Error: {}", e)))?;
@@ -232,6 +232,7 @@ impl Translator {
 
         let string_ty = string_struct.ptr_type(GC).into();
         let i8_ptr_global_ty = context.i8_type().ptr_type(GLOBAL).into();
+        let i8_ptr_ptr_global_ty = context.i8_type().ptr_type(GLOBAL).ptr_type(GLOBAL).into();
         let i8_ptr_gc_ty = context.i8_type().ptr_type(GC).into();
         let i64_ty = context.i64_type().into();
         let i8_ty = context.i8_type().into();
@@ -277,8 +278,9 @@ impl Translator {
             true,
         );
 
-        tr.add_function("match_panic", i8_ty, &[], true);
-        tr.get_function("match_panic")
+        tr.add_void_function("gc_register_slot", &[i8_ptr_ptr_global_ty, i16_ty], true);
+
+        tr.add_function("match_panic", i8_ty, &[], true)
             .add_attribute(AttributeLoc::Function, noreturn);
 
         tr.add_function(
@@ -297,7 +299,7 @@ impl Translator {
         return_value: BasicTypeEnum,
         parameters: &[BasicTypeEnum],
         apply_attributes: bool,
-    ) {
+    ) -> FunctionValue {
         let f = self
             .module
             .add_function(name, fun_type(return_value, parameters), None);
@@ -307,6 +309,27 @@ impl Translator {
         }
 
         self.builtin_functions.insert(name.to_string(), f);
+        f
+    }
+
+    fn add_void_function(
+        &mut self,
+        name: &str,
+        parameters: &[BasicTypeEnum],
+        apply_attributes: bool,
+    ) -> FunctionValue {
+        let f = self.module.add_function(
+            name,
+            self.context.void_type().fn_type(parameters, false),
+            None,
+        );
+
+        if apply_attributes {
+            set_all_fn_attributes(&self.context, f);
+        }
+
+        self.builtin_functions.insert(name.to_string(), f);
+        f
     }
 
     fn get_function(&self, name: &str) -> FunctionValue {
@@ -416,6 +439,35 @@ impl Translator {
 
             for (ptr, v) in ZipExact::zip_exact(&self.globals[name], values, "globals")? {
                 first_builder.build_store(ptr.as_pointer_value(), v);
+            }
+
+            for (ptr, ty) in ZipExact::zip_exact(
+                &self.globals[name],
+                self.flatten_ty(&g.ty),
+                "flat global types",
+            )? {
+                if ptr
+                    .as_pointer_value()
+                    .get_type()
+                    .get_element_type()
+                    .is_pointer_type()
+                {
+                    let lval = first_builder.build_pointer_cast(
+                        ptr.as_pointer_value(),
+                        self.context.i8_type().ptr_type(GLOBAL).ptr_type(GLOBAL),
+                        &temp_name(),
+                    );
+                    let type_id = self
+                        .context
+                        .i16_type()
+                        .const_int(self.type_ids[&ty] as u64, false);
+
+                    first_builder.build_call(
+                        self.get_function("gc_register_slot"),
+                        &[lval.into(), type_id.into()],
+                        &temp_name(),
+                    );
+                }
             }
         }
 
@@ -1683,7 +1735,7 @@ impl Translator {
     }
 
     fn translate_gc_visit(
-        &self,
+        &mut self,
         tys: &HashSet<AstType>,
         instantiated_objects: &HashMap<InstObjectSignature, AstObject>,
     ) -> PResult<()> {
@@ -1694,39 +1746,30 @@ impl Translator {
             .fn_type(&[callback_value_type.into()], false)
             .ptr_type(GLOBAL);
 
-        let gc_visit = self.module.add_function(
+        let gc_visit = self.add_void_function(
             "gc_visit",
-            self.context.void_type().fn_type(
-                &[
-                    self.context.i8_type().ptr_type(GLOBAL).into(),
-                    self.context.i16_type().into(),
-                    gc_callback_type.into(),
-                ],
-                false,
-            ),
-            None,
+            &[
+                self.context.i8_type().ptr_type(GLOBAL).into(),
+                self.context.i16_type().into(),
+                gc_callback_type.into(),
+            ],
+            false,
         );
 
-        let gc_visit_array = self.module.add_function(
+        let gc_visit_array = self.add_void_function(
             "gc_visit_array",
-            self.context.void_type().fn_type(
-                &[
-                    callback_value_type.into(),
-                    self.context.i16_type().into(), // Child type
-                    gc_callback_type.into(),
-                ],
-                false,
-            ),
-            None,
+            &[
+                callback_value_type.into(),
+                self.context.i16_type().into(), // Child type
+                gc_callback_type.into(),
+            ],
+            false,
         );
 
-        let gc_visit_closure = self.module.add_function(
+        let gc_visit_closure = self.add_void_function(
             "gc_visit_closure",
-            self.context.void_type().fn_type(
-                &[callback_value_type.into(), gc_callback_type.into()],
-                false,
-            ),
-            None,
+            &[callback_value_type.into(), gc_callback_type.into()],
+            false,
         );
 
         let ptr_param = gc_visit.get_params()[0].into_pointer_value();
@@ -1742,7 +1785,7 @@ impl Translator {
         let mut switch = Vec::new();
         for t in tys {
             let id = self.type_ids[&t];
-            println!("GC_VISIT: {} => {}", t, id);
+            debug!("GC_VISIT: {} => {}", t, id);
             let (block, builder) = self.get_new_block(&builder)?;
 
             match t {
@@ -2257,6 +2300,17 @@ impl Translator {
             let ptr = self.module.add_global(ty, None, &temp_name());
             ptr.set_initializer(&type_undefined(ty)?);
             Ok(vec![ptr])
+        }
+    }
+
+    fn flatten_ty(&self, t: &AstType) -> Vec<AstType> {
+        match t {
+            AstType::Tuple { types } => types.iter().flat_map(|t| self.flatten_ty(t)).collect(),
+            AstType::Enum(name, generics) => {
+                let sig = InstEnumSignature(name.clone(), generics.clone());
+                self.enums[&sig].fields.clone()
+            }
+            t => vec![t.clone()],
         }
     }
 

@@ -14,7 +14,7 @@ impl DirtyAnalysisPass for AnalyzeSelf {
 
 impl AnAdapter for AnalyzeSelf {
     fn enter_analyzed_object(&mut self, o: AnObjectData) -> PResult<AnObjectData> {
-        let self_type = o.self_type.clone();
+        let self_type = o.self_ty.clone();
 
         o.visit(&mut ReplaceSelf(self_type))
     }

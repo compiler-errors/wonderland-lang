@@ -136,7 +136,7 @@ pub fn instantiate_associated_ty(
         .visit(&mut generics_adapter)?
         .visit(&mut self_adapter)?;
 
-    println!(
+    debug!(
         "Instantiated <{} as {}>::{} = {}",
         impl_info
             .impl_ty
@@ -152,7 +152,7 @@ pub fn instantiate_associated_ty(
         t
     );
 
-    println!(
+    debug!(
         "Originally <{} as {}>::{} = {}",
         impl_info.impl_ty, impl_info.trait_ty, name, impl_info.associated_tys[name]
     );

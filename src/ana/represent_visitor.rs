@@ -160,7 +160,7 @@ impl<T: AnAdapter> Visit<T> for AnObjectData {
     fn visit(self, adapter: &mut T) -> PResult<AnObjectData> {
         let AnObjectData {
             name,
-            self_type,
+            self_ty,
             generics,
             member_tys,
             member_indices,
@@ -169,7 +169,7 @@ impl<T: AnAdapter> Visit<T> for AnObjectData {
 
         let i = AnObjectData {
             name: name.visit(adapter)?,
-            self_type: self_type.visit(adapter)?,
+            self_ty: self_ty.visit(adapter)?,
             generics,
             member_tys: member_tys.visit(adapter)?,
             member_indices,
@@ -184,7 +184,7 @@ impl<T: AnAdapter> Visit<T> for AnEnumData {
     fn visit(self, adapter: &mut T) -> PResult<AnEnumData> {
         let AnEnumData {
             name,
-            self_type,
+            self_ty,
             generics,
             variants,
             restrictions,
@@ -192,7 +192,7 @@ impl<T: AnAdapter> Visit<T> for AnEnumData {
 
         let i = AnEnumData {
             name,
-            self_type: self_type.visit(adapter)?,
+            self_ty: self_ty.visit(adapter)?,
             generics,
             variants: variants.visit(adapter)?,
             restrictions: restrictions.visit(adapter)?,

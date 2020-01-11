@@ -9,3 +9,7 @@ impl Default for Char {
 impl Default for Bool {
     fn default() -> Bool = false.
 }
+
+impl Default for String {
+    fn default() -> String = "".
+}

@@ -5,6 +5,8 @@
 extern crate lazy_static;
 extern crate getopts;
 extern crate inkwell;
+#[macro_use]
+extern crate log;
 
 #[cfg(feature = "ana")]
 use crate::ana::analyze;
@@ -67,6 +69,7 @@ enum Mode {
 const DEFAULT_MODE: Mode = Mode::Translate;
 
 fn main() {
+    env_logger::init();
     let args: Vec<_> = std::env::args().collect();
 
     let mut opts = Options::new();
@@ -99,7 +102,7 @@ fn main() {
     opts.optmulti("I", "include", "Included C files", "CFILE");
 
     let matches = opts.parse(&args[1..]).unwrap_or_else(|_| {
-        println!("Something went wrong when parsing...");
+        error!("Something went wrong when parsing...");
         help(true);
     });
 

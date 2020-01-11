@@ -51,13 +51,14 @@ struct gc_remap_entry {
     i8* from;
     i8* to;
     struct gc_remap_entry* next;
-}* GC_REMAP_TABLE;
+}* GC_REMAP_TABLE = NULL;
 
 void gc_remap_free(void) {
     struct gc_remap_entry* entry = GC_REMAP_TABLE;
 
     while (entry) {
         struct gc_remap_entry* next = entry->next;
+        DEBUG_PRINTF("Freeing %p\n", entry);
         free(entry);
         entry = next;
     }
@@ -73,7 +74,7 @@ i8* gc_remap_block(i8* ptr) {
             DEBUG_PRINTF("REMAP: %p -> %p\n", entry->from, entry->to);
 
             if ((i64)entry->to < 100) {
-                fprintf(stderr, "Bad map.\n");
+                PANIC("Bad map.\n");
                 exit(-1);
             }
 
@@ -83,7 +84,7 @@ i8* gc_remap_block(i8* ptr) {
         entry = entry->next;
     }
 
-    fprintf(stderr, "Bad entry.\n");
+    PANIC("Bad entry.\n");
     exit(-1);
 }
 
@@ -97,6 +98,12 @@ i8* gc_remap_object(i8* ptr) {
 
 void gc_remap_insert_block(i8* from, i8* to) {
     struct gc_remap_entry* next = malloc(sizeof(struct gc_remap_entry));
+
+    if (next == NULL) {
+        PANIC("ICE: Can't allocate internal relocation marker!");
+    }
+
+    DEBUG_PRINTF("Allocated remap block (%p) %p => %p\n", next, from, to);
     next->from = from;
     next->to = to;
     next->next = GC_REMAP_TABLE;
@@ -109,7 +116,9 @@ i1 gc_remap_and_unmark(i8** ptr) {
     return false;
   }
 
+  DEBUG_PRINTF("Locate (%p) %p => ", ptr, *ptr);
   i8* to = *ptr = gc_remap_object(*ptr);
+  //printf("%p\n", *ptr);
 
   // Is it marked? If so, then we haven't yet visited the children. Unmark and visit.
   if (gc_get_mark(to)) {
@@ -163,6 +172,10 @@ void gc_visit_closure(i8** callback_ptr, GC_CALLBACK) {
 
 // ----- ----- ----- ----- ----- ----- GC allocation shit ----- ----- ----- ----- ----- ----- //
 
+// Prototype of function defined below...
+void gc_resize_pool(i8* cheshire_stack_root, i64 new_pool_size);
+
+i8* GC_OLD_OFFSET = NULL;
 i8* GC_BEGIN = NULL;
 i8* GC_END = NULL;
 i8* GC_LIMIT = NULL;
@@ -172,12 +185,10 @@ const i64 GC_OOM_LIMIT = 100 * 1024 * 1024; /* 100 MB. */
 const i64 GC_BLOCK_LIMIT = 0xFFFFFFFF;
 
 void* gc_alloc_block(i64 size, i16 type, i8* cheshire_stack_root) {
-    gc_remap_free();
-
     // We want to keep our blocks under 32 bits long...
     // TODO: We might want to unify this into one nice type/constant set so we don't forget to update this.
     if (size >= GC_BLOCK_LIMIT) {
-        fprintf(stderr, "OOM: Not allowed to allocate a block of size %"PRId64" bytes!\n", size);
+        PANIC("OOM: Not allowed to allocate a block of size %"PRId64" bytes!\n", size);
         exit(1);
     }
 
@@ -193,22 +204,9 @@ void* gc_alloc_block(i64 size, i16 type, i8* cheshire_stack_root) {
     // We might OOM in the process, but too bad. That's not necessarily our fault.
     while (GC_BEGIN == NULL || GC_LIMIT - GC_END < size) {
         i64 current_pool_size = GC_LIMIT - GC_BEGIN;
-        i64 current_used_size = GC_END - GC_LIMIT;
         i64 new_pool_size = (current_pool_size == 0) ? GC_BEGIN_SIZE : (current_pool_size * 2);
 
-        if (new_pool_size > GC_OOM_LIMIT) {
-            fprintf(stderr, "OOM: Not allowed to allocate a pool of size %"PRId64" bytes!\n", new_pool_size);
-            exit(1);
-        }
-
-        GC_BEGIN = realloc(GC_BEGIN, new_pool_size);
-        if (GC_BEGIN == NULL) {
-            fprintf(stderr, "OOM: Can't seem to allocate a pool of size %"PRId64" bytes!\n", new_pool_size);
-            exit(1);
-        }
-
-        GC_END = GC_BEGIN + current_used_size;
-        GC_LIMIT = GC_BEGIN + new_pool_size;
+        gc_resize_pool(cheshire_stack_root, new_pool_size);
     }
 
     // If we made it here, we should have sufficient space!
@@ -229,6 +227,89 @@ void* gc_alloc_block(i64 size, i16 type, i8* cheshire_stack_root) {
     return block;
 }
 
+// ----- ----- ----- ----- ----- ----- GC resize shit ----- ----- ----- ----- ----- ----- //
+
+void gc_walk(i8* cheshire_stack_root, i1 verify_derives, GC_CALLBACK);
+
+i1 gc_adjust_offset_and_unmark(i8** ptr) {
+  if (*ptr == NULL) {
+    DEBUG_PRINTF("Tried to adjust NULL\n");
+    return false;
+  }
+
+  // Calculate the new offset.
+  i8* to = *ptr = (*ptr - GC_OLD_OFFSET + GC_BEGIN);
+
+  // Is it marked? If so, then we haven't yet visited the children. Unmark and visit.
+  if (gc_get_mark(to)) {
+    gc_set_mark(to, 0);
+    DEBUG_PRINTF("Adjusting offset for %p's children.\n", to);
+    return true;
+  } else {
+    DEBUG_PRINTF("Adjusted %p: Children have been remapped.\n", to);
+    return false;
+  }
+}
+
+void gc_resize_pool(i8* cheshire_stack_root, i64 new_pool_size) {
+    GC_OLD_OFFSET = GC_BEGIN;
+    i64 current_used_size = GC_END - GC_BEGIN;
+
+    if (new_pool_size > GC_OOM_LIMIT) {
+        PANIC("OOM: Not allowed to allocate a pool of size %"PRId64" bytes!\n", new_pool_size);
+        exit(1);
+    }
+
+    if (GC_OLD_OFFSET != NULL) {
+        gc_walk(cheshire_stack_root, true, gc_mark);
+    }
+
+    GC_BEGIN = realloc(GC_BEGIN, new_pool_size);
+    if (GC_BEGIN == NULL) {
+        PANIC("OOM: Can't seem to allocate a pool of size %"PRId64" bytes!\n", new_pool_size);
+        exit(1);
+    }
+
+    GC_END = GC_BEGIN + current_used_size;
+    GC_LIMIT = GC_BEGIN + new_pool_size;
+
+    if (GC_OLD_OFFSET != NULL && GC_OLD_OFFSET != GC_BEGIN) {
+        DEBUG_PRINTF("Remapping pool from %p => %p\n", GC_OLD_OFFSET, GC_BEGIN);
+        gc_walk(cheshire_stack_root, false, gc_adjust_offset_and_unmark);
+    }
+}
+
+// ----- ----- ----- ----- ----- ----- GC slot shit ----- ----- ----- ----- ----- ----- //
+
+struct cheshire_slot_t {
+    i8** lval;
+    i16 type;
+    struct cheshire_slot_t* next;
+}* GC_SLOT_START = NULL;
+
+void gc_register_slot(i8** lval, i16 type) {
+    DEBUG_PRINTF("Registering slot %p (%p), type = %"PRId16"\n", lval, *lval, type);
+
+    struct cheshire_slot_t* next = malloc(sizeof(struct cheshire_slot_t));
+
+    if (next == NULL) {
+        PANIC("ICE: Can't allocate internal gc slot!");
+    }
+
+    next->lval = lval;
+    next->type = type;
+    next->next = GC_SLOT_START;
+    GC_SLOT_START = next;
+}
+
+void gc_pop_slot(void) {
+    if (GC_SLOT_START == NULL) {
+        PANIC("ICE: Can't pop a slot queue with zero entries!");
+    }
+
+    GC_SLOT_START = GC_SLOT_START->next;
+}
+
 // ----- ----- ----- ----- ----- ----- GC walking shit ----- ----- ----- ----- ----- ----- //
 
 extern uint8_t __LLVM_StackMaps[] __attribute__ ((section(".llvm_stackmaps")));
@@ -246,8 +327,8 @@ void gc_verify_trivial_derive(i8* cheshire_stack_root, pointer_slot_t* slots, po
         DEBUG_PRINTF("Pointer %p derives from pointer %p\n", *stack_ptr, *base_stack_ptr);
 
         if (*stack_ptr != *base_stack_ptr) {
-            fprintf(stderr, "Pointer %p derives from pointer %p\n", *stack_ptr, *base_stack_ptr);
-            fprintf(stderr, "ICE: Non-trivial derive. Not sure how this happened... at all!\n");
+            PANIC("Pointer %p derives from pointer %p\n" "ICE: Non-trivial derive. "
+                  "Not sure how this happened... at all!\n", *stack_ptr, *base_stack_ptr);
             exit(-1);
         }
 
@@ -274,7 +355,7 @@ void gc_walk(i8* cheshire_stack_root, i1 verify_derives, GC_CALLBACK) {
     frame_info_t* frame = lookup_return_address(table, ret);
 
     if (frame == NULL) {
-        fprintf(stderr, "PANIC: There are no stack frames; there should be at least one--check "
+        PANIC("PANIC: There are no stack frames; there should be at least one--check "
                         "that some stupid inlining magic isn't taking place.");
         exit(-1);
     }
@@ -304,10 +385,21 @@ void gc_walk(i8* cheshire_stack_root, i1 verify_derives, GC_CALLBACK) {
     }
 
     DEBUG_PRINTF("End of frames!\n");
+
+    struct cheshire_slot_t* slot = GC_SLOT_START;
+    while (slot) {
+        i8** lval = slot->lval;
+        i16 type = slot->type;
+
+        DEBUG_PRINTF("Visiting %p (type = %"PRId16")\n", *lval, type);
+        gc_visit((i8*) lval, type, callback);
+
+        slot = slot->next;
+    }
 }
 
 NOINLINE void gc(i8* cheshire_stack_root) {
-    gc_remap_free();
+    DEBUG_PRINTF("Called GC\n");
 
     // Mark
     DEBUG_PRINTF(" -- MARK --\n");
@@ -320,8 +412,8 @@ NOINLINE void gc(i8* cheshire_stack_root) {
     i8* to = GC_BEGIN;
 
     while (from < GC_END) {
-        DEBUG_PRINTF("At block %p\n", from);
         i32 block_size = *(i32*) from;
+        DEBUG_PRINTF("At block %p, size is %"PRId32"\n", from, block_size);
         i16 id = gc_get_type(from + sizeof(i32) + sizeof(i16));
         i16 marked = gc_get_mark(from + sizeof(i32) + sizeof(i16));
 
@@ -348,12 +440,17 @@ NOINLINE void gc(i8* cheshire_stack_root) {
         from += block_size;
     }
 
+    if (from != GC_END) {
+        PANIC("Shit, walking incorrectly?");
+    }
+
     GC_END = to;
     DEBUG_PRINTF("Mem pool is now %"PRId64" long. End = %p\n", (i64) (GC_END - GC_BEGIN), GC_END);
 
     // Remap the pointers
     DEBUG_PRINTF(" -- UNMARK-REMAP --\n");
     gc_walk(cheshire_stack_root, false, gc_remap_and_unmark);
+    gc_remap_free();
 
     memset(GC_END, 0xCC, GC_LIMIT - GC_END);
 }
