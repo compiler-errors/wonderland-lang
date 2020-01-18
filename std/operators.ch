@@ -108,3 +108,7 @@ trait AllocateArray {
 trait Into<_T> {
     fn into(self) -> _T.
 }
+
+impl<_T> Into<_T> for _T {
+    fn into(self) -> _T = self.
+}

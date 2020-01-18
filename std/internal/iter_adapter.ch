@@ -103,3 +103,15 @@ fn resize_array<_T>(a: [_T], n: Int) -> [_T] {
 
     a_new
 }
+
+impl FromIterator<Char> for String {
+    fn from_iterator<_It>(it: _It) -> String where _It: Iterator<::IterItem=Char> {
+        let s = "".
+
+        for c in it {
+            s = s + (c as String).
+        }
+
+        s
+    }
+}

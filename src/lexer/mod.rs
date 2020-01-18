@@ -460,7 +460,7 @@ impl Lexer {
             "as" => Token::As,
             "break" => Token::Break,
             "continue" => Token::Continue,
-            "at" => Token::As,
+            "at" => Token::At,
             "return" => Token::Return,
             "assert" => Token::Assert,
             "true" => Token::True,

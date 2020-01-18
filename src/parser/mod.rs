@@ -53,12 +53,12 @@ impl Parser {
     }
 
     /// Move the parser forward one token
-    fn bump(&mut self) -> PResult<()> {
-        self.lexer.bump_token()?;
+    fn bump(&mut self) -> PResult<SpanToken> {
+        let spantok = self.lexer.bump_token()?;
         self.next_span = self.lexer.peek_token_span();
         self.next_token = self.lexer.peek_token();
 
-        Ok(())
+        Ok(spantok)
     }
 
     /// Check for a token but don't consume it, otherwise signal an error
@@ -1214,6 +1214,19 @@ impl Parser {
             Token::Match => self.parse_match_statement(),
             Token::While => self.parse_while_loop(None),
             Token::For => self.parse_for_loop(None),
+            // Labeled loop
+            Token::Colon => {
+                self.bump()?;
+                let label = self.expect_consume_identifier()?;
+                match &self.next_token {
+                    Token::While => self.parse_while_loop(Some(label)),
+                    Token::For => self.parse_for_loop(Some(label)),
+                    _ => self.error_here(format!(
+                        "Expected `while` or `for` following loop label, found `{}`",
+                        self.next_token
+                    )),
+                }
+            }
             Token::Commalipses => {
                 self.bump()?;
                 Ok(AstExpression::unimplemented(span))
@@ -1250,12 +1263,64 @@ impl Parser {
                 let lit = self.parse_literal_expression()?;
                 Ok(AstExpression::literal(span, lit))
             }
+            Token::InterpolateBegin(..) => self.parse_interpolate(),
             Token::Instruction => self.parse_instruction(),
             _ => self.error_here(format!(
                 "Expected literal, identifier, `new` or `(`, found \
                  `{}`",
                 self.next_token
             )),
+        }
+    }
+
+    fn parse_interpolate(&mut self) -> PResult<AstExpression> {
+        if let SpanToken(Token::InterpolateBegin(begin), begin_span) = self.bump()? {
+            let mut interp = AstExpression::literal(begin_span, AstLiteral::String(begin));
+            let mut interp_span = interp.span;
+
+            loop {
+                let expr = self.parse_expression()?;
+                let expr_as_string = AstExpression::transmute(expr.span, expr, AstType::String);
+                interp_span = interp_span.unite(expr_as_string.span);
+
+                interp = AstExpression::binop(interp_span, interp, expr_as_string, BinOpKind::Add);
+
+                match self.bump()? {
+                    SpanToken(Token::InterpolateContinue(string), span) => {
+                        interp_span = interp_span.unite(span);
+                        interp = AstExpression::binop(
+                            interp_span,
+                            interp,
+                            AstExpression::literal(span, AstLiteral::String(string)),
+                            BinOpKind::Add,
+                        );
+                    }
+                    SpanToken(Token::InterpolateEnd(string), span) => {
+                        interp_span = interp_span.unite(span);
+                        interp = AstExpression::binop(
+                            interp_span,
+                            interp,
+                            AstExpression::literal(span, AstLiteral::String(string)),
+                            BinOpKind::Add,
+                        );
+                        break;
+                    }
+                    SpanToken(tok, span) => {
+                        return self.error_at(
+                            span,
+                            format!(
+                                "Unrecognized token `{}`, \
+                        expected the end of a string interpolation!",
+                                tok
+                            ),
+                        );
+                    }
+                }
+            }
+
+            Ok(interp)
+        } else {
+            unreachable!()
         }
     }
 

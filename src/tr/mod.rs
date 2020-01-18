@@ -804,11 +804,16 @@ impl Translator {
                     &temp_name(),
                 );
 
-                for (idx, e) in elements.iter().enumerate() {
+                // Used in GEP
+                let zero = self.context.i32_type().const_int(0 as u64, false);
+                let two = self.context.i32_type().const_int(2 as u64, false);
+
+                for (idx, vals) in elements.iter().enumerate() {
                     let idx = self.context.i64_type().const_int(idx as u64, false);
-                    let loc = self.get_array_idx(builder, ptr, idx, element_ty)?;
-                    let e = self.bundle_vals(builder, e, &element_ast_ty)?;
-                    builder.build_store(loc, e);
+                    let elem_ptr =
+                        unsafe { builder.build_gep(ptr, &[zero, two, idx], &temp_name()) };
+                    let val = self.bundle_vals(builder, vals, &element_ast_ty)?;
+                    builder.build_store(elem_ptr, val);
                 }
 
                 vec![ptr.into()]
@@ -1368,19 +1373,6 @@ impl Translator {
         };
 
         Ok(vals)
-    }
-
-    fn get_array_idx(
-        &mut self,
-        builder: &Builder,
-        loc: PointerValue,
-        idx: IntValue,
-        element_ty: BasicTypeEnum,
-    ) -> PResult<PointerValue> {
-        let zero = self.context.i32_type().const_int(0 as u64, false);
-        let two = self.context.i32_type().const_int(2 as u64, false);
-        let elem_ptr = unsafe { builder.build_gep(loc, &[zero, two, idx], &temp_name()) };
-        Ok(elem_ptr)
     }
 
     fn translate_pattern(
