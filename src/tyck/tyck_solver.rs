@@ -17,6 +17,7 @@ pub struct TyckSolver {
     // Temporary values
     return_type: Option<AstType>,
     variables: HashMap<VariableId, AstType>,
+    loops: HashMap<LoopId, AstType>,
 }
 
 #[derive(Hash, Eq, PartialEq, Debug, Clone)]
@@ -61,6 +62,7 @@ impl TyckSolver {
             }],
             return_type: None,
             variables: HashMap::new(),
+            loops: HashMap::new(),
         }
     }
 
@@ -475,7 +477,8 @@ impl TyckSolver {
                 debug!("{}>Err", INDENT.repeat(self.epochs.len()),);
                 PResult::error(format!(
                     "No suitable solution for impl `{}` for `{}`",
-                    trt, ty
+                    self.normalize_trt(trt.clone())?,
+                    self.normalize_ty(ty.clone())?
                 ))
             }
         }
@@ -591,7 +594,8 @@ impl TyckSolver {
                 debug!("{}>Err assoc", INDENT.repeat(self.epochs.len()),);
                 PResult::error(format!(
                     "No suitable trait for associated type `<{}>::{}`",
-                    ty, name
+                    self.normalize_ty(ty.clone())?,
+                    name
                 ))
             }
         }
@@ -689,7 +693,8 @@ impl TyckSolver {
             }
             Err(_) => PResult::error(format!(
                 "No suitable trait for method `<{}>:{}(...)`",
-                ty, name
+                self.normalize_ty(ty.clone())?,
+                name
             )),
         }
     }
@@ -840,6 +845,10 @@ impl TyckSolver {
         t.visit(&mut NormalizationAdapter(self))
     }
 
+    fn normalize_trt(&mut self, t: AstTraitTypeWithAssocs) -> PResult<AstTraitTypeWithAssocs> {
+        t.visit(&mut NormalizationAdapter(self))
+    }
+
     fn normalize_tys(&mut self, tys: &[AstType]) -> PResult<Vec<AstType>> {
         let mut ret_tys = Vec::new();
 
@@ -878,6 +887,10 @@ impl AstAdapter for TyckSolver {
                     .iter()
                     .map(|(&k, v)| (k, v.ty.clone())),
             );
+        }
+
+        if let AstExpressionData::While { id, .. } = &e.data {
+            self.loops.insert(*id, e.ty.clone());
         }
 
         Ok(e)
@@ -969,14 +982,13 @@ impl AstAdapter for TyckSolver {
     fn exit_statement(&mut self, s: AstStatement) -> PResult<AstStatement> {
         match &s {
             // Removed in earlier stages
-            AstStatement::For { .. } => unreachable!(),
-
-            AstStatement::Expression { .. } | AstStatement::Break | AstStatement::Continue => {}
+            AstStatement::Expression { .. } | AstStatement::Continue { .. } => {}
+            AstStatement::Break { id, value, .. } => {
+                let id = id.as_ref().unwrap();
+                self.unify(true, &self.loops[id].clone(), &value.ty)?;
+            }
             AstStatement::Let { pattern, value } => {
                 self.full_unify_pattern(pattern, &value.ty)?;
-            }
-            AstStatement::While { condition, .. } => {
-                self.unify(true, &condition.ty, &AstType::Bool)?;
             }
             AstStatement::Return { value } => {
                 let return_ty = self.return_type.clone().unwrap();
@@ -1002,7 +1014,8 @@ impl AstAdapter for TyckSolver {
             | AstExpressionData::NamedEnum { .. }
             | AstExpressionData::PlainEnum { .. }
             | AstExpressionData::BinOp { .. }
-            | AstExpressionData::As { .. } => unreachable!(),
+            | AstExpressionData::As { .. }
+            | AstExpressionData::For { .. } => unreachable!(),
 
             AstExpressionData::Unimplemented => {}
             AstExpressionData::Block { block } => {
@@ -1032,6 +1045,19 @@ impl AstAdapter for TyckSolver {
                     self.unify(true, &expression.ty, &ty)?;
                 }
             }
+
+            AstExpressionData::While {
+                id,
+                condition,
+                block,
+                else_block,
+                ..
+            } => {
+                self.unify(true, &condition.ty, &AstType::Bool)?;
+                self.unify(true, &block.expression.ty, &AstType::none())?;
+                self.unify(true, &else_block.expression.ty, &self.loops[id].clone())?;
+            }
+
             AstExpressionData::Literal(lit) => match lit {
                 AstLiteral::True | AstLiteral::False => {
                     self.unify(true, &ty, &AstType::Bool)?;
@@ -1045,7 +1071,6 @@ impl AstAdapter for TyckSolver {
                 }
             },
             AstExpressionData::Identifier { variable_id, .. } => {
-                // TODO: I should really split this and the actual type checker...
                 let variable_ty = self.variables[variable_id.as_ref().unwrap()].clone();
                 self.unify(true, &ty, &variable_ty)?;
             }
@@ -1317,6 +1342,20 @@ impl AstAdapter for TyckSolver {
                 {
                     self.unify(true, &child.ty, &ty)?;
                 }
+            }
+
+            AstExpressionData::Instruction {
+                output: InstructionOutput::Anonymous(_),
+                ..
+            } => {
+                self.unify(true, &ty, &AstType::none())?;
+            }
+
+            AstExpressionData::Instruction {
+                output: InstructionOutput::Type(t),
+                ..
+            } => {
+                self.unify(true, &ty, &t)?;
             }
         }
 

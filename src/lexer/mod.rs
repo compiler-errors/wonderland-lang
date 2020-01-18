@@ -9,12 +9,20 @@ pub struct SpanToken(pub Token, pub Span);
 /// Mnemonic for the EOF end-of-file character.
 const EOF: char = '\x00';
 
+pub enum LexStringChar {
+    Char(char),
+    QuoteEnd,
+    InterpolateBegin,
+}
+
 /// A `Lexer` is a stream of relevant tokens that can be used by
 /// the Cheshire parser.
 pub struct Lexer {
     file: FileReader,
     next_token_span: Span,
     next_token: Token,
+
+    interp_parenthetical: Vec<usize>,
 }
 
 impl Lexer {
@@ -23,6 +31,7 @@ impl Lexer {
             next_token_span: Span::new(file, 0, 0),
             file: FileReader::new(file)?,
             next_token: Token::BOF,
+            interp_parenthetical: vec![],
         };
 
         Ok(lexer)
@@ -68,15 +77,17 @@ impl Lexer {
         let c = self.current_char();
 
         if c == EOF {
-            return Ok(Token::EOF);
+            Ok(Token::EOF)
         } else if c == '"' {
-            return self.scan_string();
+            self.scan_string()
         } else if c == '\'' {
-            return self.scan_char_literal();
+            self.scan_char_literal()
+        } else if c == '$' {
+            self.scan_llvm_literal()
         } else if is_numeric(c) {
-            return self.scan_numeric_literal();
+            self.scan_numeric_literal()
         } else if is_identifier_start(c) {
-            return self.scan_identifier_or_keyword();
+            self.scan_identifier_or_keyword()
         } else {
             match c {
                 '.' => {
@@ -90,9 +101,9 @@ impl Lexer {
                         }
 
                         self.bump(1);
-                        return Ok(Token::Ellipsis);
+                        Ok(Token::Ellipsis)
                     } else {
-                        return Ok(Token::Dot);
+                        Ok(Token::Dot)
                     }
                 }
                 ',' => {
@@ -107,125 +118,136 @@ impl Lexer {
                         }
 
                         self.bump(1);
-                        return Ok(Token::Commalipses);
+                        Ok(Token::Commalipses)
                     } else {
-                        return Ok(Token::Comma);
+                        Ok(Token::Comma)
                     }
                 }
                 ':' => {
                     if self.next_char() == '<' {
                         self.bump(2);
-                        return Ok(Token::ColonLt);
+                        Ok(Token::ColonLt)
                     } else if self.next_char() == ':' {
                         self.bump(2);
-                        return Ok(Token::ColonColon);
+                        Ok(Token::ColonColon)
                     } else {
                         self.bump(1);
-                        return Ok(Token::Colon);
+                        Ok(Token::Colon)
                     }
                 }
                 ';' => {
                     self.bump(1);
-                    return Ok(Token::SemiColon);
+                    Ok(Token::SemiColon)
                 }
                 '{' => {
                     self.bump(1);
-                    return Ok(Token::LBrace);
+                    Ok(Token::LBrace)
                 }
                 '}' => {
                     self.bump(1);
-                    return Ok(Token::RBrace);
+                    Ok(Token::RBrace)
                 }
                 '[' => {
                     self.bump(1);
-                    return Ok(Token::LSqBracket);
+                    Ok(Token::LSqBracket)
                 }
                 ']' => {
                     self.bump(1);
-                    return Ok(Token::RSqBracket);
+                    Ok(Token::RSqBracket)
                 }
                 '(' => {
                     self.bump(1);
-                    return Ok(Token::LParen);
+
+                    if let Some(nest) = self.interp_parenthetical.last_mut() {
+                        *nest += 1;
+                    }
+
+                    Ok(Token::LParen)
                 }
                 ')' => {
-                    self.bump(1);
-                    return Ok(Token::RParen);
+                    if let Some(0) = self.interp_parenthetical.last() {
+                        self.scan_interp_continue()
+                    } else {
+                        if let Some(n) = self.interp_parenthetical.last_mut() {
+                            *n -= 1;
+                        }
+
+                        self.bump(1);
+                        Ok(Token::RParen)
+                    }
                 }
                 '<' => match self.next_char() {
                     '=' => {
                         self.bump(2);
-                        return Ok(Token::LessEqual);
+                        Ok(Token::LessEqual)
                     }
                     _ => {
                         self.bump(1);
-                        return Ok(Token::Lt);
+                        Ok(Token::Lt)
                     }
                 },
                 '>' => match self.next_char() {
                     '=' => {
                         self.bump(2);
-                        return Ok(Token::GreaterEqual);
+                        Ok(Token::GreaterEqual)
                     }
                     _ => {
                         self.bump(1);
-                        return Ok(Token::Gt);
+                        Ok(Token::Gt)
                     }
                 },
                 '!' => {
                     if self.next_char() == '=' {
                         self.bump(2);
-                        return Ok(Token::NotEquals);
+                        Ok(Token::NotEquals)
                     } else {
                         self.bump(1);
-                        return Ok(Token::Bang);
+                        Ok(Token::Bang)
                     }
                 }
                 '&' => {
                     self.bump(1);
-                    return Ok(Token::And);
+                    Ok(Token::And)
                 }
                 '|' => {
                     self.bump(1);
-                    return Ok(Token::Pipe);
+                    Ok(Token::Pipe)
                 }
                 '=' => {
                     if self.next_char() == '=' {
                         self.bump(2);
-                        return Ok(Token::EqualsEquals);
+                        Ok(Token::EqualsEquals)
                     } else {
                         self.bump(1);
-                        return Ok(Token::Equals);
+                        Ok(Token::Equals)
                     }
                 }
                 '+' => {
                     self.bump(1);
-                    return Ok(Token::Plus);
+                    Ok(Token::Plus)
                 }
                 '-' => {
                     if self.next_char() == '>' {
                         self.bump(2);
-                        return Ok(Token::RArrow);
+                        Ok(Token::RArrow)
                     } else {
                         self.bump(1);
-                        return Ok(Token::Minus);
+                        Ok(Token::Minus)
                     }
                 }
                 '*' => {
                     self.bump(1);
-                    return Ok(Token::Star);
+                    Ok(Token::Star)
                 }
                 '/' => {
                     self.bump(1);
-                    return Ok(Token::Slash);
+                    Ok(Token::Slash)
                 }
                 '%' => {
                     self.bump(1);
-                    return Ok(Token::Modulo);
+                    Ok(Token::Modulo)
                 }
-                c => {
-                    return self.error(format!("Unknown symbol '{}'", c));
-                }
+                c => self.error(format!("Unknown symbol '{}'", c)),
             }
         }
     }
@@ -236,38 +258,89 @@ impl Lexer {
         let mut string = String::new();
 
         loop {
-            match self.current_char() {
-                '\\' => {
-                    match self.next_char() {
-                        'r' => string += "\r",
-                        'n' => string += "\n",
-                        't' => string += "\t",
-                        '"' => string += "\"",
-                        '\'' => string += "'",
-                        '\\' => string += "\\",
-                        c => {
-                            return self
-                                .error(format!("Unknown escaped character in string '\\{}'", c));
-                        }
-                    }
-                    self.bump(2);
-                }
-                '\"' => {
-                    self.bump(1);
-                    break;
-                }
-                '\r' | '\n' | EOF => {
-                    return self.error("Reached end of line in string".into());
-                }
-                c => {
+            match self.scan_string_char()? {
+                LexStringChar::Char(c) => {
                     string.push(c);
-                    self.bump(1);
+                }
+                LexStringChar::QuoteEnd => {
+                    return Ok(Token::String(string));
+                }
+                LexStringChar::InterpolateBegin => {
+                    self.interp_parenthetical.push(0);
+                    return Ok(Token::InterpolateBegin(string));
                 }
             }
         }
+    }
 
-        let len = string.len();
-        return Ok(Token::String(string, len));
+    fn scan_interp_continue(&mut self) -> PResult<Token> {
+        self.bump(1); // Blindly consume the rparen character
+        let mut string = String::new();
+
+        loop {
+            match self.scan_string_char()? {
+                LexStringChar::Char(c) => {
+                    string.push(c);
+                }
+                LexStringChar::QuoteEnd => {
+                    self.interp_parenthetical.pop();
+                    return Ok(Token::InterpolateEnd(string));
+                }
+                LexStringChar::InterpolateBegin => {
+                    return Ok(Token::InterpolateContinue(string));
+                }
+            }
+        }
+    }
+
+    fn scan_string_char(&mut self) -> PResult<LexStringChar> {
+        let ret;
+
+        match self.current_char() {
+            '\\' => {
+                match self.next_char() {
+                    'r' => {
+                        ret = LexStringChar::Char('\r');
+                    }
+                    'n' => {
+                        ret = LexStringChar::Char('\n');
+                    }
+                    't' => {
+                        ret = LexStringChar::Char('\t');
+                    }
+                    '"' => {
+                        ret = LexStringChar::Char('\"');
+                    }
+                    '\'' => {
+                        ret = LexStringChar::Char('\'');
+                    }
+                    '\\' => {
+                        ret = LexStringChar::Char('\\');
+                    }
+                    '(' => {
+                        ret = LexStringChar::InterpolateBegin;
+                    }
+                    c => {
+                        return self
+                            .error(format!("Unknown escaped character in string '\\{}'", c));
+                    }
+                }
+                self.bump(2);
+            }
+            '\"' => {
+                ret = LexStringChar::QuoteEnd;
+                self.bump(1);
+            }
+            '\r' | '\n' | EOF => {
+                return self.error("Reached end of line in string".into());
+            }
+            c => {
+                ret = LexStringChar::Char(c);
+                self.bump(1);
+            }
+        }
+
+        Ok(ret)
     }
 
     /// Scans a single character literal token.
@@ -302,6 +375,18 @@ impl Lexer {
 
         self.bump(1);
         return Ok(Token::CharLiteral(c));
+    }
+
+    fn scan_llvm_literal(&mut self) -> PResult<Token> {
+        let mut string = String::new();
+        self.bump(1);
+
+        while is_identifier_continuer(self.current_char()) {
+            string.push(self.current_char());
+            self.bump(1);
+        }
+
+        Ok(Token::InstructionLiteral(string))
     }
 
     /// Scans a numeric literal, consuming it and converting it to a token in the process.
@@ -375,6 +460,7 @@ impl Lexer {
             "as" => Token::As,
             "break" => Token::Break,
             "continue" => Token::Continue,
+            "at" => Token::As,
             "return" => Token::Return,
             "assert" => Token::Assert,
             "true" => Token::True,
@@ -387,6 +473,8 @@ impl Lexer {
 
             "enum" => Token::Enum,
             "match" => Token::Match,
+
+            "instruction" => Token::Instruction,
 
             "Int" => Token::Int,
             "Bool" => Token::Bool,

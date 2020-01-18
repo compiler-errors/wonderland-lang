@@ -100,7 +100,7 @@ impl FileRegistry {
                     if mod_path.len() == 1 {
                         return PResult::error(format!(
                             "Illegal file! Can't have a file with name \
-                             `src/mod.rs`, since according to \
+                             `src/mod.ch`, since according to \
                              the rules of module translation, \
                              that leads to an empty module path!"
                         ));

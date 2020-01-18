@@ -13,7 +13,7 @@
 #define i8 uint8_t
 #define i1 bool
 
-#define DEBUG_PRINTF(...) if (true) { printf(" > " __VA_ARGS__); }
+#define DEBUG_PRINTF(...) if (false) { fprintf(stderr, " > " __VA_ARGS__); }
 
 #define PANIC(...) { printf(" PANIC: " __VA_ARGS__); exit(-1); }
 #define NOINLINE __attribute__((noinline))
@@ -34,7 +34,7 @@ struct callback {};
 
 inline void _ensure_bounds_or_panic(const char* type, i64 size, i64 idx) {
   if (idx < 0 || idx >= size) {
-    fprintf(stderr, "PANIC: Tried to deref %s (size=%"PRId64") at index %"PRId64"\n",
+    PANIC("Tried to deref %s (size=%"PRId64") at index %"PRId64"\n",
             type, size, idx);
     exit(1);
   }

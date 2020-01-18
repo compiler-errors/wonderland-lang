@@ -10,6 +10,24 @@ impl<_T> for Option<_T> {
             _ -> otherwise(),
         }
     }
+
+    fn unwrap(self) -> _T {
+        match self {
+            Option!Some(v) -> v,
+            _ -> panic("No value for Option"),
+        }
+    }
+
+    fn is_some(self) -> Bool {
+        match self {
+            Option!Some(_) -> true,
+            Option!None -> false,
+        }
+    }
+
+    fn is_none(self) -> Bool {
+        !self:is_some()
+    }
 }
 
 trait Default {

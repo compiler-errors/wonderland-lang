@@ -23,7 +23,7 @@ pub fn decorate_module(module: &ModuleRef) -> PResult<(String, String)> {
 pub fn decorate_ty(t: &AstType) -> PResult<String> {
     Ok(match t {
         AstType::Int => "I".into(),
-        AstType::Char => "H".into(), /* TODO: `C` and `c` are reserved for closures. */
+        AstType::Char => "H".into(),
         AstType::Bool => "B".into(),
         AstType::String => "N".into(),
 

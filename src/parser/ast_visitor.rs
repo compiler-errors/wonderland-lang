@@ -318,25 +318,15 @@ impl<T: AstAdapter> Visit<T> for AstBlock {
 impl<T: AstAdapter> Visit<T> for AstStatement {
     fn visit(self, adapter: &mut T) -> PResult<Self> {
         let stmt = match adapter.enter_statement(self)? {
-            i @ AstStatement::Break | i @ AstStatement::Continue => i,
+            AstStatement::Break { label, id, value } => AstStatement::Break {
+                label,
+                id,
+                value: value.visit(adapter)?,
+            },
+            AstStatement::Continue { label, id } => AstStatement::Continue { label, id },
             AstStatement::Let { pattern, value } => AstStatement::Let {
                 pattern: pattern.visit(adapter)?,
                 value: value.visit(adapter)?,
-            },
-            AstStatement::While { condition, block } => AstStatement::While {
-                condition: condition.visit(adapter)?,
-                block: block.visit(adapter)?,
-            },
-            AstStatement::For {
-                span,
-                pattern,
-                iterable,
-                block,
-            } => AstStatement::For {
-                span,
-                pattern: pattern.visit(adapter)?,
-                iterable: iterable.visit(adapter)?,
-                block: block.visit(adapter)?,
             },
             AstStatement::Return { value } => AstStatement::Return {
                 value: value.visit(adapter)?,
@@ -370,6 +360,15 @@ impl<T: AstAdapter> Visit<T> for AstExpression {
             AstExpressionData::Block { block } => AstExpressionData::Block {
                 block: block.visit(adapter)?,
             },
+            AstExpressionData::If {
+                condition,
+                block,
+                else_block,
+            } => AstExpressionData::If {
+                condition: condition.visit(adapter)?,
+                block: block.visit(adapter)?,
+                else_block: else_block.visit(adapter)?,
+            },
             AstExpressionData::Match {
                 expression,
                 branches,
@@ -377,12 +376,29 @@ impl<T: AstAdapter> Visit<T> for AstExpression {
                 expression: expression.visit(adapter)?,
                 branches: branches.visit(adapter)?,
             },
-            AstExpressionData::If {
+            AstExpressionData::While {
+                id,
+                label,
                 condition,
                 block,
                 else_block,
-            } => AstExpressionData::If {
+            } => AstExpressionData::While {
+                id,
+                label,
                 condition: condition.visit(adapter)?,
+                block: block.visit(adapter)?,
+                else_block: else_block.visit(adapter)?,
+            },
+            AstExpressionData::For {
+                label,
+                pattern,
+                iterable,
+                block,
+                else_block,
+            } => AstExpressionData::For {
+                label,
+                pattern: pattern.visit(adapter)?,
+                iterable: iterable.visit(adapter)?,
                 block: block.visit(adapter)?,
                 else_block: else_block.visit(adapter)?,
             },
@@ -523,9 +539,43 @@ impl<T: AstAdapter> Visit<T> for AstExpression {
                 expression: expression.visit(adapter)?,
                 ty: ty.visit(adapter)?,
             },
+            AstExpressionData::Instruction {
+                instruction,
+                arguments,
+                output,
+            } => AstExpressionData::Instruction {
+                instruction,
+                arguments: arguments.visit(adapter)?,
+                output: output.visit(adapter)?,
+            },
         };
 
         adapter.exit_expression(AstExpression { data, ty, span })
+    }
+}
+
+impl<T: AstAdapter> Visit<T> for InstructionArgument {
+    fn visit(self, adapter: &mut T) -> PResult<InstructionArgument> {
+        let i = match self {
+            InstructionArgument::Type(t) => InstructionArgument::Type(t.visit(adapter)?),
+            InstructionArgument::Expression(e) => {
+                InstructionArgument::Expression(e.visit(adapter)?)
+            }
+            InstructionArgument::Anonymous(s) => InstructionArgument::Anonymous(s),
+        };
+
+        Ok(i)
+    }
+}
+
+impl<T: AstAdapter> Visit<T> for InstructionOutput {
+    fn visit(self, adapter: &mut T) -> PResult<InstructionOutput> {
+        let i = match self {
+            InstructionOutput::Type(t) => InstructionOutput::Type(t.visit(adapter)?),
+            InstructionOutput::Anonymous(s) => InstructionOutput::Anonymous(s),
+        };
+
+        Ok(i)
     }
 }
 

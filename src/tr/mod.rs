@@ -35,33 +35,27 @@ lazy_static! {
     };
 }
 
-enum Definition {
-    Block(AstBlock),
-    None,
-    AllocateArray(AstType),
-    ArrayAccess,
-    ArrayAssign,
-    ArrayLen,
-    CursedTransmute,
-    CallFn,
-    CallClosure,
-}
-
 struct Translator {
     context: Context,
     module: Module,
     builtin_functions: HashMap<String, FunctionValue>,
 
-    break_continue: Option<(BasicBlock, BasicBlock)>,
+    break_continue: HashMap<LoopId, TrLoopInfo>,
 
     variables: HashMap<VariableId, Vec<PointerValue>>,
     globals: HashMap<ModuleRef, Vec<GlobalValue>>,
+    instruction_values: HashMap<String, BasicValueEnum>,
 
     type_ids: HashMap<AstType, usize>,
-    // TODO: Do I need to store it like this? Why can't I just store it in reverse (usize -> ..)?
     closure_object_ids: HashMap<usize, TrClosureCaptureEnvironment>,
 
     enums: HashMap<InstEnumSignature, InstEnumRepresentation>,
+}
+
+struct TrLoopInfo {
+    loop_ptrs: Vec<PointerValue>,
+    break_block: BasicBlock,
+    continue_block: BasicBlock,
 }
 
 pub fn translate(
@@ -145,13 +139,11 @@ fn emit_module(
             &ll,
             // Turn all the alloca's into real phi nodes.
             OsStr::new("--mem2reg"),
+            // Optimize quite aggresively. I'm afraid this will fuck up the statepoint shit
+            // later, but let's hope not...
+            OsStr::new("-O3"),
             // Emit a bunch of statepoint bullshit so we can walk the stack later.
             OsStr::new("--rewrite-statepoints-for-gc"),
-            // Once we've done that, we can optimize it like crazy.
-            // Do things like trivializing jumps between blocks, dead code analysis, etc.
-            // This really makes up for the somewhat liberal usage of eventually no-ops that
-            // I structure the tr module code around.
-            OsStr::new("-O3"),
             OsStr::new("-o"),
             &ll_gc,
         ]);
@@ -225,7 +217,7 @@ impl Translator {
         string_struct.set_body(
             &[
                 context.i64_type().into(),
-                context.i8_type().ptr_type(GLOBAL).into(),
+                context.i8_type().array_type(0).into(),
             ],
             false,
         );
@@ -246,10 +238,11 @@ impl Translator {
             context,
             builtin_functions: HashMap::new(),
 
-            break_continue: None,
-
+            break_continue: HashMap::new(),
             variables: HashMap::new(),
             globals: HashMap::new(),
+            instruction_values: HashMap::new(),
+
             type_ids: HashMap::new(),
             closure_object_ids: HashMap::new(),
             enums: HashMap::new(),
@@ -382,32 +375,25 @@ impl Translator {
 
         for (sig, fun) in file.instantiated_fns {
             let name = decorate_fn(&sig.0, &sig.1)?;
-            let definition = map_definition(&sig.0.full_name()?, &sig.1, fun.definition);
 
             self.translate_function(
                 &name,
                 &fun.parameter_list,
                 &fun.return_type,
                 &fun.variables,
-                definition,
+                fun.definition.as_ref(),
             )?;
         }
 
         for (sig, fun) in file.instantiated_object_fns {
             let name = decorate_object_fn(&sig.0, &sig.1, &sig.2, &sig.3)?;
 
-            let definition = if fun.definition.is_some() {
-                Definition::Block(fun.definition.unwrap())
-            } else {
-                Definition::None
-            };
-
             self.translate_function(
                 &name,
                 &fun.parameter_list,
                 &fun.return_type,
                 &fun.variables,
-                definition,
+                fun.definition.as_ref(),
             )?;
         }
 
@@ -486,9 +472,9 @@ impl Translator {
     ) -> PResult<FunctionValue> {
         let param_tys = parameter_list
             .iter()
-            .map(|p| self.get_type(&p.ty))
+            .map(|p| self.get_llvm_ty(&p.ty))
             .collect::<PResult<Vec<_>>>()?;
-        let ret = self.get_type(return_type)?;
+        let ret = self.get_llvm_ty(return_type)?;
         let fun_ty = fun_type(ret, &param_tys);
 
         let llvm_fun = self.module.add_function(&name, fun_ty, None);
@@ -510,7 +496,7 @@ impl Translator {
         let tys = obj
             .members
             .iter()
-            .map(|m| self.get_type(&m.member_type))
+            .map(|m| self.get_llvm_ty(&m.member_type))
             .collect::<PResult<Vec<BasicTypeEnum>>>()?;
         ty.set_body(&tys, false);
 
@@ -523,283 +509,43 @@ impl Translator {
         parameter_list: &[AstNamedVariable],
         return_ty: &AstType,
         variables: &HashMap<VariableId, AstNamedVariable>,
-        definition: Definition,
+        definition: Option<&AstBlock>,
     ) -> PResult<()> {
         let llvm_fun = self.module.get_function(&fun_name).unwrap();
 
-        match definition {
-            Definition::Block(definition) => {
-                set_cheshire_fn_attributes(&self.context, llvm_fun);
+        if let Some(definition) = definition {
+            set_cheshire_fn_attributes(&self.context, llvm_fun);
 
-                let param_values: HashMap<_, _> =
-                    ZipExact::zip_exact(parameter_list, &llvm_fun.get_params(), "params")?
-                        .map(|(p, v)| (p.id, v.clone()))
-                        .collect();
+            let param_values: HashMap<_, _> =
+                ZipExact::zip_exact(parameter_list, &llvm_fun.get_params(), "params")?
+                    .map(|(p, v)| (p.id, v.clone()))
+                    .collect();
 
-                let block = llvm_fun.append_basic_block("pre");
-                let first_builder = Builder::create();
-                first_builder.position_at_end(&block);
+            let block = llvm_fun.append_basic_block("pre");
+            let first_builder = Builder::create();
+            first_builder.position_at_end(&block);
 
-                for (id, var) in variables {
-                    let ty = self.get_type(&var.ty)?;
-                    let val = param_values
-                        .get(&id)
-                        .map(|f| Ok(f.clone()))
-                        .unwrap_or_else(|| type_zero(ty))?;
+            for (id, var) in variables {
+                let ty = self.get_llvm_ty(&var.ty)?;
+                let val = param_values
+                    .get(&id)
+                    .map(|f| Ok(f.clone()))
+                    .unwrap_or_else(|| type_zero(ty))?;
 
-                    let ptrs = self.flatten_alloca(&first_builder, val, &var.ty)?;
-                    self.variables.insert(*id, ptrs);
-                }
-
-                let start_block = llvm_fun.append_basic_block("start");
-                first_builder.build_unconditional_branch(&start_block);
-
-                let start_builder = Builder::create();
-                start_builder.position_at_end(&start_block);
-
-                let ret = self.translate_block(&start_builder, &definition)?;
-                let ret = self.bundle_vals(&start_builder, &ret, &definition.expression.ty)?;
-
-                start_builder.build_return(Some(&ret));
+                let ptrs = self.flatten_alloca(&first_builder, val, &var.ty)?;
+                self.variables.insert(*id, ptrs);
             }
-            Definition::AllocateArray(element_ast_ty) => {
-                let array_ast_ty = AstType::array(element_ast_ty.clone());
-                let num_elements = llvm_fun.get_params()[0];
 
-                let block = llvm_fun.append_basic_block("pre");
-                let first_builder = Builder::create();
-                first_builder.position_at_end(&block);
+            let start_block = llvm_fun.append_basic_block("start");
+            first_builder.build_unconditional_branch(&start_block);
 
-                let element_ty = self.get_type(&element_ast_ty)?;
-                let array_ty = self.get_type(&array_ast_ty)?;
-                let ty_size = type_size(element_ty)?;
+            let start_builder = Builder::create();
+            start_builder.position_at_end(&start_block);
 
-                let ty_id = self.type_ids[&array_ast_ty];
-                let ptr = first_builder.build_call(
-                    self.get_function("gc_alloc_array"),
-                    &[
-                        ty_size.into(),
-                        num_elements.into(),
-                        self.context
-                            .i16_type()
-                            .const_int(ty_id as u64, false)
-                            .into(),
-                    ],
-                    &temp_name(),
-                );
+            let ret = self.translate_block(&start_builder, &definition)?;
+            let ret = self.bundle_vals(&start_builder, &ret, return_ty)?;
 
-                let ptr = first_builder.build_pointer_cast(
-                    unwrap_callsite(ptr).into_pointer_value(),
-                    array_ty.into_pointer_type(),
-                    &temp_name(),
-                );
-
-                first_builder.build_return(Some(&ptr));
-            }
-            Definition::ArrayAccess => {
-                // TODO: Don't decorate me? I think??
-
-                // Emit array access logic for `FpP8internalP5deref11deref_array1...`
-                let return_type = llvm_fun.get_type().get_return_type().unwrap();
-
-                let block = llvm_fun.append_basic_block("pre");
-                let first_builder = Builder::create();
-                first_builder.position_at_end(&block);
-
-                // Alloca and store the array parameter.
-                let array = llvm_fun.get_params()[0];
-                let alloca = first_builder.build_alloca(array.get_type(), &temp_name());
-                first_builder.build_store(alloca, array);
-
-                // Take parameter zero, which is an array, and cast it to i8*
-                let ptr = first_builder.build_pointer_cast(
-                    array.into_pointer_value(),
-                    self.context.i8_type().ptr_type(GC),
-                    &temp_name(),
-                );
-
-                // Call array_idx_at with array, elem size, and idx.
-                let idx = llvm_fun.get_params()[1];
-                let elem_ptr = unwrap_callsite(first_builder.build_call(
-                    self.get_function("gc_array_idx_at"),
-                    &[ptr.into(), idx],
-                    &temp_name(),
-                ));
-
-                // Cast that pointer to T*
-                let elem_ptr_typed = first_builder.build_pointer_cast(
-                    elem_ptr.into_pointer_value(),
-                    ptr_type(return_type, GLOBAL).into_pointer_type(),
-                    &temp_name(),
-                );
-                let elem = first_builder.build_load(elem_ptr_typed, &temp_name());
-
-                first_builder.build_return(Some(&elem));
-            }
-            Definition::ArrayAssign => {
-                // TODO: Don't decorate me? I think??
-
-                // Emit array access logic for `FpP8internalP5deref11deref_array1...`
-                let return_type = llvm_fun.get_type().get_return_type().unwrap();
-
-                let block = llvm_fun.append_basic_block("pre");
-                let first_builder = Builder::create();
-                first_builder.position_at_end(&block);
-
-                // Alloca and store the array parameter.
-                let array = llvm_fun.get_params()[0];
-                let alloca = first_builder.build_alloca(array.get_type(), &temp_name());
-                first_builder.build_store(alloca, array);
-
-                // Take parameter zero, which is an array, and cast it to i8*
-                let ptr = first_builder.build_pointer_cast(
-                    array.into_pointer_value(),
-                    self.context.i8_type().ptr_type(GC),
-                    &temp_name(),
-                );
-
-                // Call array_idx_at with array, elem size, and idx.
-                let idx = llvm_fun.get_params()[1];
-                let elem_ptr = unwrap_callsite(first_builder.build_call(
-                    self.get_function("gc_array_idx_at"),
-                    &[ptr.into(), idx],
-                    &temp_name(),
-                ));
-
-                // Cast that pointer to T*
-                let elem_ptr_typed = first_builder.build_pointer_cast(
-                    elem_ptr.into_pointer_value(),
-                    ptr_type(return_type, GLOBAL).into_pointer_type(),
-                    &temp_name(),
-                );
-                let value = llvm_fun.get_params()[2];
-                first_builder.build_store(elem_ptr_typed, value);
-                first_builder.build_return(Some(&value));
-            }
-            Definition::ArrayLen => {
-                let block = llvm_fun.append_basic_block("pre");
-                let first_builder = Builder::create();
-                first_builder.position_at_end(&block);
-
-                // Alloca and store the array parameter.
-                let array = llvm_fun.get_params()[0];
-                let alloca = first_builder.build_alloca(array.get_type(), &temp_name());
-                first_builder.build_store(alloca, array);
-
-                let array_deref =
-                    first_builder.build_load(array.into_pointer_value(), &temp_name());
-                let size = first_builder
-                    .build_extract_value(array_deref.into_struct_value(), 0, &temp_name())
-                    .unwrap();
-
-                first_builder.build_return(Some(&size));
-            }
-            Definition::CursedTransmute => {
-                let to_type = self.get_type(return_ty)?;
-
-                let block = llvm_fun.append_basic_block("pre");
-                let first_builder = Builder::create();
-                first_builder.position_at_end(&block);
-
-                let casted = first_builder.build_pointer_cast(
-                    llvm_fun.get_params()[0].into_pointer_value(),
-                    to_type.into_pointer_type(),
-                    &temp_name(),
-                );
-                first_builder.build_return(Some(&casted));
-            }
-            Definition::CallFn => {
-                // This is not a leaf fn. Therefore, for GC to work, I need to decorate this fn with
-                // with gc, and hopefully we can inline here too.
-                set_cheshire_fn_attributes(&self.context, llvm_fun);
-
-                let block = llvm_fun.append_basic_block("pre");
-                let first_builder = Builder::create();
-                first_builder.position_at_end(&block);
-
-                let args_tuple = llvm_fun.get_params()[1].into_struct_value();
-                let mut args = Vec::new();
-
-                for idx in 0..args_tuple.get_type().count_fields() {
-                    args.push(
-                        first_builder
-                            .build_extract_value(args_tuple, idx, &temp_name())
-                            .unwrap(),
-                    );
-                }
-
-                // This is... somewhat (read: very) clowny.
-                let arg_tys: Vec<_> = args.iter().map(|t| t.get_type()).collect();
-                let ret_ty = llvm_fun.get_type().get_return_type().unwrap();
-
-                let function_ptr_type = fun_type(ret_ty, &arg_tys).ptr_type(GLOBAL);
-                let function_ptr = first_builder.build_pointer_cast(
-                    llvm_fun.get_params()[0].into_pointer_value(),
-                    function_ptr_type,
-                    &temp_name(),
-                );
-
-                // Get the tuple at param1, unpack args.
-                // Call, then ret. No flattening needed I don't think..?
-                let ret =
-                    unwrap_callsite(first_builder.build_call(function_ptr, &args, &temp_name()));
-                first_builder.build_return(Some(&ret));
-            }
-            Definition::CallClosure => {
-                // This is not a leaf fn. Therefore, for GC to work, I need to decorate this fn with
-                // with gc, and hopefully we can inline here too.
-                set_cheshire_fn_attributes(&self.context, llvm_fun);
-
-                let block = llvm_fun.append_basic_block("pre");
-                let first_builder = Builder::create();
-                first_builder.position_at_end(&block);
-
-                // Get the first argument.
-                let env_arg = llvm_fun.get_params()[0].into_pointer_value();
-
-                // Get the first member from that struct argument, which is a fn.
-                let fn_ptr_ptr =
-                    unsafe { first_builder.build_struct_gep(env_arg, 0, &temp_name()) };
-                let fn_ptr = first_builder
-                    .build_load(fn_ptr_ptr, &temp_name())
-                    .into_pointer_value();
-
-                // Unpack arguments...
-                let args_tuple = llvm_fun.get_params()[1].into_struct_value();
-                let mut args = Vec::new();
-
-                for idx in 0..args_tuple.get_type().count_fields() {
-                    args.push(
-                        first_builder
-                            .build_extract_value(args_tuple, idx, &temp_name())
-                            .unwrap(),
-                    );
-                }
-
-                // Cast environment back to some opaque type ({}*) so we can pass to our function.
-                // Then put it in as the first argument.
-                let env_casted = first_builder.build_pointer_cast(
-                    env_arg,
-                    opaque_env_type(&self.context),
-                    &temp_name(),
-                );
-                args.insert(0, env_casted.into());
-
-                let arg_tys: Vec<_> = args.iter().map(|t| t.get_type()).collect();
-                let ret_ty = llvm_fun.get_type().get_return_type().unwrap();
-
-                let fn_ptr_casted = first_builder.build_pointer_cast(
-                    fn_ptr,
-                    fun_type(ret_ty, &arg_tys).ptr_type(GLOBAL),
-                    &temp_name(),
-                );
-
-                // Call FIRST ARG (as i8* or smth) + all the args.
-                let ret =
-                    unwrap_callsite(first_builder.build_call(fn_ptr_casted, &args, &temp_name()));
-                first_builder.build_return(Some(&ret));
-            }
-            Definition::None => {}
+            start_builder.build_return(Some(&ret));
         }
 
         Ok(())
@@ -820,8 +566,6 @@ impl Translator {
     fn translate_statement(&mut self, builder: &Builder, statement: &AstStatement) -> PResult<()> {
         match statement {
             // Removed in earlier stages
-            AstStatement::For { .. } => unreachable!(),
-
             AstStatement::Assert { .. } => unimplemented!(),
 
             AstStatement::Let { pattern, value } => {
@@ -833,38 +577,22 @@ impl Translator {
                 self.translate_expression(builder, expression)?;
             }
 
-            AstStatement::While { condition, block } => {
-                let (condition_block, condition_builder) = self.get_new_block(builder)?;
-                let (loop_block, loop_builder) = self.get_new_block(builder)?;
-                let (end_block, _) = self.get_new_block(builder)?;
+            AstStatement::Break { id, value, .. } => {
+                let value = self.translate_expression(builder, value)?;
+                let info = &self.break_continue[&id.unwrap()];
 
-                builder.build_unconditional_branch(&condition_block);
-                builder.position_at_end(&end_block);
+                for (ptr, val) in ZipExact::zip_exact(&info.loop_ptrs, value, "loop values")? {
+                    builder.build_store(*ptr, val);
+                }
 
-                let condition = self.translate_expression(&condition_builder, condition)?;
-                assert_eq!(condition.len(), 1); // This is a boolean.
-                let condition = condition[0];
-                condition_builder.build_conditional_branch(
-                    condition.into_int_value(),
-                    &loop_block,
-                    &end_block,
-                );
-
-                let old_break_continue =
-                    self.set_break_continue(Some((end_block, condition_block)));
-                let _ = self.translate_block(&loop_builder, block)?;
-                loop_builder.build_unconditional_branch(&condition_block);
-
-                self.set_break_continue(old_break_continue);
-            }
-            AstStatement::Break => {
-                builder.build_unconditional_branch(self.get_break());
+                builder.build_unconditional_branch(&info.break_block);
 
                 let (fake_block, _) = self.get_new_block(builder)?;
                 builder.position_at_end(&fake_block);
             }
-            AstStatement::Continue => {
-                builder.build_unconditional_branch(self.get_continue());
+            AstStatement::Continue { id, .. } => {
+                let info = &self.break_continue[&id.unwrap()];
+                builder.build_unconditional_branch(&info.continue_block);
 
                 let (fake_block, _) = self.get_new_block(builder)?;
                 builder.position_at_end(&fake_block);
@@ -895,7 +623,8 @@ impl Translator {
             | AstExpressionData::NamedEnum { .. }
             | AstExpressionData::PlainEnum { .. }
             | AstExpressionData::AllocateArray { .. }
-            | AstExpressionData::As { .. } => unreachable!(),
+            | AstExpressionData::As { .. }
+            | AstExpressionData::For { .. } => unreachable!(),
 
             c @ AstExpressionData::Closure { .. } => {
                 let env = self.translate_closure_capture_environment(c)?;
@@ -905,21 +634,25 @@ impl Translator {
                 // Cast this to the expected |...| type.
                 let opaque_closure = builder.build_pointer_cast(
                     c,
-                    self.get_type(&expression.ty)?.into_pointer_type(),
+                    self.get_llvm_ty(&expression.ty)?.into_pointer_type(),
                     &temp_name(),
                 );
                 vec![opaque_closure.into()]
             }
 
             AstExpressionData::Match {
-                expression,
+                expression: match_expression,
                 branches,
             } => {
-                let match_values = self.translate_expression(builder, &expression)?;
+                let match_values = self.translate_expression(builder, &match_expression)?;
                 let (after_block, _) = self.get_new_block(builder)?;
                 let (mut fallthrough_block, _) = self.get_new_block(builder)?;
 
-                let mut cases = Vec::new();
+                let result_ptrs = self.flatten_alloca(
+                    builder,
+                    type_undefined(self.get_llvm_ty(&expression.ty)?)?,
+                    &expression.ty,
+                )?;
 
                 for AstMatchBranch {
                     pattern,
@@ -937,12 +670,13 @@ impl Translator {
                     builder.position_at_end(&success_block);
 
                     let vals = self.translate_expression(builder, expression)?;
+                    for (ptr, val) in ZipExact::zip_exact(&result_ptrs, vals, "match value ptrs")? {
+                        builder.build_store(*ptr, val);
+                    }
 
                     // We may have branched from the original success since we emitted the branch
                     // to it, so let's capture the new block at the tip of the builder.
-                    let success_block = builder.get_insert_block().unwrap();
                     builder.build_unconditional_branch(&after_block);
-                    cases.push((success_block, vals));
 
                     builder.position_at_end(&fallthrough_block);
                     let (new_fallthrough_block, _) = self.get_new_block(builder)?;
@@ -957,31 +691,11 @@ impl Translator {
 
                 // Otherwise, we successfully matched, let's go unify all the returns.
                 builder.position_at_end(&after_block);
-                // This is the worst, most cursed code ever.
-                if !cases.is_empty() {
-                    let subval_tys: Vec<_> = cases[0].1.iter().map(|e| e.get_type()).collect();
-                    let mut result_subvals = Vec::new();
 
-                    for (i, ty) in subval_tys.iter().enumerate() {
-                        let subphi = builder.build_phi(*ty, &temp_name());
-                        let mut case_subvals = cases
-                            .iter()
-                            .map(|(x, y)| (&y[i] as &dyn BasicValue, x))
-                            .collect::<Vec<_>>();
-
-                        // One more for the fallthrough block
-                        let undef = type_undefined(*ty)?;
-                        case_subvals.push((&undef as &dyn BasicValue, &fallthrough_block));
-
-                        subphi.add_incoming(&case_subvals);
-                        result_subvals.push(subphi.as_basic_value());
-                    }
-
-                    result_subvals
-                } else {
-                    let ty = self.get_type(&expression.ty)?;
-                    self.flatten_val(builder, type_undefined(ty)?, &expression.ty)?
-                }
+                result_ptrs
+                    .into_iter()
+                    .map(|ptr| builder.build_load(ptr, &temp_name()))
+                    .collect()
             }
             AstExpressionData::PositionalEnum {
                 enumerable,
@@ -1011,7 +725,7 @@ impl Translator {
 
                 for i in 0..fields.len() {
                     if fields[i].is_none() {
-                        let field_ty = self.get_type(&en_info.fields[i])?;
+                        let field_ty = self.get_llvm_ty(&en_info.fields[i])?;
                         let default_val = type_zero(field_ty)?;
                         fields[i] = Some(default_val);
                     }
@@ -1062,8 +776,8 @@ impl Translator {
                     .collect::<PResult<_>>()?;
 
                 // Allocating the array.
-                let element_ty = self.get_type(&element_ast_ty)?;
-                let array_ty = self.get_type(&expression.ty)?;
+                let element_ty = self.get_llvm_ty(&element_ast_ty)?;
+                let array_ty = self.get_llvm_ty(&expression.ty)?;
                 let ty_size = type_size(element_ty)?;
                 let num_elements = self
                     .context
@@ -1181,7 +895,7 @@ impl Translator {
             } => {
                 // I don't like this.
                 let ptr_type = self
-                    .get_type(&AstType::object(object.clone(), generics.clone()))?
+                    .get_llvm_ty(&AstType::object(object.clone(), generics.clone()))?
                     .into_pointer_type();
                 let children_idxes = children_idxes.as_ref().unwrap();
 
@@ -1279,7 +993,7 @@ impl Translator {
 
                 builder.position_at_end(&after_block);
 
-                // Collect all of the flattened values in a series of Φs.
+                // Collect all of the flattened values in a series of phis.
                 ZipExact::zip_exact(then_values, else_values, "subvalues")?
                     .map(|(then_subval, else_subval)| {
                         let subphi = builder.build_phi(then_subval.get_type(), &temp_name());
@@ -1292,9 +1006,313 @@ impl Translator {
                     })
                     .collect()
             }
+
+            AstExpressionData::While {
+                id,
+                condition,
+                block,
+                else_block,
+                ..
+            } => {
+                let (condition_block, condition_builder) = self.get_new_block(builder)?;
+                let (loop_block, loop_builder) = self.get_new_block(builder)?;
+                let (fail_block, fail_builder) = self.get_new_block(builder)?;
+                let (end_block, _) = self.get_new_block(builder)?;
+
+                let ptrs = self.flatten_alloca(
+                    builder,
+                    type_undefined(self.get_llvm_ty(&expression.ty)?)?,
+                    &expression.ty,
+                )?;
+
+                self.break_continue.insert(
+                    *id,
+                    TrLoopInfo {
+                        loop_ptrs: ptrs.clone(),
+                        break_block: end_block,
+                        continue_block: condition_block,
+                    },
+                );
+
+                builder.build_unconditional_branch(&condition_block);
+
+                let condition = self.translate_expression(&condition_builder, condition)?;
+                assert_eq!(condition.len(), 1); // This is a boolean.
+                let condition = condition[0];
+                condition_builder.build_conditional_branch(
+                    condition.into_int_value(),
+                    &loop_block,
+                    &fail_block,
+                );
+
+                self.translate_block(&loop_builder, block)?;
+                loop_builder.build_unconditional_branch(&condition_block);
+
+                let fail_values = self.translate_block(&fail_builder, else_block)?;
+                for (ptr, val) in ZipExact::zip_exact(&ptrs, fail_values, "fail values")? {
+                    fail_builder.build_store(*ptr, val);
+                }
+
+                fail_builder.build_unconditional_branch(&end_block);
+
+                builder.position_at_end(&end_block);
+
+                ptrs.into_iter()
+                    .map(|ptr| builder.build_load(ptr, &temp_name()))
+                    .collect()
+            }
+            AstExpressionData::Instruction {
+                instruction,
+                arguments,
+                output,
+            } => self.translate_instruction(builder, &instruction, &arguments, output)?,
         };
 
         Ok(value)
+    }
+
+    fn translate_instruction(
+        &mut self,
+        builder: &Builder,
+        instruction: &str,
+        arguments: &[InstructionArgument],
+        output: &InstructionOutput,
+    ) -> PResult<Vec<BasicValueEnum>> {
+        let output_value: BasicValueEnum = match (instruction, arguments) {
+            ("neg", [a]) => {
+                let a = self
+                    .translate_instruction_argument(builder, a)?
+                    .into_int_value();
+                builder.build_int_neg(a, &temp_name()).into()
+            }
+            ("sext", [a, InstructionArgument::Type(ty)]) => {
+                let a = self
+                    .translate_instruction_argument(builder, a)?
+                    .into_int_value();
+                let ty = self.get_llvm_ty(ty)?.into_int_type();
+                builder.build_int_s_extend(a, ty, &temp_name()).into()
+            }
+            ("add", [a, b]) => {
+                let a = self
+                    .translate_instruction_argument(builder, a)?
+                    .into_int_value();
+                let b = self
+                    .translate_instruction_argument(builder, b)?
+                    .into_int_value();
+                builder.build_int_add(a, b, &temp_name()).into()
+            }
+            ("sub", [a, b]) => {
+                let a = self
+                    .translate_instruction_argument(builder, a)?
+                    .into_int_value();
+                let b = self
+                    .translate_instruction_argument(builder, b)?
+                    .into_int_value();
+                builder.build_int_add(a, b, &temp_name()).into()
+            }
+            ("mul", [a, b]) => {
+                let a = self
+                    .translate_instruction_argument(builder, a)?
+                    .into_int_value();
+                let b = self
+                    .translate_instruction_argument(builder, b)?
+                    .into_int_value();
+                builder.build_int_mul(a, b, &temp_name()).into()
+            }
+            ("sdiv", [a, b]) => {
+                let a = self
+                    .translate_instruction_argument(builder, a)?
+                    .into_int_value();
+                let b = self
+                    .translate_instruction_argument(builder, b)?
+                    .into_int_value();
+                builder.build_int_signed_div(a, b, &temp_name()).into()
+            }
+            ("srem", [a, b]) => {
+                let a = self
+                    .translate_instruction_argument(builder, a)?
+                    .into_int_value();
+                let b = self
+                    .translate_instruction_argument(builder, b)?
+                    .into_int_value();
+                builder.build_int_signed_rem(a, b, &temp_name()).into()
+            }
+            ("icmp eq", [a, b]) => {
+                let a = self
+                    .translate_instruction_argument(builder, a)?
+                    .into_int_value();
+                let b = self
+                    .translate_instruction_argument(builder, b)?
+                    .into_int_value();
+                builder
+                    .build_int_compare(IntPredicate::EQ, a, b, &temp_name())
+                    .into()
+            }
+            ("icmp sgt", [a, b]) => {
+                let a = self
+                    .translate_instruction_argument(builder, a)?
+                    .into_int_value();
+                let b = self
+                    .translate_instruction_argument(builder, b)?
+                    .into_int_value();
+                builder
+                    .build_int_compare(IntPredicate::SGT, a, b, &temp_name())
+                    .into()
+            }
+            ("load", [a]) => {
+                let a = self
+                    .translate_instruction_argument(builder, a)?
+                    .into_pointer_value();
+                builder.build_load(a, &temp_name()).into()
+            }
+            ("store", [ptr, value]) => {
+                let ptr = self
+                    .translate_instruction_argument(builder, ptr)?
+                    .into_pointer_value();
+                let value = self.translate_instruction_argument(builder, value)?;
+                builder.build_store(ptr, value);
+                type_undefined(self.context.struct_type(&[], false).into())?
+            }
+            ("call", _) if arguments.len() > 1 => {
+                let callsite = if let InstructionArgument::Expression(AstExpression {
+                    data: AstExpressionData::Literal(AstLiteral::String(fn_name)),
+                    ..
+                }) = &arguments[0]
+                {
+                    let arguments =
+                        self.translate_instruction_arguments(builder, &arguments[1..])?;
+                    let fun = self.module.get_function(&fn_name).unwrap();
+                    builder.build_call(fun, &arguments, &temp_name()).into()
+                } else {
+                    let fn_and_arguments =
+                        self.translate_instruction_arguments(builder, arguments)?;
+                    builder.build_call(
+                        fn_and_arguments[0].into_pointer_value(),
+                        &fn_and_arguments[1..],
+                        &temp_name(),
+                    )
+                };
+
+                self.translate_instruction_callsite(output, callsite)?
+                    .into()
+            }
+            ("getelementptr", _) if arguments.len() > 1 => {
+                let ptr = self
+                    .translate_instruction_argument(builder, &arguments[0])?
+                    .into_pointer_value();
+                let idxes =
+                    self.translate_instruction_arguments_to_ints(builder, &arguments[1..])?;
+                unsafe { builder.build_gep(ptr, &idxes, &temp_name()) }.into()
+            }
+            ("pointercast", [arg, InstructionArgument::Type(ty)]) => {
+                let ptr = self
+                    .translate_instruction_argument(builder, arg)?
+                    .into_pointer_value();
+                let ptr_ty = self.get_llvm_ty(ty)?.into_pointer_type();
+                builder.build_pointer_cast(ptr, ptr_ty, &temp_name()).into()
+            }
+            ("ch_typesize", [InstructionArgument::Type(ty)]) => {
+                type_size(self.get_llvm_ty(ty)?)?.into()
+            }
+            ("ch_typeid", [InstructionArgument::Type(ty)]) => {
+                let id = self.type_ids[&ty];
+                self.context.i16_type().const_int(id as u64, false).into()
+            }
+            _ => {
+                return PResult::error(format!(
+                    "Unknown instruction `{}`, {:?} -> {:?}",
+                    instruction, arguments, output
+                ));
+            }
+        };
+
+        match output {
+            InstructionOutput::Type(output_ty) => {
+                self.flatten_val(builder, output_value, output_ty)
+            }
+            InstructionOutput::Anonymous(output_name) => {
+                self.instruction_values
+                    .insert(output_name.clone(), output_value);
+                Ok(vec![type_undefined(
+                    self.context.struct_type(&[], false).into(),
+                )?])
+            }
+        }
+    }
+
+    fn translate_instruction_argument(
+        &mut self,
+        builder: &Builder,
+        arg: &InstructionArgument,
+    ) -> PResult<BasicValueEnum> {
+        match arg {
+            InstructionArgument::Anonymous(input_name) => Ok(self.instruction_values[input_name]),
+            InstructionArgument::Expression(e) => {
+                let vals = self.translate_expression(builder, e)?;
+                self.bundle_vals(builder, &vals, &e.ty)
+            }
+            InstructionArgument::Type(t) => PResult::error(format!(
+                "Can't translate a type `{}` into an instruction value",
+                t
+            )),
+        }
+    }
+
+    fn translate_instruction_arguments(
+        &mut self,
+        builder: &Builder,
+        arg: &[InstructionArgument],
+    ) -> PResult<Vec<BasicValueEnum>> {
+        arg.iter()
+            .map(|arg| self.translate_instruction_argument(builder, arg))
+            .collect::<PResult<Vec<_>>>()
+    }
+
+    fn translate_instruction_arguments_to_ints(
+        &mut self,
+        builder: &Builder,
+        args: &[InstructionArgument],
+    ) -> PResult<Vec<IntValue>> {
+        let mut output = Vec::new();
+
+        for arg in args {
+            if let InstructionArgument::Expression(AstExpression {
+                data: AstExpressionData::Literal(AstLiteral::Int(i)),
+                ..
+            }) = arg
+            {
+                output.push(
+                    self.context
+                        .i32_type()
+                        .const_int_from_string(&i, StringRadix::Decimal)
+                        .unwrap(),
+                );
+            } else {
+                let expr = self
+                    .translate_instruction_argument(builder, arg)?
+                    .into_int_value();
+                output.push(builder.build_int_truncate_or_bit_cast(
+                    expr,
+                    self.context.i32_type(),
+                    &temp_name(),
+                ));
+            }
+        }
+
+        Ok(output)
+    }
+
+    fn translate_instruction_callsite(
+        &self,
+        output: &InstructionOutput,
+        callsite: CallSiteValue,
+    ) -> PResult<BasicValueEnum> {
+        match output {
+            InstructionOutput::Type(AstType::Tuple { types }) if types.is_empty() => {
+                type_undefined(self.context.struct_type(&[], false).into())
+            }
+            _ => Ok(unwrap_callsite(callsite)),
+        }
     }
 
     fn translate_literal(
@@ -1306,7 +1324,7 @@ impl Translator {
             AstLiteral::True => vec![self.context.bool_type().const_int(1, false).into()],
             AstLiteral::False => vec![self.context.bool_type().const_int(0, false).into()],
 
-            AstLiteral::String { string, len } => {
+            AstLiteral::String(string) => {
                 let string_const = self.context.const_string(&string, false);
                 let string_global =
                     self.module
@@ -1315,7 +1333,7 @@ impl Translator {
 
                 // Access the [N x i8]* as a i8*
                 let zero = self.context.i64_type().const_int(0, false);
-                let string = unsafe {
+                let string_ptr = unsafe {
                     builder.build_gep(
                         string_global.as_pointer_value(),
                         &[zero, zero],
@@ -1323,10 +1341,13 @@ impl Translator {
                     )
                 };
 
-                let len = self.context.i64_type().const_int(*len as u64, false);
+                let len = self
+                    .context
+                    .i64_type()
+                    .const_int(string.len() as u64, false);
                 let fn_ret = builder.build_call(
                     self.get_function("gc_alloc_string"),
-                    &[string.into(), len.into()],
+                    &[string_ptr.into(), len.into()],
                     &temp_name(),
                 );
 
@@ -1356,13 +1377,9 @@ impl Translator {
         idx: IntValue,
         element_ty: BasicTypeEnum,
     ) -> PResult<PointerValue> {
-        let array = unsafe { builder.build_struct_gep(loc, 2, &temp_name()) };
-        let array_ptr = builder.build_pointer_cast(
-            array,
-            ptr_type(element_ty, GLOBAL).into_pointer_type(),
-            &temp_name(),
-        );
-        let elem_ptr = unsafe { builder.build_gep(array_ptr, &[idx], &temp_name()) };
+        let zero = self.context.i32_type().const_int(0 as u64, false);
+        let two = self.context.i32_type().const_int(2 as u64, false);
+        let elem_ptr = unsafe { builder.build_gep(loc, &[zero, two, idx], &temp_name()) };
         Ok(elem_ptr)
     }
 
@@ -1480,7 +1497,7 @@ impl Translator {
                             &temp_name(),
                         )
                     }
-                    AstLiteral::String { string, len } => {
+                    AstLiteral::String(string) => {
                         let string_const = self.context.const_string(&string, false);
                         let string_global =
                             self.module
@@ -1489,7 +1506,7 @@ impl Translator {
 
                         // Access the [N x i8]* as a i8*
                         let zero = self.context.i64_type().const_int(0, false);
-                        let string = unsafe {
+                        let string_ptr = unsafe {
                             builder.build_gep(
                                 string_global.as_pointer_value(),
                                 &[zero, zero],
@@ -1497,10 +1514,13 @@ impl Translator {
                             )
                         };
 
-                        let len = self.context.i64_type().const_int(*len as u64, false);
+                        let len = self
+                            .context
+                            .i64_type()
+                            .const_int(string.len() as u64, false);
                         let fn_ret = builder.build_call(
                             self.get_function("string_eq_literal"),
-                            &[value, string.into(), len.into()],
+                            &[value, string_ptr.into(), len.into()],
                             &temp_name(),
                         );
                         unwrap_callsite(fn_ret).into_int_value()
@@ -1573,7 +1593,7 @@ impl Translator {
                 captured_ids.push(c.id);
                 indices.insert(c.id, idx + 1); // First argument is saved for the fn itself.
                 ast_tys.insert(c.id, c.ty.clone());
-                tys.insert(c.id, self.get_type(&c.ty)?);
+                tys.insert(c.id, self.get_llvm_ty(&c.ty)?);
             }
 
             let env = TrClosureCaptureEnvironment {
@@ -1605,10 +1625,10 @@ impl Translator {
         {
             let variables = variables.as_ref().unwrap();
 
-            let ret_ty = self.get_type(&expr.ty)?;
+            let ret_ty = self.get_llvm_ty(&expr.ty)?;
             let mut param_tys: Vec<_> = params
                 .iter()
-                .map(|p| self.get_type(&p.ty))
+                .map(|p| self.get_llvm_ty(&p.ty))
                 .collect::<PResult<_>>()?;
             param_tys.insert(0, opaque_env_type(&self.context).into());
 
@@ -1639,7 +1659,7 @@ impl Translator {
             let capture_values = unpack_capture_values(env, &first_builder, env_struct)?;
 
             for (id, var) in variables {
-                let ty = self.get_type(&var.ty)?;
+                let ty = self.get_llvm_ty(&var.ty)?;
                 let val = if let Some(..) = param_values.get(id) {
                     param_values[id]
                 } else if let Some(..) = capture_values.get(id) {
@@ -1821,7 +1841,7 @@ impl Translator {
                     // Change the i8* into an object addrspace(1)**
                     let object_ptr = builder.build_pointer_cast(
                         ptr_param,
-                        ptr_type(self.get_type(t)?, GLOBAL).into_pointer_type(),
+                        ptr_type(self.get_llvm_ty(t)?, GLOBAL).into_pointer_type(),
                         &temp_name(),
                     );
                     let object = builder.build_load(object_ptr, &temp_name());
@@ -1884,7 +1904,7 @@ impl Translator {
                 AstType::Tuple { types } => {
                     let tuple_ptr = builder.build_pointer_cast(
                         ptr_param,
-                        ptr_type(self.get_type(t)?, GLOBAL).into_pointer_type(),
+                        ptr_type(self.get_llvm_ty(t)?, GLOBAL).into_pointer_type(),
                         &temp_name(),
                     );
 
@@ -1916,7 +1936,7 @@ impl Translator {
                 AstType::Enum(name, generics) => {
                     let enum_ptr = builder.build_pointer_cast(
                         ptr_param,
-                        ptr_type(self.get_type(t)?, GLOBAL).into_pointer_type(),
+                        ptr_type(self.get_llvm_ty(t)?, GLOBAL).into_pointer_type(),
                         &temp_name(),
                     );
 
@@ -2028,23 +2048,6 @@ impl Translator {
         Ok(())
     }
 
-    fn get_break(&self) -> &BasicBlock {
-        self.break_continue.as_ref().map(|(b, _)| b).unwrap()
-    }
-
-    fn get_continue(&self) -> &BasicBlock {
-        self.break_continue.as_ref().map(|(_, c)| c).unwrap()
-    }
-
-    fn set_break_continue(
-        &mut self,
-        mut break_continue: Option<(BasicBlock, BasicBlock)>,
-    ) -> Option<(BasicBlock, BasicBlock)> {
-        std::mem::swap(&mut self.break_continue, &mut break_continue);
-
-        break_continue
-    }
-
     fn get_new_block(&self, builder: &Builder) -> PResult<(BasicBlock, Builder)> {
         let b = builder.get_insert_block().unwrap();
         let p = b.get_parent().unwrap();
@@ -2055,7 +2058,7 @@ impl Translator {
         Ok((block, builder))
     }
 
-    fn get_type(&self, t: &AstType) -> PResult<BasicTypeEnum> {
+    fn get_llvm_ty(&self, t: &AstType) -> PResult<BasicTypeEnum> {
         let ty = match t {
             AstType::Int => self.context.i64_type().into(),
             AstType::Char => self.context.i8_type().into(),
@@ -2070,7 +2073,7 @@ impl Translator {
             }
 
             AstType::Array { ty } => {
-                let ty = self.get_type(ty)?;
+                let ty = self.get_llvm_ty(ty)?;
                 let ctx = self
                     .context
                     .struct_type(
@@ -2088,7 +2091,7 @@ impl Translator {
             AstType::Tuple { types } => {
                 let types = types
                     .iter()
-                    .map(|t| self.get_type(t))
+                    .map(|t| self.get_llvm_ty(t))
                     .collect::<PResult<Vec<BasicTypeEnum>>>()?;
                 self.context.struct_type(&types, false).into()
             }
@@ -2097,7 +2100,7 @@ impl Translator {
                 let types = self.enums[&InstEnumSignature(name.clone(), generics.clone())]
                     .fields
                     .iter()
-                    .map(|t| self.get_type(t))
+                    .map(|t| self.get_llvm_ty(t))
                     .collect::<PResult<Vec<BasicTypeEnum>>>()?;
                 self.context.struct_type(&types, false).into()
             }
@@ -2105,10 +2108,10 @@ impl Translator {
             AstType::FnPointerType { args, ret_ty } => {
                 let types = args
                     .iter()
-                    .map(|t| self.get_type(t))
+                    .map(|t| self.get_llvm_ty(t))
                     .collect::<PResult<Vec<BasicTypeEnum>>>()?;
 
-                fun_type(self.get_type(ret_ty)?, &types)
+                fun_type(self.get_llvm_ty(ret_ty)?, &types)
                     .ptr_type(GLOBAL)
                     .into()
             }
@@ -2134,7 +2137,7 @@ impl Translator {
         if let AstType::Tuple { types } = t {
             let mut consumed = 0;
             let mut bundled_value: AggregateValueEnum =
-                self.get_type(t)?.into_struct_type().get_undef().into();
+                self.get_llvm_ty(t)?.into_struct_type().get_undef().into();
 
             for (i, subty) in types.iter().enumerate() {
                 let num_subvals = self.num_subvals(subty);
@@ -2152,7 +2155,7 @@ impl Translator {
             Ok(bundled_value.into_struct_value().into())
         } else if let AstType::Enum(..) = t {
             let mut bundled_value: AggregateValueEnum =
-                self.get_type(t)?.into_struct_type().get_undef().into();
+                self.get_llvm_ty(t)?.into_struct_type().get_undef().into();
 
             for (i, val) in vals.iter().enumerate() {
                 bundled_value = builder
@@ -2268,7 +2271,7 @@ impl Translator {
 
             Ok(ret)
         } else {
-            let ptr = builder.build_alloca(self.get_type(t)?, &temp_name());
+            let ptr = builder.build_alloca(self.get_llvm_ty(t)?, &temp_name());
             builder.build_store(ptr, v);
 
             Ok(vec![ptr])
@@ -2296,7 +2299,7 @@ impl Translator {
 
             Ok(ret)
         } else {
-            let ty = self.get_type(t)?;
+            let ty = self.get_llvm_ty(t)?;
             let ptr = self.module.add_global(ty, None, &temp_name());
             ptr.set_initializer(&type_undefined(ty)?);
             Ok(vec![ptr])
@@ -2343,24 +2346,6 @@ fn set_cheshire_fn_attributes(context: &Context, fun: FunctionValue) {
         AttributeLoc::Function,
         context.create_enum_attribute(Attribute::get_named_enum_kind_id("inlinehint"), 1),
     );
-}
-
-fn map_definition(mod_name: &str, generics: &[AstType], block: Option<AstBlock>) -> Definition {
-    let def = match mod_name {
-        "std::internal::cursed::cursed_allocate_array" => {
-            Some(Definition::AllocateArray(generics[0].clone()))
-        }
-        "std::internal::operators::deref_array" => Some(Definition::ArrayAccess),
-        "std::internal::operators::deref_array_assign" => Some(Definition::ArrayAssign),
-        "std::internal::operators::array_len" => Some(Definition::ArrayLen),
-        "std::internal::cursed::cursed_transmute" => Some(Definition::CursedTransmute),
-        "std::internal::operators::call_fn" => Some(Definition::CallFn),
-        "std::internal::operators::call_closure" => Some(Definition::CallClosure),
-        _ => None,
-    };
-
-    def.or_else(|| block.map(Definition::Block))
-        .unwrap_or_else(|| Definition::None)
 }
 
 pub fn unpack_capture_values(

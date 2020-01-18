@@ -389,24 +389,24 @@ impl AstBlock {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct LoopId(pub usize);
+
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum AstStatement {
     Let {
         pattern: AstMatchPattern,
         value: AstExpression,
     },
-    While {
-        condition: AstExpression,
-        block: AstBlock,
+    Break {
+        label: Option<String>,
+        id: Option<LoopId>,
+        value: AstExpression,
     },
-    For {
-        span: Span,
-        pattern: AstMatchPattern,
-        iterable: AstExpression,
-        block: AstBlock,
+    Continue {
+        label: Option<String>,
+        id: Option<LoopId>,
     },
-    Break,
-    Continue,
     Return {
         value: AstExpression,
     },
@@ -418,27 +418,13 @@ pub enum AstStatement {
     },
 }
 
+lazy_static! {
+    static ref LOOP_ID_COUNTER: RwLock<usize> = RwLock::new(1);
+}
+
 impl AstStatement {
     pub fn let_statement(pattern: AstMatchPattern, value: AstExpression) -> AstStatement {
         AstStatement::Let { pattern, value }
-    }
-
-    pub fn while_loop(condition: AstExpression, block: AstBlock) -> AstStatement {
-        AstStatement::While { condition, block }
-    }
-
-    pub fn for_loop(
-        span: Span,
-        pattern: AstMatchPattern,
-        iterable: AstExpression,
-        block: AstBlock,
-    ) -> AstStatement {
-        AstStatement::For {
-            span,
-            pattern,
-            iterable,
-            block,
-        }
     }
 
     pub fn return_statement(value: AstExpression) -> AstStatement {
@@ -451,20 +437,24 @@ impl AstStatement {
         }
     }
 
+    pub fn break_stmt(value: AstExpression, label: Option<String>) -> AstStatement {
+        AstStatement::Break {
+            value,
+            label,
+            id: None,
+        }
+    }
+
+    pub fn continue_stmt(label: Option<String>) -> AstStatement {
+        AstStatement::Continue { label, id: None }
+    }
+
     pub fn assert_statement(condition: AstExpression) -> AstStatement {
         AstStatement::Assert { condition }
     }
 
     pub fn expression_statement(expression: AstExpression) -> AstStatement {
         AstStatement::Expression { expression }
-    }
-
-    pub fn break_stmt() -> AstStatement {
-        AstStatement::Break
-    }
-
-    pub fn continue_stmt() -> AstStatement {
-        AstStatement::Continue
     }
 }
 
@@ -588,6 +578,21 @@ pub enum AstExpressionData {
         expression: SubExpression,
         branches: Vec<AstMatchBranch>,
     },
+    While {
+        label: Option<String>,
+        id: LoopId,
+        condition: SubExpression,
+        block: AstBlock,
+        else_block: AstBlock,
+    },
+    For {
+        label: Option<String>,
+        pattern: AstMatchPattern,
+        iterable: SubExpression,
+        block: AstBlock,
+        else_block: AstBlock,
+    },
+
     PositionalEnum {
         enumerable: ModuleRef,
         generics: Vec<AstType>,
@@ -609,6 +614,24 @@ pub enum AstExpressionData {
         expression: SubExpression,
         ty: AstType,
     },
+    Instruction {
+        instruction: String,
+        arguments: Vec<InstructionArgument>,
+        output: InstructionOutput,
+    },
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum InstructionArgument {
+    Expression(AstExpression),
+    Type(AstType),
+    Anonymous(String),
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum InstructionOutput {
+    Type(AstType),
+    Anonymous(String),
 }
 
 impl AstExpression {
@@ -647,6 +670,50 @@ impl AstExpression {
             data: AstExpressionData::Match {
                 expression: Box::new(expression),
                 branches,
+            },
+            ty: AstType::infer(),
+        }
+    }
+
+    pub fn while_loop(
+        span: Span,
+        label: Option<String>,
+        condition: AstExpression,
+        block: AstBlock,
+        else_block: AstBlock,
+    ) -> AstExpression {
+        let mut id_ref = LOOP_ID_COUNTER.write().unwrap();
+        *id_ref += 1;
+
+        AstExpression {
+            span,
+            data: AstExpressionData::While {
+                id: LoopId(id_ref.clone()),
+                label,
+                condition: Box::new(condition),
+                block,
+                else_block,
+            },
+            ty: AstType::infer(),
+        }
+    }
+
+    pub fn for_loop(
+        span: Span,
+        label: Option<String>,
+        pattern: AstMatchPattern,
+        iterable: AstExpression,
+        block: AstBlock,
+        else_block: AstBlock,
+    ) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::For {
+                label,
+                pattern,
+                iterable: Box::new(iterable),
+                block,
+                else_block,
             },
             ty: AstType::infer(),
         }
@@ -986,12 +1053,29 @@ impl AstExpression {
         }
     }
 
-    pub fn as_type(span: Span, expr: AstExpression, ty: AstType) -> AstExpression {
+    pub fn transmute(span: Span, expr: AstExpression, ty: AstType) -> AstExpression {
         AstExpression {
             span,
             data: AstExpressionData::As {
                 expression: Box::new(expr),
                 ty,
+            },
+            ty: AstType::infer(),
+        }
+    }
+
+    pub fn instruction(
+        span: Span,
+        instruction: String,
+        arguments: Vec<InstructionArgument>,
+        output: InstructionOutput,
+    ) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::Instruction {
+                instruction,
+                arguments,
+                output,
             },
             ty: AstType::infer(),
         }
@@ -1128,7 +1212,7 @@ impl AstMatchPattern {
 pub enum AstLiteral {
     True,
     False,
-    String { string: String, len: usize },
+    String(String),
     Int(String),
     Char(char),
 }
@@ -1246,8 +1330,8 @@ impl AstObjectMember {
     pub fn new(span: Span, name: String, member_type: AstType) -> AstObjectMember {
         AstObjectMember {
             span,
-            name: name,
-            member_type: member_type,
+            name,
+            member_type,
         }
     }
 }

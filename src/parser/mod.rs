@@ -308,7 +308,7 @@ impl Parser {
             } else if self.check(Token::Star) {
                 // Can't have a path with just `use *`
                 if path.is_empty() {
-                    return self.error_here(format!("Cannot have empty use-all"));
+                    return self.error_here(format!("Cannot import `use *`!"));
                 }
 
                 self.bump()?;
@@ -787,15 +787,33 @@ impl Parser {
     fn parse_statement(&mut self) -> PResult<AstStatement> {
         match &self.next_token {
             Token::Let => self.parse_let_statement(),
-            Token::While => self.parse_while_loop(),
-            Token::For => self.parse_for_loop(),
             Token::Break => {
                 self.bump()?;
-                Ok(AstStatement::break_stmt())
+
+                let expr = if !self.check(Token::Dot) && !self.check(Token::At) {
+                    self.parse_expression()?
+                } else {
+                    AstExpression::nothing(self.next_span)
+                };
+
+                let label = if self.check_consume(Token::At)? {
+                    Some(self.expect_consume_identifier()?)
+                } else {
+                    None
+                };
+
+                Ok(AstStatement::break_stmt(expr, label))
             }
             Token::Continue => {
                 self.bump()?;
-                Ok(AstStatement::continue_stmt())
+
+                let label = if self.check_consume(Token::At)? {
+                    Some(self.expect_consume_identifier()?)
+                } else {
+                    None
+                };
+
+                Ok(AstStatement::continue_stmt(label))
             }
             Token::Return => self.parse_return_statement(),
             Token::Assert => self.parse_assert_statement(),
@@ -972,23 +990,48 @@ impl Parser {
         }
     }
 
-    fn parse_while_loop(&mut self) -> PResult<AstStatement> {
+    fn parse_while_loop(&mut self, label: Option<String>) -> PResult<AstExpression> {
+        let mut span = self.next_span;
         self.expect_consume(Token::While)?;
-        let condition = self.parse_expression()?;
-        let (block, _) = self.parse_block()?;
 
-        Ok(AstStatement::while_loop(condition, block))
+        let condition = self.parse_expression()?;
+
+        let (block, block_span) = self.parse_block()?;
+        span = span.unite(block_span);
+
+        let (else_block, else_span) = if self.check_consume(Token::Else)? {
+            self.parse_block()?
+        } else {
+            (AstBlock::empty(span), span)
+        };
+        span = span.unite(else_span);
+
+        Ok(AstExpression::while_loop(
+            span, label, condition, block, else_block,
+        ))
     }
 
-    fn parse_for_loop(&mut self) -> PResult<AstStatement> {
-        let span = self.next_span;
+    fn parse_for_loop(&mut self, label: Option<String>) -> PResult<AstExpression> {
+        let mut span = self.next_span;
+
         self.expect_consume(Token::For)?;
         let pattern = self.parse_match_pattern()?;
         self.expect_consume(Token::In)?;
         let iter_expr = self.parse_expression()?;
-        let (block, _) = self.parse_block()?;
 
-        Ok(AstStatement::for_loop(span, pattern, iter_expr, block))
+        let (block, block_span) = self.parse_block()?;
+        span = span.unite(block_span);
+
+        let (else_block, else_span) = if self.check_consume(Token::Else)? {
+            self.parse_block()?
+        } else {
+            (AstBlock::empty(span), span)
+        };
+        span = span.unite(else_span);
+
+        Ok(AstExpression::for_loop(
+            span, label, pattern, iter_expr, block, else_block,
+        ))
     }
 
     fn parse_return_statement(&mut self) -> PResult<AstStatement> {
@@ -1125,7 +1168,7 @@ impl Parser {
                     self.bump()?;
                     let (ty, ty_span) = self.parse_type()?;
                     span = span.unite(ty_span);
-                    lhs = AstExpression::as_type(span, lhs, ty);
+                    lhs = AstExpression::transmute(span, lhs, ty);
                     continue;
                 }
                 _ => {}
@@ -1169,6 +1212,8 @@ impl Parser {
             }
             Token::If => self.parse_if_statement(),
             Token::Match => self.parse_match_statement(),
+            Token::While => self.parse_while_loop(None),
+            Token::For => self.parse_for_loop(None),
             Token::Commalipses => {
                 self.bump()?;
                 Ok(AstExpression::unimplemented(span))
@@ -1205,12 +1250,71 @@ impl Parser {
                 let lit = self.parse_literal_expression()?;
                 Ok(AstExpression::literal(span, lit))
             }
+            Token::Instruction => self.parse_instruction(),
             _ => self.error_here(format!(
                 "Expected literal, identifier, `new` or `(`, found \
                  `{}`",
                 self.next_token
             )),
         }
+    }
+
+    fn parse_instruction(&mut self) -> PResult<AstExpression> {
+        let mut span = self.next_span;
+        self.expect_consume(Token::Instruction)?;
+
+        let instruction = if let Token::String(instruction) = &self.next_token {
+            let i = instruction.clone();
+            self.bump()?;
+            i
+        } else {
+            return self.error_here(format!("Expected a string literal"));
+        };
+
+        let mut arguments = Vec::new();
+
+        self.expect_consume(Token::LParen)?;
+        while !self.check_consume(Token::RParen)? {
+            if !arguments.is_empty() {
+                self.expect_consume(Token::Comma)?;
+            }
+
+            match &self.next_token {
+                Token::InstructionLiteral(lit) => {
+                    arguments.push(InstructionArgument::Anonymous(lit.clone()));
+                    self.bump()?;
+                }
+                Token::Colon => {
+                    self.bump()?;
+                    let (t, _) = self.parse_type()?;
+                    arguments.push(InstructionArgument::Type(t));
+                }
+                _ => arguments.push(InstructionArgument::Expression(self.parse_expression()?)),
+            }
+        }
+
+        self.expect_consume(Token::RArrow)?;
+        span = span.unite(self.next_span);
+
+        let output = match &self.next_token {
+            Token::InstructionLiteral(lit) => {
+                let out = InstructionOutput::Anonymous(lit.clone());
+                self.bump()?;
+                out
+            }
+            _ => {
+                let (ty, ty_span) = self.parse_type()?;
+                span = span.unite(ty_span);
+                InstructionOutput::Type(ty)
+            }
+        };
+
+        Ok(AstExpression::instruction(
+            span,
+            instruction,
+            arguments,
+            output,
+        ))
     }
 
     fn parse_literal_expression(&mut self) -> PResult<AstLiteral> {
@@ -1223,11 +1327,10 @@ impl Parser {
                 self.bump()?;
                 Ok(AstLiteral::False)
             }
-            Token::String(string, len) => {
+            Token::String(string) => {
                 let string = string.clone();
-                let len = *len;
                 self.bump()?;
-                Ok(AstLiteral::String { string, len })
+                Ok(AstLiteral::String(string))
             }
             Token::IntLiteral(num) => {
                 let num = num.clone();
@@ -1753,8 +1856,20 @@ impl Parser {
                         ..
                     },
             }
-            | AstStatement::While { .. } => Ok(()),
-            AstStatement::For { .. } => Ok(()),
+            | AstStatement::Expression {
+                expression:
+                    AstExpression {
+                        data: AstExpressionData::While { .. },
+                        ..
+                    },
+            }
+            | AstStatement::Expression {
+                expression:
+                    AstExpression {
+                        data: AstExpressionData::For { .. },
+                        ..
+                    },
+            } => Ok(()),
             _ => PResult::error_at(span, format!("Statement must be ended with a `.`")),
         }
     }

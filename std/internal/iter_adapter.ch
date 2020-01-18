@@ -1,4 +1,4 @@
-use std::internal::cursed::cursed_allocate_array.
+use std::internal::operators::allocate_empty_array.
 
 impl<_It> IterAdapter for _It where _It: Iterator {
     fn map<_F>(self, f: _F) -> Map<_It, _F> = allocate Map { fun: f, iterator: self }.
@@ -73,7 +73,7 @@ impl<_I> FromIterator<_I> for [_I] {
         let s = it:size_hint().
         let last = -1.
 
-        let a = cursed_allocate_array:<_I>(s).
+        let a = allocate_empty_array:<_I>(s).
 
         for (i, x) in it:enumerate() {
             if i >= a:len() {
@@ -95,7 +95,7 @@ impl<_I> FromIterator<_I> for [_I] {
 }
 
 fn resize_array<_T>(a: [_T], n: Int) -> [_T] {
-    let a_new = cursed_allocate_array:<_T>(n).
+    let a_new = allocate_empty_array:<_T>(n).
 
     for (i, x) in a:iterator():enumerate():limit(n) {
         a_new[i] = x.

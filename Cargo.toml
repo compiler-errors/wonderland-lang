@@ -10,7 +10,6 @@ lex = []
 parse = ["lex"]
 ana = ["parse"]
 tyck = ["ana"]
-tyck2 = ["ana"]
 inst = ["tyck"]
 tr = ["inst"]
 

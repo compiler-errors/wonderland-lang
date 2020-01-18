@@ -1,28 +1,50 @@
 use crate::ana::represent_visitor::AstAnalysisPass;
-use crate::parser::ast::{AstExpression, AstExpressionData, AstStatement};
+use crate::parser::ast::{AstExpression, AstExpressionData, AstStatement, LoopId};
 use crate::parser::ast_visitor::AstAdapter;
-use crate::util::{IntoError, PResult};
+use crate::util::{IntoError, PResult, Visit};
 
-pub struct AnalyzeControlFlow(Vec<bool>);
+pub struct AnalyzeControlFlow(Vec<Option<(Option<String>, LoopId)>>);
 
 impl AstAnalysisPass for AnalyzeControlFlow {
     fn new() -> AnalyzeControlFlow {
-        AnalyzeControlFlow(vec![false])
+        AnalyzeControlFlow(vec![None])
+    }
+}
+
+impl AnalyzeControlFlow {
+    fn find(&self, label: Option<&str>) -> PResult<LoopId> {
+        for x in self.0.iter().rev() {
+            if let Some((name, id)) = x {
+                if label.is_none() || label == name.as_deref() {
+                    return Ok(*id);
+                }
+            } else {
+                break;
+            }
+        }
+
+        if let Some(label) = label {
+            PResult::error(format!("Couldn't find loop with label `[{}]`", label))
+        } else {
+            PResult::error(format!("Couldn't find loop to break/continue"))
+        }
     }
 }
 
 impl AstAdapter for AnalyzeControlFlow {
-    fn enter_statement(&mut self, s: AstStatement) -> PResult<AstStatement> {
-        match &s {
-            AstStatement::While { .. } => {
-                self.0.push(true);
+    fn enter_statement(&mut self, mut s: AstStatement) -> PResult<AstStatement> {
+        match &mut s {
+            AstStatement::Break {
+                id: id @ None,
+                label,
+                ..
             }
-            AstStatement::Break | AstStatement::Continue => {
-                if !(self.0).last().unwrap() {
-                    return PResult::error(format!(
-                        "Cannot `break` or `continue` in a non-loop context."
-                    ));
-                }
+            | AstStatement::Continue {
+                id: id @ None,
+                label,
+                ..
+            } => {
+                *id = Some(self.find(label.as_deref())?);
             }
             // Fn call, save the useful stuff and clone everything above...
             _ => {}
@@ -32,24 +54,47 @@ impl AstAdapter for AnalyzeControlFlow {
     }
 
     fn enter_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
-        match e.data {
-            AstExpressionData::Closure { .. } => {
-                (self.0).push(false);
-            }
-            _ => {}
-        }
+        let AstExpression { data, ty, span } = e;
 
-        Ok(e)
+        let data = match data {
+            AstExpressionData::While {
+                label,
+                id,
+                condition,
+                block,
+                else_block,
+            } => {
+                self.0.push(Some((label.clone(), id)));
+                // TODO: I strongly dislike this clone.
+                let block = block.visit(self)?;
+                self.0.pop();
+
+                AstExpressionData::While {
+                    label,
+                    id,
+                    condition,
+                    block,
+                    else_block,
+                }
+            }
+            c @ AstExpressionData::Closure { .. } => {
+                self.0.push(None);
+                c
+            }
+            e => e,
+        };
+
+        Ok(AstExpression { data, ty, span })
     }
 
-    fn exit_statement(&mut self, s: AstStatement) -> PResult<AstStatement> {
-        match &s {
-            AstStatement::While { .. } => {
+    fn exit_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
+        match e.data {
+            AstExpressionData::Closure { .. } => {
                 self.0.pop();
             }
             _ => {}
         }
 
-        Ok(s)
+        Ok(e)
     }
 }

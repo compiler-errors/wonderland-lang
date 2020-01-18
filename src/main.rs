@@ -29,6 +29,8 @@ use crate::tyck::typecheck;
 use crate::util::{report_err, FileId, FileRegistry, PError, PResult};
 use getopts::{Matches, Options};
 
+use crate::lexer::SpanToken;
+use log::LevelFilter;
 use std::ffi::OsString;
 use std::io::{Read, Write};
 use std::path::Path;
@@ -69,7 +71,7 @@ enum Mode {
 const DEFAULT_MODE: Mode = Mode::Translate;
 
 fn main() {
-    env_logger::init();
+    env_logger::builder().filter_level(LevelFilter::Info).init();
     let args: Vec<_> = std::env::args().collect();
 
     let mut opts = Options::new();
@@ -105,6 +107,10 @@ fn main() {
         error!("Something went wrong when parsing...");
         help(true);
     });
+
+    if matches.opt_present("h") {
+        help(true);
+    }
 
     let mode = select_mode(&matches).unwrap_or_else(|_| {
         println!("Duplicated options, please choose one compiler mode!");
@@ -304,8 +310,15 @@ fn try_lex(files: Vec<FileId>) -> PResult<()> {
         .collect::<PResult<Vec<Lexer>>>()?;
 
     for mut lex in lexers {
-        // Consume token stream until EOF.
-        while lex.bump_token()?.0 != Token::EOF {}
+        loop {
+            let SpanToken(t, _) = lex.bump_token()?;
+            print!("{} ", t);
+
+            if t == Token::EOF {
+                println!();
+                break;
+            }
+        }
     }
 
     Ok(())

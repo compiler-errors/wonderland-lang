@@ -1,5 +1,5 @@
-// full pass stdout="👀"
+// full pass stdout="❤️"
 fn main() -> Int {
-  print("👀").
+  print("❤️").
   0
 }
