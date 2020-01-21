@@ -82,7 +82,7 @@ impl TyckConstraintAssumptionAdapter {
             impl_id,
             generics: Vec::new(),
             methods: HashMap::new(),
-            trait_ty: trt.trt.clone(),
+            trait_ty: Some(trt.trt.clone()),
             impl_ty: ty.clone(),
             restrictions: Vec::new(),
             associated_tys,

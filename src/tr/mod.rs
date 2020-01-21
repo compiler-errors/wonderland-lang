@@ -360,7 +360,7 @@ impl Translator {
         }
 
         for (sig, fun) in &file.instantiated_object_fns {
-            let name = decorate_object_fn(&sig.0, &sig.1, &sig.2, &sig.3)?;
+            let name = decorate_object_fn(&sig.0, sig.1.as_ref(), &sig.2, &sig.3)?;
             self.forward_declare_function(
                 &name,
                 &fun.parameter_list,
@@ -386,7 +386,7 @@ impl Translator {
         }
 
         for (sig, fun) in file.instantiated_object_fns {
-            let name = decorate_object_fn(&sig.0, &sig.1, &sig.2, &sig.3)?;
+            let name = decorate_object_fn(&sig.0, sig.1.as_ref(), &sig.2, &sig.3)?;
 
             self.translate_function(
                 &name,
@@ -856,7 +856,7 @@ impl Translator {
             } => {
                 let name = decorate_object_fn(
                     call_type,
-                    &associated_trait.as_ref().unwrap().trt,
+                    associated_trait.as_ref().map(|trt| &trt.trt),
                     fn_name,
                     fn_generics,
                 )?;
@@ -1410,7 +1410,7 @@ impl Translator {
                         self.context.i64_type().const_int(discriminant, false),
                         &temp_name(),
                     );
-                    builder.build_conditional_branch(cmp, &success_block, bail_block.unwrap());
+                    builder.build_conditional_branch(cmp, &success_block, &bail_block.unwrap());
                 }
 
                 builder.position_at_end(&success_block);
@@ -1519,7 +1519,7 @@ impl Translator {
                     }
                 };
 
-                builder.build_conditional_branch(predicate, &success_block, bail_block.unwrap());
+                builder.build_conditional_branch(predicate, &success_block, &bail_block.unwrap());
                 builder.position_at_end(&success_block);
             }
         }

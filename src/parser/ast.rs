@@ -1401,7 +1401,7 @@ pub struct AstImpl {
     pub generics: Vec<AstGeneric>,
     pub restrictions: Vec<AstTypeRestriction>,
 
-    pub trait_ty: AstTraitType,
+    pub trait_ty: Option<AstTraitType>,
     pub impl_ty: AstType,
 
     pub fns: HashMap<String, AstObjectFunction>,
@@ -1417,7 +1417,7 @@ impl AstImpl {
     pub fn new(
         name_span: Span,
         generics: Vec<AstGeneric>,
-        trait_ty: AstTraitType,
+        trait_ty: Option<AstTraitType>,
         impl_ty: AstType,
         fns: HashMap<String, AstObjectFunction>,
         restrictions: Vec<AstTypeRestriction>,

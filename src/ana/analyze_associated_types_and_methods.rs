@@ -83,9 +83,15 @@ impl AstAdapter for AnalyzeAssociatedTypesAndMethods {
                 generics,
                 mut args,
             } => {
-                if !self.program.methods_to_traits.contains_key(&fn_name) {
+                let in_trait = self.program.methods_to_traits.contains_key(&fn_name);
+                let in_impl = self
+                    .program
+                    .methods_to_anonymous_impls
+                    .contains_key(&fn_name);
+
+                if !in_trait && !in_impl {
                     return PResult::error(format!(
-                        "There are no traits with the given method `{}`",
+                        "There are no traits or impls with the given method `{}`",
                         fn_name
                     ));
                 }
@@ -121,9 +127,15 @@ impl AstAdapter for AnalyzeAssociatedTypesAndMethods {
                         ));
                     }
                 } else {
-                    if !self.program.methods_to_traits.contains_key(&fn_name) {
+                    let in_trait = self.program.methods_to_traits.contains_key(&fn_name);
+                    let in_impl = self
+                        .program
+                        .methods_to_anonymous_impls
+                        .contains_key(&fn_name);
+
+                    if !in_trait && !in_impl {
                         return PResult::error(format!(
-                            "There are no traits with the given method `{}`",
+                            "There are no traits or impls with the given method `{}`",
                             fn_name
                         ));
                     }

@@ -165,64 +165,84 @@ pub fn decorate_object(name: &ModuleRef, generics: &[AstType]) -> PResult<String
 
 pub fn decorate_object_fn(
     ty: &AstType,
-    trt: &AstTraitType,
+    trt: Option<&AstTraitType>,
     fn_name: &str,
     fn_generics: &[AstType],
 ) -> PResult<String> {
-    let (decorated_module, trt_name) = decorate_module(&trt.name)?;
+    if let Some(trt) = trt {
+        let (decorated_module, trt_name) = decorate_module(&trt.name)?;
 
-    Ok(if trt.generics.len() == 0 && fn_generics.len() == 0 {
-        format!(
-            "i{}{}{}{}{}{}",
-            decorate_ty(ty)?,
-            decorated_module,
-            trt_name.len(),
-            trt_name,
-            fn_name.len(),
-            fn_name
-        )
-    } else if fn_generics.len() == 0 {
-        let mut string = format!(
-            "m{}{}{}{}{}",
-            decorate_ty(ty)?,
-            decorated_module,
-            trt_name.len(),
-            trt_name,
-            trt.generics.len()
-        );
+        Ok(if trt.generics.len() == 0 && fn_generics.len() == 0 {
+            format!(
+                "i{}{}{}{}{}{}",
+                decorate_ty(ty)?,
+                decorated_module,
+                trt_name.len(),
+                trt_name,
+                fn_name.len(),
+                fn_name
+            )
+        } else if fn_generics.len() == 0 {
+            let mut string = format!(
+                "m{}{}{}{}{}",
+                decorate_ty(ty)?,
+                decorated_module,
+                trt_name.len(),
+                trt_name,
+                trt.generics.len()
+            );
 
-        for t in &trt.generics {
-            string.push_str(&decorate_ty(t)?);
-        }
+            for t in &trt.generics {
+                string.push_str(&decorate_ty(t)?);
+            }
 
-        string.push_str(&format!("{}{}", fn_name.len(), fn_name));
+            string.push_str(&format!("{}{}", fn_name.len(), fn_name));
 
-        string
+            string
+        } else {
+            let mut string = format!(
+                "M{}{}{}{}{}",
+                decorate_ty(ty)?,
+                decorated_module,
+                trt_name.len(),
+                trt_name,
+                trt.generics.len()
+            );
+
+            for t in &trt.generics {
+                string.push_str(&decorate_ty(t)?);
+            }
+
+            string.push_str(&format!(
+                "_{}{}{}",
+                fn_name.len(),
+                fn_name,
+                fn_generics.len()
+            ));
+
+            for t in fn_generics {
+                string.push_str(&decorate_ty(t)?);
+            }
+
+            string
+        })
     } else {
-        let mut string = format!(
-            "M{}{}{}{}{}",
-            decorate_ty(ty)?,
-            decorated_module,
-            trt_name.len(),
-            trt_name,
-            trt.generics.len()
-        );
+        Ok(if fn_generics.len() == 0 {
+            format!("y{}{}{}", decorate_ty(ty)?, fn_name.len(), fn_name)
+        } else {
+            let mut string = format!(
+                "Y{}{}{}{}",
+                decorate_ty(ty)?,
+                fn_name.len(),
+                fn_name,
+                fn_generics.len()
+            );
 
-        for t in &trt.generics {
-            string.push_str(&decorate_ty(t)?);
-        }
+            for t in fn_generics {
+                string.push_str(&decorate_ty(t)?);
+            }
 
-        string.push_str(&format!(
-            "_{}{}{}",
-            fn_name.len(),
-            fn_name,
-            fn_generics.len()
-        ));
-
-        for t in fn_generics {
-            string.push_str(&decorate_ty(t)?);
-        }
-
-        string
-    })
+            string
+        })
+    }
 }

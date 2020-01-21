@@ -137,7 +137,7 @@ pub fn instantiate_associated_ty(
         .visit(&mut self_adapter)?;
 
     debug!(
-        "Instantiated <{} as {}>::{} = {}",
+        "Instantiated <{} as {:?}>::{} = {}",
         impl_info
             .impl_ty
             .clone()
@@ -153,7 +153,7 @@ pub fn instantiate_associated_ty(
     );
 
     debug!(
-        "Originally <{} as {}>::{} = {}",
+        "Originally <{} as {:?}>::{} = {}",
         impl_info.impl_ty, impl_info.trait_ty, name, impl_info.associated_tys[name]
     );
 
@@ -217,20 +217,25 @@ pub fn instantiate_impl_trait_ty(
     imp: ImplId,
     generics: &[AstType],
     self_ty: &AstType,
-) -> PResult<AstTraitTypeWithAssocs> {
+) -> PResult<Option<AstTraitTypeWithAssocs>> {
     let impl_info = &program.analyzed_impls[&imp];
 
     let mut generics_adapter = GenericsAdapter::new(&impl_info.generics, generics);
     let mut self_adapter = SelfAdapter::new(self_ty.clone());
 
-    Ok(AstTraitTypeWithAssocs {
-        trt: impl_info
-            .trait_ty
-            .clone()
-            .visit(&mut generics_adapter)?
-            .visit(&mut self_adapter)?,
-        assoc_bindings: BTreeMap::new(),
-    })
+    if let Some(trt) = impl_info
+        .trait_ty
+        .clone()
+        .visit(&mut generics_adapter)?
+        .visit(&mut self_adapter)?
+    {
+        Ok(Some(AstTraitTypeWithAssocs {
+            trt,
+            assoc_bindings: BTreeMap::new(),
+        }))
+    } else {
+        Ok(None)
+    }
 }
 
 pub fn instantiate_impl_signature(
@@ -238,7 +243,7 @@ pub fn instantiate_impl_signature(
     imp: ImplId,
     generics: &[AstType],
     self_ty: &AstType,
-) -> PResult<(AstType, AstTraitType, Vec<AstTypeRestriction>)> {
+) -> PResult<(AstType, Option<AstTraitType>, Vec<AstTypeRestriction>)> {
     let impl_info = &program.analyzed_impls[&imp];
 
     let mut generics_adapter = GenericsAdapter::new(&impl_info.generics, generics);

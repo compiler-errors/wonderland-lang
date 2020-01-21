@@ -15,6 +15,7 @@ pub struct AnalyzedProgram {
     pub analyzed_globals: HashMap<ModuleRef, AstType>,
     pub associated_types_to_traits: HashMap<String, Vec<ModuleRef>>,
     pub methods_to_traits: HashMap<String, Vec<ModuleRef>>,
+    pub methods_to_anonymous_impls: HashMap<String, Vec<ImplId>>,
 }
 
 #[derive(Debug, Clone)]
@@ -67,7 +68,7 @@ pub struct AnImplData {
     pub impl_id: ImplId,
     pub generics: Vec<AstGeneric>,
     pub methods: HashMap<String, AnFunctionData>,
-    pub trait_ty: AstTraitType,
+    pub trait_ty: Option<AstTraitType>,
     pub impl_ty: AstType,
     pub restrictions: Vec<AstTypeRestriction>,
     pub associated_tys: HashMap<String, AstType>,

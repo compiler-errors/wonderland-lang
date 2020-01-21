@@ -420,7 +420,7 @@ impl TyckSolver {
                 .collect();
 
             self.push_new_epoch()?;
-            let sol = self.elaborate_impl(*imp, &impl_generics, ty, &trt.trt);
+            let sol = self.elaborate_impl(*imp, &impl_generics, ty, Some(&trt.trt));
             let epoch = self.rollback_epoch();
 
             if let Err(e) = &sol {
@@ -439,7 +439,7 @@ impl TyckSolver {
                 let (a, b, c) =
                     instantiate_impl_signature(&self.program, imp.impl_id, &imp.generics, ty)?;
                 debug!(
-                    "{}>Ok impl {} for {} where {:?}",
+                    "{}>Ok impl {:?} for {:?} where {:?}",
                     INDENT.repeat(self.epochs.len()),
                     b,
                     a,
@@ -489,11 +489,11 @@ impl TyckSolver {
         impl_id: ImplId,
         impl_generics: &[AstType],
         ty: &AstType,
-        trt: &AstTraitType,
+        trt: Option<&AstTraitType>,
     ) -> PResult<AstImplSignature> {
         let impl_info = &self.program.clone().analyzed_impls[&impl_id];
         debug!(
-            "{}Trying impl {} for {} where {:?}",
+            "{}Trying impl {:?} for {:?} where {:?}",
             INDENT.repeat(self.epochs.len()),
             impl_info.trait_ty,
             impl_info.impl_ty,
@@ -504,7 +504,19 @@ impl TyckSolver {
             instantiate_impl_signature(&self.program, impl_id, impl_generics, ty)?;
 
         self.unify(false, &expected_ty, ty)?;
-        self.unify_all(false, &expected_trt.generics, &trt.generics)?;
+
+        match (&expected_trt, trt) {
+            (Some(expected_trt), Some(trt)) => {
+                self.unify_all(false, &expected_trt.generics, &trt.generics)?
+            }
+            (Some(_), None) | (None, Some(_)) => {
+                return PResult::error(format!(
+                    "ICE: Tried to unify an expected trait with no given trait. \
+                This should NEVER happen."
+                ));
+            }
+            (None, None) => {}
+        }
 
         if top_epoch!(self).ambiguous.is_none() {
             self.satisfy_restrictions(&restrictions)?;
@@ -550,7 +562,11 @@ impl TyckSolver {
                     *imp,
                     &impl_generics,
                     ty,
-                    &instantiate_impl_trait_ty(&self.program, *imp, &impl_generics, ty)?.trt,
+                    Some(
+                        &instantiate_impl_trait_ty(&self.program, *imp, &impl_generics, ty)?
+                            .unwrap()
+                            .trt,
+                    ),
                 );
                 let epoch = self.rollback_epoch();
 
@@ -571,7 +587,7 @@ impl TyckSolver {
                 let (a, b, c) =
                     instantiate_impl_signature(&self.program, imp.impl_id, &imp.generics, ty)?;
                 debug!(
-                    "{}>Ok assoc = impl {} for {} where {:?}",
+                    "{}>Ok assoc = impl {:?} for {:?} where {:?}",
                     INDENT.repeat(self.epochs.len()),
                     b,
                     a,
@@ -608,7 +624,7 @@ impl TyckSolver {
         generics: &[AstType],
         arg_tys: &[AstType],
         return_ty: &AstType,
-    ) -> PResult<Option<(AstTraitTypeWithAssocs, AstImplSignature)>> {
+    ) -> PResult<Option<(Option<AstTraitTypeWithAssocs>, AstImplSignature)>> {
         let key = TyckObjective::Method(ty.clone(), name.to_owned());
 
         if let Some(Some(imp)) = top_epoch!(self).successes.get(&key) {
@@ -626,23 +642,73 @@ impl TyckSolver {
         );
 
         let mut solutions = Vec::new();
-        for trt in &self.program.clone().methods_to_traits[name] {
-            let trait_data = &self.program.clone().analyzed_traits[&trt];
-            let fn_data = &trait_data.methods[name];
 
-            if fn_data.parameters.len() != arg_tys.len() {
-                continue;
+        if let Some(traits) = self.program.clone().methods_to_traits.get(name) {
+            for trt in traits {
+                let trait_data = &self.program.clone().analyzed_traits[&trt];
+                let fn_data = &trait_data.methods[name];
+
+                if fn_data.parameters.len() != arg_tys.len() {
+                    continue;
+                }
+
+                let fn_generics: Vec<_> = if generics.len() == 0 {
+                    fn_data.generics.iter().map(|_| AstType::infer()).collect()
+                } else if generics.len() == fn_data.generics.len() {
+                    generics.to_vec()
+                } else {
+                    continue;
+                };
+
+                for imp in &trait_data.impls {
+                    let impl_generics: Vec<_> = self.program.analyzed_impls[imp]
+                        .generics
+                        .iter()
+                        .map(|_| AstType::infer())
+                        .collect();
+
+                    self.push_new_epoch()?;
+                    let sol = self.elaborate_method(
+                        *imp,
+                        &impl_generics,
+                        name,
+                        &fn_generics,
+                        arg_tys,
+                        return_ty,
+                        ty,
+                    );
+                    let epoch = self.rollback_epoch();
+
+                    if let Err(e) = &sol {
+                        debug!("{}... Err: {}", INDENT.repeat(self.epochs.len()), e.why());
+                    } else if let Some(a) = &epoch.ambiguous {
+                        debug!("{}... Amb: {}", INDENT.repeat(self.epochs.len()), a);
+                    } else {
+                        debug!("{}... Ok!", INDENT.repeat(self.epochs.len()));
+                    }
+
+                    solutions.push((sol, epoch));
+                }
             }
+        }
 
-            let fn_generics: Vec<_> = if generics.len() == 0 {
-                fn_data.generics.iter().map(|_| AstType::infer()).collect()
-            } else if generics.len() == fn_data.generics.len() {
-                generics.to_vec()
-            } else {
-                continue;
-            };
+        if let Some(impls) = self.program.clone().methods_to_anonymous_impls.get(name) {
+            for imp in impls {
+                let impl_data = &self.program.clone().analyzed_impls[imp];
+                let fn_data = &impl_data.methods[name];
 
-            for imp in &trait_data.impls {
+                if fn_data.parameters.len() != arg_tys.len() {
+                    continue;
+                }
+
+                let fn_generics: Vec<_> = if generics.len() == 0 {
+                    fn_data.generics.iter().map(|_| AstType::infer()).collect()
+                } else if generics.len() == fn_data.generics.len() {
+                    generics.to_vec()
+                } else {
+                    continue;
+                };
+
                 let impl_generics: Vec<_> = self.program.analyzed_impls[imp]
                     .generics
                     .iter()
@@ -711,7 +777,7 @@ impl TyckSolver {
     ) -> PResult<AstImplSignature> {
         let impl_info = &self.program.clone().analyzed_impls[&impl_id];
         debug!(
-            "{}Trying impl {} for {} where {:?}",
+            "{}Trying impl {:?} for {:?} where {:?}",
             INDENT.repeat(self.epochs.len()),
             impl_info.trait_ty,
             impl_info.impl_ty,
@@ -933,20 +999,22 @@ impl AstAdapter for TyckSolver {
     }
 
     fn enter_impl(&mut self, i: AstImpl) -> PResult<AstImpl> {
-        self.satisfy_restrictions(&instantiate_trait_restrictions(
-            &self.program,
-            &i.trait_ty,
-            &i.impl_ty,
-        )?)?;
+        if let Some(trait_ty) = &i.trait_ty {
+            self.satisfy_restrictions(&instantiate_trait_restrictions(
+                &self.program,
+                trait_ty,
+                &i.impl_ty,
+            )?)?;
 
-        for (name, ty) in &i.associated_types {
-            let restrictions: Vec<_> =
-                instantiate_associated_ty_restrictions(&self.program, &i.trait_ty, &name, &ty)?
-                    .into_iter()
-                    .map(|trt| AstTypeRestriction::new(ty.clone(), trt))
-                    .collect();
+            for (name, ty) in &i.associated_types {
+                let restrictions: Vec<_> =
+                    instantiate_associated_ty_restrictions(&self.program, trait_ty, &name, &ty)?
+                        .into_iter()
+                        .map(|trt| AstTypeRestriction::new(ty.clone(), trt))
+                        .collect();
 
-            self.satisfy_restrictions(&restrictions)?;
+                self.satisfy_restrictions(&restrictions)?;
+            }
         }
 
         Ok(i)
@@ -1114,7 +1182,8 @@ impl AstAdapter for TyckSolver {
                 associated_trait,
                 impl_signature,
             } => {
-                if associated_trait.is_none() {
+                // If neither is specified, then we should try looking for an impl.
+                if associated_trait.is_none() && impl_signature.is_none() {
                     if let Some((trait_candidate, impl_candidate)) = self.satisfy_method(
                         call_type,
                         fn_name,
@@ -1122,7 +1191,7 @@ impl AstAdapter for TyckSolver {
                         &into_types(&args),
                         &ty,
                     )? {
-                        *associated_trait = Some(trait_candidate);
+                        *associated_trait = trait_candidate;
                         *impl_signature = Some(impl_candidate);
                     }
                 }
@@ -1181,7 +1250,40 @@ impl AstAdapter for TyckSolver {
                 }
 
                 if let Some(impl_signature) = impl_signature {
-                    if !self.program.analyzed_impls[&impl_signature.impl_id].is_dummy {
+                    let impl_data = &self.program.analyzed_impls[&impl_signature.impl_id];
+
+                    if !impl_data.is_dummy {
+                        let fn_data = &impl_data.methods[fn_name];
+
+                        let expected_args = fn_data.parameters.len();
+                        if args.len() != expected_args {
+                            return PResult::error(format!(
+                                "Incorrect number of arguments for \
+                method `{}:{}(...)`. Expected {}, found {}.",
+                                call_type,
+                                fn_name,
+                                expected_args,
+                                args.len()
+                            ));
+                        }
+
+                        let expected_generics = fn_data.generics.len();
+                        if fn_generics.len() == expected_generics {
+                            /* Don't do anything. */
+                        } else if fn_generics.len() == 0 {
+                            *fn_generics =
+                                (0..expected_generics).map(|_| AstType::infer()).collect();
+                        } else {
+                            return PResult::error(format!(
+                                "Incorrect number of generics for symbol `<{}>:{}(...)`. \
+                Expected {}, found {}.",
+                                call_type,
+                                fn_name,
+                                expected_generics,
+                                fn_generics.len()
+                            ));
+                        };
+
                         let (param_tys, return_ty, objectives) = instantiate_impl_fn_signature(
                             &*self.program,
                             impl_signature.impl_id,
@@ -1388,53 +1490,55 @@ impl TyckAdapter for TyckSolver {
             fn_generics,
         } = &i;
 
-        let (expected_params, expected_ret_ty, expected_constraints) =
-            instantiate_trait_fn_signature(
-                &self.program,
-                &trait_ty.name,
-                &trait_ty.generics,
-                &fun.name,
-                &fn_generics,
-                &impl_ty,
-            )?;
+        if let Some(trait_ty) = trait_ty {
+            let (expected_params, expected_ret_ty, expected_constraints) =
+                instantiate_trait_fn_signature(
+                    &self.program,
+                    &trait_ty.name,
+                    &trait_ty.generics,
+                    &fun.name,
+                    &fn_generics,
+                    &impl_ty,
+                )?;
 
-        for (given_param, expected_ty) in
-            ZipExact::zip_exact(&fun.parameter_list, &expected_params, "parameter")?
-        {
-            self.unify(true, expected_ty, &given_param.ty)?;
-        }
-
-        self.unify(true, &expected_ret_ty, &fun.return_type)?;
-        self.satisfy_restrictions(&expected_constraints)?;
-
-        if top_epoch!(self).ambiguous.is_none() {
-            let given_constraints: HashSet<_> = fun.restrictions.iter().cloned().collect();
-
-            // Normalize our expected constraints
-            let expected_constraints: HashSet<_> =
-                expected_constraints.visit(self)?.into_iter().collect();
-
-            for c in &given_constraints {
-                if !expected_constraints.contains(c) {
-                    top_epoch_mut!(self).ambiguous = Some(format!(
-                        "The impl method has an additional constraint \
-                    not specified in the trait prototype: \n{:?}\n{:?}",
-                        expected_constraints, given_constraints
-                    ));
-                    break;
-                }
+            for (given_param, expected_ty) in
+                ZipExact::zip_exact(&fun.parameter_list, &expected_params, "parameter")?
+            {
+                self.unify(true, expected_ty, &given_param.ty)?;
             }
 
-            /* NOTE: I don't particularly care if the constraints are subset here... I THINK.
+            self.unify(true, &expected_ret_ty, &fun.return_type)?;
+            self.satisfy_restrictions(&expected_constraints)?;
 
-            for c in &expected_constraints {
-                if !given_constraints.contains(c) {
-                    return PResult::error(format!(
-                        "The impl method has an additional \
-                    constraint not specified in the trait prototype"
-                    ));
+            if top_epoch!(self).ambiguous.is_none() {
+                let given_constraints: HashSet<_> = fun.restrictions.iter().cloned().collect();
+
+                // Normalize our expected constraints
+                let expected_constraints: HashSet<_> =
+                    expected_constraints.visit(self)?.into_iter().collect();
+
+                for c in &given_constraints {
+                    if !expected_constraints.contains(c) {
+                        top_epoch_mut!(self).ambiguous = Some(format!(
+                            "The impl method has an additional constraint \
+                    not specified in the trait prototype: \n{:?}\n{:?}",
+                            expected_constraints, given_constraints
+                        ));
+                        break;
+                    }
                 }
-            } */
+
+                /* NOTE: I don't particularly care if the constraints are subset here... I THINK.
+
+                for c in &expected_constraints {
+                    if !given_constraints.contains(c) {
+                        return PResult::error(format!(
+                            "The impl method has an additional \
+                        constraint not specified in the trait prototype"
+                        ));
+                    }
+                } */
+            }
         }
 
         Ok(i)
@@ -1445,20 +1549,22 @@ impl AnAdapter for TyckSolver {
     fn enter_analyzed_impl(&mut self, i: AnImplData) -> PResult<AnImplData> {
         assert!(i.is_dummy);
 
-        self.satisfy_restrictions(&instantiate_trait_restrictions(
-            &self.program,
-            &i.trait_ty,
-            &i.impl_ty,
-        )?)?;
+        if let Some(trait_ty) = &i.trait_ty {
+            self.satisfy_restrictions(&instantiate_trait_restrictions(
+                &self.program,
+                trait_ty,
+                &i.impl_ty,
+            )?)?;
 
-        for (name, ty) in &i.associated_tys {
-            let restrictions: Vec<_> =
-                instantiate_associated_ty_restrictions(&self.program, &i.trait_ty, &name, &ty)?
-                    .into_iter()
-                    .map(|trt| AstTypeRestriction::new(ty.clone(), trt))
-                    .collect();
+            for (name, ty) in &i.associated_tys {
+                let restrictions: Vec<_> =
+                    instantiate_associated_ty_restrictions(&self.program, trait_ty, &name, &ty)?
+                        .into_iter()
+                        .map(|trt| AstTypeRestriction::new(ty.clone(), trt))
+                        .collect();
 
-            self.satisfy_restrictions(&restrictions)?;
+                self.satisfy_restrictions(&restrictions)?;
+            }
         }
 
         Ok(i)

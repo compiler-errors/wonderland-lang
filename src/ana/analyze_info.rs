@@ -25,6 +25,7 @@ impl AnalyzeInfo {
                 analyzed_globals: HashMap::new(),
                 associated_types_to_traits: HashMap::new(),
                 methods_to_traits: HashMap::new(),
+                methods_to_anonymous_impls: HashMap::new(),
             },
         }
     }
@@ -186,6 +187,16 @@ impl AstAdapter for AnalyzeInfo {
                 is_dummy: false,
             };
 
+            if imp.trait_ty.is_none() {
+                for method in imp.fns.keys() {
+                    self.analyzed_program
+                        .methods_to_anonymous_impls
+                        .entry(method.clone())
+                        .or_default()
+                        .push(imp.impl_id);
+                }
+            }
+
             self.analyzed_program
                 .analyzed_impls
                 .insert(imp.impl_id, ana_imp);
@@ -204,13 +215,15 @@ impl AstAdapter for AnalyzeInfo {
     fn exit_program(&mut self, p: AstProgram) -> PResult<AstProgram> {
         for m in &p.modules {
             for imp in m.impls.values() {
-                let trt_name = imp.trait_ty.name.clone();
-                self.analyzed_program
-                    .analyzed_traits
-                    .get_mut(&trt_name)
-                    .is_expected(imp.name_span, "trait", &trt_name.full_name()?)?
-                    .impls
-                    .push(imp.impl_id);
+                if let Some(trait_ty) = &imp.trait_ty {
+                    let trt_name = trait_ty.name.clone();
+                    self.analyzed_program
+                        .analyzed_traits
+                        .get_mut(&trt_name)
+                        .is_expected(imp.name_span, "trait", &trt_name.full_name()?)?
+                        .impls
+                        .push(imp.impl_id);
+                }
             }
         }
 

@@ -6,7 +6,7 @@ use crate::util::{PResult, Visit};
 pub struct TyckInstantiatedObjectFunction {
     pub fun: AstObjectFunction,
     pub impl_ty: AstType,
-    pub trait_ty: AstTraitType,
+    pub trait_ty: Option<AstTraitType>,
     pub fn_generics: Vec<AstType>,
 }
 

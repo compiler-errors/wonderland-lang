@@ -18,7 +18,12 @@ pub struct InstEnumRepresentation {
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct InstObjectFunctionSignature(pub AstType, pub AstTraitType, pub String, pub Vec<AstType>);
+pub struct InstObjectFunctionSignature(
+    pub AstType,
+    pub Option<AstTraitType>,
+    pub String,
+    pub Vec<AstType>,
+);
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct InstImplSignature(pub ImplId, pub Vec<AstType>);

@@ -115,6 +115,7 @@ impl<T: AnAdapter> Visit<T> for AnalyzedProgram {
             analyzed_globals,
             associated_types_to_traits,
             methods_to_traits,
+            methods_to_anonymous_impls,
         } = adapter.enter_analyzed_program(self)?;
 
         let i = AnalyzedProgram {
@@ -128,6 +129,7 @@ impl<T: AnAdapter> Visit<T> for AnalyzedProgram {
             analyzed_modules,
             associated_types_to_traits,
             methods_to_traits,
+            methods_to_anonymous_impls,
         };
 
         adapter.exit_analyzed_program(i)

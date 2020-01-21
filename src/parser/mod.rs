@@ -8,7 +8,6 @@ use crate::util::*;
 use crate::util::{FileId, FileRegistry, Span};
 use std::collections::{BTreeMap, HashMap};
 use std::str::FromStr;
-use std::sync::RwLock;
 
 pub struct Parser {
     file: FileId,
@@ -246,13 +245,9 @@ impl Parser {
                     .insert(trt.name.clone(), trt)
                     .is_not_expected(span, "trait", &name)?;
             } else if self.check(Token::Impl) {
-                let (imp, trt) = self.parse_impl()?;
+                let imp = self.parse_impl()?;
 
                 impls.insert(imp.impl_id, imp);
-
-                if let Some(trt) = trt {
-                    traits.insert(trt.name.clone(), trt);
-                }
             } else if self.check(Token::Let) {
                 let global = self.parse_global()?;
                 let name = global.name.clone();
@@ -2100,64 +2095,17 @@ impl Parser {
         Ok((name.clone(), AstAssociatedType { name, restrictions }))
     }
 
-    fn parse_impl(&mut self) -> PResult<(AstImpl, Option<AstTrait>)> {
+    fn parse_impl(&mut self) -> PResult<AstImpl> {
         let name_span = self.next_span;
         self.expect_consume(Token::Impl)?;
         let impl_generics = self.try_parse_decl_generics()?;
 
-        if self.check_consume(Token::For)? {
-            let (impl_ty, _) = self.parse_type()?;
-            let restrictions = self.try_parse_restrictions()?;
-            self.expect_consume(Token::LBrace)?;
-
-            let mut fns = HashMap::new();
-
-            while !self.check_consume(Token::RBrace)? {
-                if self.check(Token::Fn) {
-                    let obj_fn = self.parse_object_function(true)?;
-                    fns.insert(obj_fn.name.clone(), obj_fn);
-                } else {
-                    self.error_here(format!(
-                        "Expected `fn` or `type`, found `{}`",
-                        self.next_token
-                    ))?;
-                }
-            }
-
-            let fn_sigs = fns
-                .iter()
-                .map(|(k, v)| (k.clone(), self.method_to_signature(v)))
-                .collect();
-
-            let trait_name = temp_name();
-            let trait_ty = AstTraitType::new(
-                ModuleRef::Normalized(self.file, trait_name.clone()),
-                impl_generics.iter().map(|t| t.clone().into()).collect(),
-            );
-
-            Ok((
-                AstImpl::new(
-                    name_span,
-                    impl_generics.clone(),
-                    trait_ty,
-                    impl_ty,
-                    fns,
-                    restrictions.clone(),
-                    HashMap::new(),
-                ),
-                Some(AstTrait::new(
-                    self.file,
-                    name_span,
-                    trait_name,
-                    impl_generics,
-                    fn_sigs,
-                    restrictions,
-                    HashMap::new(),
-                )),
-            ))
+        let trait_ty = if self.check(Token::For) {
+            None
         } else {
             let (trait_ty, trt_span) = self.parse_trait_type()?;
             let (trait_ty, assoc_tys) = trait_ty.split();
+
             if !assoc_tys.is_empty() {
                 return self.error_at(
                     trt_span,
@@ -2165,56 +2113,41 @@ impl Parser {
                 );
             }
 
-            self.expect_consume(Token::For)?;
-            let (impl_ty, _) = self.parse_type()?;
-            let restrictions = self.try_parse_restrictions()?;
-            self.expect_consume(Token::LBrace)?;
+            Some(trait_ty)
+        };
 
-            let mut fns = HashMap::new();
-            let mut tys = HashMap::new();
+        self.expect_consume(Token::For)?;
+        let (impl_ty, _) = self.parse_type()?;
+        let restrictions = self.try_parse_restrictions()?;
+        self.expect_consume(Token::LBrace)?;
 
-            while !self.check_consume(Token::RBrace)? {
-                if self.check(Token::Fn) {
-                    let obj_fn = self.parse_object_function(true)?;
-                    fns.insert(obj_fn.name.clone(), obj_fn);
-                } else if self.check(Token::Type) {
-                    let (name, ty) = self.parse_impl_associated_ty()?;
-                    tys.insert(name, ty);
-                } else {
-                    self.error_here(format!(
-                        "Expected `fn` or `type`, found `{}`",
-                        self.next_token
-                    ))?;
-                }
+        let mut fns = HashMap::new();
+        let mut tys = HashMap::new();
+
+        while !self.check_consume(Token::RBrace)? {
+            if self.check(Token::Fn) {
+                let obj_fn = self.parse_object_function(true)?;
+                fns.insert(obj_fn.name.clone(), obj_fn);
+            } else if self.check(Token::Type) {
+                let (name, ty) = self.parse_impl_associated_ty()?;
+                tys.insert(name, ty);
+            } else {
+                self.error_here(format!(
+                    "Expected `fn` or `type`, found `{}`",
+                    self.next_token
+                ))?;
             }
-
-            Ok((
-                AstImpl::new(
-                    name_span,
-                    impl_generics,
-                    trait_ty,
-                    impl_ty,
-                    fns,
-                    restrictions,
-                    tys,
-                ),
-                None,
-            ))
         }
-    }
 
-    fn method_to_signature(&mut self, o: &AstObjectFunction) -> AstObjectFunction {
-        AstObjectFunction {
-            name_span: o.name_span,
-            has_self: o.has_self,
-            definition: None,
-            name: o.name.clone(),
-            generics: o.generics.clone(),
-            restrictions: o.restrictions.clone(),
-            parameter_list: o.parameter_list.clone(),
-            return_type: o.return_type.clone(),
-            variables: o.variables.clone(),
-        }
+        Ok(AstImpl::new(
+            name_span,
+            impl_generics,
+            trait_ty,
+            impl_ty,
+            fns,
+            restrictions,
+            tys,
+        ))
     }
 
     fn parse_impl_associated_ty(&mut self) -> PResult<(String, AstType)> {
@@ -2357,16 +2290,4 @@ fn get_kind(t: Token) -> BinOpKind {
         Token::Pipe => BinOpKind::Or,
         _ => unreachable!(),
     }
-}
-
-lazy_static! {
-    static ref TEMP_NAME_COUNTER: RwLock<usize> = RwLock::new(1);
-}
-
-fn temp_name() -> String {
-    let mut id_ref = TEMP_NAME_COUNTER.write().unwrap();
-    *id_ref += 1;
-    let id: usize = *id_ref;
-
-    format!("${}", id)
 }

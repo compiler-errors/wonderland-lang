@@ -108,29 +108,23 @@ where
 }
 
 pub fn typecheck_impl(base_solver: &TyckSolver, mut imp: AstImpl) -> PResult<AstImpl> {
-    let trait_ty = imp.trait_ty.clone();
-    let impl_ty = imp.impl_ty.clone();
-
     // Yank these out; we'll tyck them ourselves a bit later on.
     let fns = std::mem::take(&mut imp.fns);
 
-    let mut imp = typecheck_simple(&base_solver, imp)
-        .with_comment(|| format!("In an impl `{}` for `{}`", trait_ty, impl_ty))?;
-
-    let trait_ty = &imp.trait_ty;
-    let impl_ty = &imp.impl_ty;
+    let mut imp = typecheck_simple(&base_solver, imp)?;
 
     let mut tycked_fns = HashMap::new();
     for (name, fun) in fns {
         let fn_generics = Dummifier::from_generics(&fun.generics)?;
 
-        let fun = typecheck_impl_fn(&base_solver, fun, &imp.impl_ty, &imp.trait_ty, &fn_generics)
-            .with_comment(|| {
-            format!(
-                "In method `{}` in `impl {} for {}`",
-                name, trait_ty, impl_ty,
-            )
-        })?;
+        let fun = typecheck_impl_fn(
+            &base_solver,
+            fun,
+            &imp.impl_ty,
+            imp.trait_ty.as_ref(),
+            &fn_generics,
+        )
+        .with_comment(|| format!("In method `{}`", name,))?;
 
         tycked_fns.insert(name, fun);
     }
@@ -143,7 +137,7 @@ pub fn typecheck_impl_fn(
     base_solver: &TyckSolver,
     fun: AstObjectFunction,
     impl_ty: &AstType,
-    trait_ty: &AstTraitType,
+    trait_ty: Option<&AstTraitType>,
     fn_generics: &[AstType],
 ) -> PResult<AstObjectFunction> {
     debug!("{:?} => {:?}", &fun.generics, fn_generics);
@@ -153,7 +147,7 @@ pub fn typecheck_impl_fn(
     let t = TyckInstantiatedObjectFunction {
         fun,
         impl_ty: impl_ty.clone(),
-        trait_ty: trait_ty.clone(),
+        trait_ty: trait_ty.cloned(),
         fn_generics: fn_generics.to_vec(),
     };
     let mut solver = base_solver.clone();
@@ -166,7 +160,7 @@ fn typecheck_impl_collision(
     _imp: &AstImpl,
     _other_impl: &AnImplData,
 ) -> PResult<()> {
-    //todo!()
+    // TODO
     Ok(())
 
     /*

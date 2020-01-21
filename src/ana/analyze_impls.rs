@@ -19,19 +19,28 @@ impl PureAnalysisPass for AnalyzeImpls {
 
 impl AstAdapter for AnalyzeImpls {
     fn enter_impl(&mut self, i: AstImpl) -> PResult<AstImpl> {
-        let info = &self.0.analyzed_traits[&i.trait_ty.name];
+        if let Some(trait_ty) = &i.trait_ty {
+            let info = &self.0.analyzed_traits[&trait_ty.name];
 
-        compare(
-            "method",
-            info.methods.keys().cloned().collect(),
-            i.fns.keys().cloned().collect(),
-        )?;
+            compare(
+                "method",
+                info.methods.keys().cloned().collect(),
+                i.fns.keys().cloned().collect(),
+            )?;
 
-        compare(
-            "associated type",
-            info.associated_tys.keys().cloned().collect(),
-            i.associated_types.keys().cloned().collect(),
-        )?;
+            compare(
+                "associated type",
+                info.associated_tys.keys().cloned().collect(),
+                i.associated_types.keys().cloned().collect(),
+            )?;
+        } else {
+            if !i.associated_types.is_empty() {
+                return PResult::error_at(
+                    i.name_span,
+                    format!("Did not expect anonymous impl to have associated types"),
+                );
+            }
+        }
 
         Ok(i)
     }

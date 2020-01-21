@@ -1,6 +1,6 @@
 use std::internal::operators::allocate_empty_array.
 
-impl<_It> IterAdapter for _It where _It: Iterator {
+impl<_It> for _It where _It: Iterator {
   fn map<_F>(self, f: _F) -> Map<_It, _F> = allocate Map { fun: f, iterator: self }.
   fn enumerate(self) -> Enumerate<_It> = allocate Enumerate { idx: 0, iterator: self }.
   fn limit(self, limit: Int) -> Limit<_It> = allocate Limit { idx: 0, limit, iterator: self }.
@@ -18,9 +18,9 @@ impl<_It> IterAdapter for _It where _It: Iterator {
   }
 }
 
-impl<_T> Sum for _T where _T: Iterator, <Self as Iterator>::IterItem: Default + Add<<Self as Iterator>::IterItem, ::Result=<Self as Iterator>::IterItem> {
+impl<_T> for _T where _T: Iterator, <Self as Iterator>::IterItem: Default + Add<<Self as Iterator>::IterItem, ::Result=<Self as Iterator>::IterItem> {
   fn sum(self) -> <Self as Iterator>::IterItem =
-    <Self as IterAdapter>:fold(
+    Self:fold(
       self,
       <Self as Iterator>::IterItem:default(),
       |a, b| a + b).

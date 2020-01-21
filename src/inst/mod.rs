@@ -209,7 +209,7 @@ impl InstantiationAdapter {
         &mut self,
         sig: &AstImplSignature,
         ty: &AstType,
-        trt: &AstTraitType,
+        trt: Option<&AstTraitType>,
     ) -> PResult<()> {
         let id = sig.impl_id;
         let generics = &sig.generics;
@@ -220,12 +220,15 @@ impl InstantiationAdapter {
         }
 
         self.instantiated_impls.insert(sig.clone(), None);
-        let objective = TyckObjective::Impl(ty.clone(), trt.clone());
 
-        // Ensure that this is the only impl for this specific `<ty as trt>::...`
-        self.solved_impls
-            .insert(objective, sig.clone())
-            .is_not_expected(self.impls[&id].name_span, "impl", "<conflicting types>")?;
+        if let Some(trt) = trt {
+            let objective = TyckObjective::Impl(ty.clone(), trt.clone());
+
+            // Ensure that this is the only impl for this specific `<ty as trt>::...`
+            self.solved_impls
+                .insert(objective, sig.clone())
+                .is_not_expected(self.impls[&id].name_span, "impl", "<conflicting types>")?;
+        }
 
         let ids = &self.analyzed_program.clone().analyzed_impls[&id].generics;
         let mut instantiate = GenericsAdapter::new(ids, generics);
@@ -244,7 +247,7 @@ impl InstantiationAdapter {
     fn instantiate_object_function(
         &mut self,
         call_type: &AstType,
-        trt: &AstTraitType,
+        trt: Option<&AstTraitType>,
         impl_sig: &AstImplSignature,
         fn_name: &str,
         fn_generics: &[AstType],
@@ -252,14 +255,14 @@ impl InstantiationAdapter {
         self.instantiate_impl(impl_sig, call_type, trt)?;
 
         debug!(
-            "Instantiating <{} as {}>:{} with {:?} generics",
+            "Instantiating <{:?} as {:?}>:{:?} with {:?} generics",
             call_type, trt, fn_name, fn_generics
         );
 
         let id = impl_sig.impl_id;
         let sig = InstObjectFunctionSignature(
             call_type.clone(),
-            trt.clone(),
+            trt.cloned(),
             fn_name.into(),
             fn_generics.into(),
         );
@@ -449,7 +452,7 @@ impl AstAdapter for InstantiationAdapter {
                 let impl_sig = impl_signature.as_ref().unwrap();
                 self.instantiate_object_function(
                     call_type,
-                    &associated_trait.as_ref().unwrap().trt,
+                    associated_trait.as_ref().map(|trt| &trt.trt),
                     impl_sig,
                     fn_name,
                     fn_generics,
