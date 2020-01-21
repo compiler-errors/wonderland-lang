@@ -24,25 +24,6 @@ impl Into<String> for Bool {
   }
 }
 
-impl Into<String> for () {
-  fn into(self) -> String {
-      "()"
-  }
-}
-
-impl<_T> Into<String> for (_T,) where _T: Into<String> {
-  fn into(self) -> String {
-      "(" + to_string(self:0) + ",)"
-  }
-}
-
-impl<_T, _S> Into<String> for (_T, _S) where _T: Into<String>,
-                                           _S: Into<String> {
-  fn into(self) -> String {
-      "(" + to_string(self:0) + ", " + to_string(self:1) + ")"
-  }
-}
-
 impl<_T> Into<String> for [_T] where _T: Into<String> {
   fn into(self) -> String {
       let s = "[".
