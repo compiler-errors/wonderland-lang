@@ -217,6 +217,9 @@ impl Lexer {
                     if self.next_char() == '=' {
                         self.bump(2);
                         Ok(Token::EqualsEquals)
+                    } else if self.next_char() == '>' {
+                        self.bump(2);
+                        Ok(Token::RBigArrow)
                     } else {
                         self.bump(1);
                         Ok(Token::Equals)

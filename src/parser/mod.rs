@@ -1099,7 +1099,7 @@ impl Parser {
             Token::And => Ok(2),
             Token::Pipe => Ok(1),
             Token::Equals => Ok(0),
-            _ => self.error_at(span, format!("Uknown token `{}`", token)),
+            _ => self.error_at(span, format!("Unknown token `{}`", token)),
         }
     }
 
@@ -1420,13 +1420,10 @@ impl Parser {
 
         while !self.check_consume(Token::RBrace)? {
             let pattern = self.parse_match_pattern()?;
-            self.expect_consume(Token::RArrow)?;
+            self.expect_consume(Token::RBigArrow)?;
             let expression = self.parse_expression()?;
 
-            if let AstExpressionData::Block { .. } = &expression.data {
-                // TRY to consume a comma, but we don't need it either, so w/e.
-                self.check_consume(Token::Comma)?;
-            } else if self.check(Token::RBrace) {
+            if self.check(Token::RBrace) {
                 // TRY to consume a comma, but we don't need it either, so w/e.
                 self.check_consume(Token::Comma)?;
             } else {

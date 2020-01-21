@@ -1,15 +1,15 @@
 impl Default for Int {
-    fn default() -> Int = 0.
+  fn default() -> Int = 0.
 }
 
 impl Default for Char {
-    fn default() -> Char = ' '.
+  fn default() -> Char = ' '.
 }
 
 impl Default for Bool {
-    fn default() -> Bool = false.
+  fn default() -> Bool = false.
 }
 
 impl Default for String {
-    fn default() -> String = "".
+  fn default() -> String = "".
 }

@@ -7,11 +7,11 @@ export fn gc().
 export fn print(s: String).
 
 fn println(s: String) {
-    print(s + "\n").
+  print(s + "\n").
 }
 
 fn panic<_T>(s: String) -> _T {
-    println(s).
+  println(s).
 
-    match s {}
+  match s {}
 }

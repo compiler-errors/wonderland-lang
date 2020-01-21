@@ -20,6 +20,7 @@ pub enum Token {
     LParen,      //    (
     RParen,      //    )
     RArrow,      //    ->
+    RBigArrow,   //    =>
     Underscore,  //    _
 
     // Mathematical operators (excluding LSquare, RSquare)
@@ -116,6 +117,7 @@ impl Display for Token {
             Token::LParen => write!(f, "("),
             Token::RParen => write!(f, ")"),
             Token::RArrow => write!(f, "->"),
+            Token::RBigArrow => write!(f, "=>"),
             Token::Underscore => write!(f, "_"),
             Token::LessEqual => write!(f, "<="),
             Token::GreaterEqual => write!(f, ">="),
