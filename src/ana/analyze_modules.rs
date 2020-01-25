@@ -1,10 +1,8 @@
-use crate::parser::ast::*;
-use crate::parser::ast_visitor::AstAdapter;
-use crate::util::{Comment, FileId, PError};
-use crate::util::{FileRegistry, IntoError, PResult};
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::rc::Rc;
+use crate::{
+    parser::{ast::*, ast_visitor::AstAdapter},
+    util::{Context, FileId, FileRegistry, PError, PResult},
+};
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 pub type SharedModule = Rc<RefCell<MappedModule>>;
 
@@ -46,10 +44,10 @@ impl ModuleMap {
                 if let ModuleItem::Submodule(submodule) = &module_mut.children[child_name] {
                     submodule.clone()
                 } else {
-                    return PResult::error(format!(
+                    return perror!(
                         "Expected `{}` to be a module, instead it is a symbol!",
                         mod_path.join("::")
-                    ));
+                    );
                 }
             };
 
@@ -72,16 +70,16 @@ fn get_module(module: &SharedModule, mod_path: &[String]) -> PResult<SharedModul
             let module = (*module).borrow();
 
             if !module.children.contains_key(child_name) {
-                return PResult::error(format!("No submodule with the name `{}`", child_name));
+                return perror!("No submodule with the name `{}`", child_name);
             }
 
             if let ModuleItem::Submodule(submodule) = &module.children[child_name] {
                 submodule.clone()
             } else {
-                return PResult::error(format!(
+                return perror!(
                     "Expected `{}` to be a module, instead it is a symbol!",
                     mod_path.join("::")
-                ));
+                );
             }
         };
 
@@ -171,7 +169,7 @@ impl<'a> AstAdapter for AnalyzeModules<'a> {
             .chain(m.enums.keys())
             .collect();
 
-        let path = FileRegistry::mod_path(m.id)?;
+        let path = FileRegistry::mod_path(m.id);
         let module = self.mod_map.get_or_create_module(&path)?;
 
         // Mutably borrow the module so we can mess with it!
@@ -180,7 +178,7 @@ impl<'a> AstAdapter for AnalyzeModules<'a> {
 
             for name in symbols {
                 if children.contains_key(name) {
-                    return PResult::error(format!("Duplicated symbol `{}`", name));
+                    return perror!("Duplicated symbol `{}`", name);
                 }
 
                 children.insert(name.clone(), ModuleItem::Symbol(id));
@@ -205,12 +203,13 @@ pub fn import(
         if this_children[name] != child {
             debug!("{:#?} VS. {:#?}", this_children[name], child);
 
-            return PResult::error(format!(
-                "Cannot import symbol `{}` from module `{}` when it already exists in the module `{}`!",
+            return perror!(
+                "Cannot import symbol `{}` from module `{}` when it already exists in the module \
+                 `{}`!",
                 name,
                 module.join("::"),
-                FileRegistry::mod_path(this_id)?.join("::")
-            ));
+                FileRegistry::mod_path(this_id).join("::")
+            );
         }
         Ok(false)
     } else {
@@ -243,8 +242,7 @@ impl<'a> AstAdapter for AnalyzePubUses<'a> {
                     let use_module_ref = self.mod_map.get_module(module)?;
                     let child = (*use_module_ref).borrow().get_child(item, module)?;
 
-                    let this_module_ref =
-                        self.mod_map.get_module(&FileRegistry::mod_path(m.id)?)?;
+                    let this_module_ref = self.mod_map.get_module(&FileRegistry::mod_path(m.id))?;
                     let mut this_module = (*this_module_ref).borrow_mut();
 
                     let res = import(m.id, &mut this_module.children, module, item, child);
@@ -252,16 +250,16 @@ impl<'a> AstAdapter for AnalyzePubUses<'a> {
                     match res {
                         Ok(true) => self.modified = true,
                         Err(e) => self.err = Some(e),
-                        _ => {}
+                        _ => {},
                     }
-                }
+                },
                 AstUse::UseAll(module) => {
                     let use_module_ref = self.mod_map.get_module(module)?;
                     let use_module = (*use_module_ref).borrow();
 
                     for (name, child) in &use_module.children {
                         let this_module_ref =
-                            self.mod_map.get_module(&FileRegistry::mod_path(m.id)?)?;
+                            self.mod_map.get_module(&FileRegistry::mod_path(m.id))?;
                         let mut this_module = (*this_module_ref).borrow_mut();
 
                         let res =
@@ -270,10 +268,10 @@ impl<'a> AstAdapter for AnalyzePubUses<'a> {
                         match res {
                             Ok(true) => self.modified = true,
                             Err(e) => self.err = Some(e),
-                            _ => {}
+                            _ => {},
                         }
                     }
-                }
+                },
             }
         }
 
@@ -303,12 +301,12 @@ impl<'a> AstAdapter for AnalyzeUses<'a> {
     fn enter_module(&mut self, mut m: AstModule) -> PResult<AstModule> {
         let std_path = vec!["std".into()];
 
-        if FileRegistry::mod_path(m.id)? != std_path {
+        if FileRegistry::mod_path(m.id) != std_path {
             m.uses.push(AstUse::UseAll(std_path));
         }
 
         if self.current_mod.is_some() {
-            return PResult::error(format!("Previous module wasn't cleaned up!"));
+            return perror!("ICE: Previous module wasn't cleaned up!");
         }
 
         let current_mod_ref = self.mod_map.get_module_clone(m.id);
@@ -327,7 +325,7 @@ impl<'a> AstAdapter for AnalyzeUses<'a> {
                         let mut current_mod = (*current_mod_ref).borrow_mut();
 
                         import(m.id, &mut current_mod.children, module, item, child)?;
-                    }
+                    },
                     AstUse::UseAll(module) => {
                         let use_module_ref = self.mod_map.get_module(module)?;
                         let use_module = (*use_module_ref).borrow();
@@ -343,7 +341,7 @@ impl<'a> AstAdapter for AnalyzeUses<'a> {
                                 child.clone(),
                             )?;
                         }
-                    }
+                    },
                 }
             }
 
@@ -365,7 +363,7 @@ impl<'a> AstAdapter for AnalyzeUses<'a> {
         }
 
         self.current_mod = Some(current_mod_ref);
-        self.current_mod_name = Some(FileRegistry::mod_path(m.id)?.join("::"));
+        self.current_mod_name = Some(FileRegistry::mod_path(m.id).join("::"));
         Ok(m)
     }
 
@@ -383,9 +381,9 @@ impl<'a> AstAdapter for AnalyzeUses<'a> {
                 {
                     Ok(ModuleRef::Normalized(file, path.last().unwrap().clone()))
                 } else {
-                    PResult::error(format!("Reference {} is not a symbol!", path.join("::")))
+                    perror!("Reference {} is not a symbol!", path.join("::"))
                 }
-            }
+            },
             n @ ModuleRef::Normalized(..) => Ok(n),
         }
     }

@@ -3,11 +3,14 @@ pub mod ast_display;
 pub mod ast_visitor;
 
 use self::ast::*;
-use crate::lexer::*;
-use crate::util::*;
-use crate::util::{FileId, FileRegistry, Span};
-use std::collections::{BTreeMap, HashMap};
-use std::str::FromStr;
+use crate::{
+    lexer::*,
+    util::{FileId, FileRegistry, Span, *},
+};
+use std::{
+    collections::{BTreeMap, HashMap},
+    str::FromStr,
+};
 
 pub struct Parser {
     file: FileId,
@@ -37,16 +40,6 @@ pub fn parse_module(file: FileId) -> PResult<AstModule> {
 }
 
 impl Parser {
-    /// Report an error at the current position
-    fn error_at<T>(&self, span: Span, error: String) -> PResult<T> {
-        PResult::error_at(span, error)
-    }
-
-    /// Report an error at the current position
-    fn error_here<T>(&self, s: String) -> PResult<T> {
-        self.error_at(self.next_span, s)
-    }
-
     fn id(&self) -> FileId {
         self.lexer.id()
     }
@@ -62,14 +55,17 @@ impl Parser {
 
     /// Check for a token but don't consume it, otherwise signal an error
     fn expect(&self, token: Token) -> PResult<()> {
-        let err_tok = format!("{}", token);
+        let token_str = format!("{}", token);
+
         if self.check(token) {
             Ok(())
         } else {
-            self.error_here(format!(
+            perror_at!(
+                self.next_span,
                 "Expected token `{}`, found `{}`.",
-                err_tok, self.next_token
-            ))
+                token_str,
+                self.next_token
+            )
         }
     }
 
@@ -85,7 +81,8 @@ impl Parser {
         return token == self.next_token;
     }
 
-    /// Test and consume a token (if it matches), returning the status as a boolean.
+    /// Test and consume a token (if it matches), returning the status as a
+    /// boolean.
     fn check_consume(&mut self, token: Token) -> PResult<bool> {
         let x = self.check(token);
         if x {
@@ -139,7 +136,11 @@ impl Parser {
     /// has caused me a LOT of grief, but it's necessary, yo.
     fn expect_consume_colon(&mut self) -> PResult<()> {
         if !self.check_consume_colon()? {
-            return self.error_here(format!("Expected token `:`, found `{}`.", self.next_token));
+            return perror_at!(
+                self.next_span,
+                "Expected token `:`, found `{}`.",
+                self.next_token
+            );
         }
 
         Ok(())
@@ -152,7 +153,11 @@ impl Parser {
             self.bump()?;
             Ok(ident)
         } else {
-            self.error_here(format!("Expected token `Identifier`, found `{}`.", tok))
+            perror_at!(
+                self.next_span,
+                "Expected token `Identifier`, found `{}`.",
+                tok
+            )
         }
     }
 
@@ -163,7 +168,11 @@ impl Parser {
             self.bump()?;
             Ok(ident)
         } else {
-            self.error_here(format!("Expected token `Typename`, found `{}`.", tok))
+            perror_at!(
+                self.next_span,
+                "Expected token `Typename`, found `{}`.",
+                tok
+            )
         }
     }
 
@@ -174,7 +183,11 @@ impl Parser {
             self.bump()?;
             Ok(ident)
         } else {
-            self.error_here(format!("Expected token `GenericType`, found `{}`.", tok))
+            perror_at!(
+                self.next_span,
+                "Expected token `GenericType`, found `{}`.",
+                tok
+            )
         }
     }
 
@@ -185,7 +198,11 @@ impl Parser {
             self.bump()?;
             Ok(usize::from_str(&num).unwrap())
         } else {
-            self.error_here(format!("Expected token `IntLiteral`, found `{}`.", tok))
+            perror_at!(
+                self.next_span,
+                "Expected token `IntLiteral`, found `{}`.",
+                tok
+            )
         }
     }
 
@@ -218,7 +235,7 @@ impl Parser {
 
                 functions
                     .insert(fun.name.clone(), fun)
-                    .is_not_expected(span, "function", &name)?;
+                    .as_not_expected(span, "function", &name)?;
             } else if self.check(Token::Object) {
                 let obj = self.parse_object()?;
                 let name = obj.name.clone();
@@ -226,7 +243,7 @@ impl Parser {
 
                 objects
                     .insert(obj.name.clone(), obj)
-                    .is_not_expected(span, "object", &name)?;
+                    .as_not_expected(span, "object", &name)?;
             } else if self.check(Token::Export) {
                 self.bump()?;
                 let fun = self.parse_function(false)?;
@@ -235,7 +252,7 @@ impl Parser {
 
                 functions
                     .insert(fun.name.clone(), fun)
-                    .is_not_expected(span, "function", &name)?;
+                    .as_not_expected(span, "function", &name)?;
             } else if self.check(Token::Trait) {
                 let trt = self.parse_trait()?;
                 let name = trt.name.clone();
@@ -243,7 +260,7 @@ impl Parser {
 
                 traits
                     .insert(trt.name.clone(), trt)
-                    .is_not_expected(span, "trait", &name)?;
+                    .as_not_expected(span, "trait", &name)?;
             } else if self.check(Token::Impl) {
                 let imp = self.parse_impl()?;
 
@@ -255,7 +272,7 @@ impl Parser {
 
                 globals
                     .insert(global.name.clone(), global)
-                    .is_not_expected(span, "global", &name)?;
+                    .as_not_expected(span, "global", &name)?;
             } else if self.check(Token::Enum) {
                 let en = self.parse_enum()?;
                 let name = en.name.clone();
@@ -263,19 +280,20 @@ impl Parser {
 
                 enums
                     .insert(en.name.clone(), en)
-                    .is_not_expected(span, "enum", &name)?;
+                    .as_not_expected(span, "enum", &name)?;
             } else {
                 // TODO: wonky
-                return self.error_here(format!(
+                return perror_at!(
+                    self.next_span,
                     "Expected `export`, `fn`, `trait`, `impl` or `object`, found `{}`",
                     self.next_token
-                ));
+                );
             }
         }
 
         Ok(AstModule::new(
             self.id(),
-            FileRegistry::name(self.id())?,
+            FileRegistry::name(self.id()),
             pub_uses,
             uses,
             functions,
@@ -293,17 +311,18 @@ impl Parser {
         loop {
             if self.check(Token::Mod) {
                 if !path.is_empty() {
-                    return self.error_here(format!(
+                    return perror_at!(
+                        self.next_span,
                         "`mod` keyword can only appear at the beginning of a module path!"
-                    ));
+                    );
                 }
 
                 self.bump()?;
-                path.extend(FileRegistry::parent_mod_path(self.file)?);
+                path.extend(FileRegistry::parent_mod_path(self.file));
             } else if self.check(Token::Star) {
                 // Can't have a path with just `use *`
                 if path.is_empty() {
-                    return self.error_here(format!("Cannot import `use *`!"));
+                    return perror_at!(self.next_span, "Cannot import `use *`!");
                 }
 
                 self.bump()?;
@@ -316,10 +335,11 @@ impl Parser {
             } else if self.check_identifier() {
                 path.push(self.expect_consume_identifier()?);
             } else {
-                return PResult::error(format!(
+                return perror_at!(
+                    self.next_span,
                     "Expected identifier, typename or `*`, got `{}`.",
                     self.next_token
-                ));
+                );
             }
 
             if self.check_consume(Token::ColonColon)? {
@@ -328,7 +348,11 @@ impl Parser {
                 let name = path.pop().unwrap();
                 return Ok(AstUse::Use(path, name));
             } else {
-                return PResult::error(format!("Expected `.` or `::`, got `{}`.", self.next_token));
+                return perror_at!(
+                    self.next_span,
+                    "Expected `.` or `::`, got `{}`.",
+                    self.next_token
+                );
             }
         }
     }
@@ -386,10 +410,7 @@ impl Parser {
         }
 
         if generics.len() == 0 {
-            self.error_at(
-                span,
-                format!("Expected generics, got `<>` (empty generics list)"),
-            )
+            perror_at!(span, "Expected generics, got `<>` (empty generics list)",)
         } else {
             Ok(generics)
         }
@@ -423,7 +444,8 @@ impl Parser {
         Ok(restrictions)
     }
 
-    /// Parse a parameter list (including LParen and RParen) following a function.
+    /// Parse a parameter list (including LParen and RParen) following a
+    /// function.
     fn parse_fn_parameter_list(&mut self) -> PResult<Vec<AstNamedVariable>> {
         self.expect_consume(Token::LParen)?;
         let mut parameters = Vec::new();
@@ -471,27 +493,27 @@ impl Parser {
             Token::Int => {
                 self.bump()?;
                 (AstType::Int, self.next_span)
-            }
+            },
             Token::Bool => {
                 self.bump()?;
                 (AstType::Bool, self.next_span)
-            }
+            },
             Token::Char => {
                 self.bump()?;
                 (AstType::Char, self.next_span)
-            }
+            },
             Token::StringType => {
                 self.bump()?;
                 (AstType::String, self.next_span)
-            }
+            },
             Token::Underscore => {
                 self.bump()?;
                 (AstType::infer(), self.next_span)
-            }
+            },
             Token::SelfType => {
                 self.bump()?;
                 (AstType::SelfType, self.next_span)
-            }
+            },
             Token::Pipe => {
                 let mut span = self.next_span;
                 let (args, s) = self.parse_fn_type_args(Token::Pipe, Token::Pipe)?;
@@ -504,7 +526,7 @@ impl Parser {
                     AstType::none()
                 };
                 (AstType::closure_type(args, ret_ty), span)
-            }
+            },
             Token::Fn => {
                 let mut span = self.next_span;
                 self.bump()?;
@@ -518,15 +540,16 @@ impl Parser {
                     AstType::none()
                 };
                 (AstType::fn_ptr_type(args, ret_ty), span)
-            }
+            },
             Token::LSqBracket => self.parse_array_type()?,
             Token::LParen => self.parse_tuple_type()?,
             Token::TypeName(..) | Token::Identifier(..) => self.parse_objectenum_type()?,
             Token::GenericName(..) => self.parse_generic_type()?,
-            _ => self.error_here(format!(
+            _ => perror_at!(
+                self.next_span,
                 "Expected built-in type, `identifier` or `(`, found `{}`",
                 self.next_token
-            ))?,
+            )?,
         };
 
         if has_lt && self.check_consume(Token::As)? {
@@ -610,10 +633,11 @@ impl Parser {
                 path.push(self.expect_consume_identifier()?);
                 self.expect_consume(Token::ColonColon)?;
             } else {
-                return self.error_here(format!(
+                return perror_at!(
+                    self.next_span,
                     "Expected a type name or module name, got `{}`",
                     self.next_token
-                ));
+                );
             }
         }
 
@@ -645,11 +669,11 @@ impl Parser {
                 path.push(self.expect_consume_identifier()?);
                 self.expect_consume(Token::ColonColon)?;
             } else {
-                return self.error_here(format!(
-                    "Expected typename or identifier, found \
-                     `{}`",
+                return perror_at!(
+                    self.next_span,
+                    "Expected typename or identifier, found `{}`",
                     self.next_token
-                ));
+                );
             }
         }
 
@@ -763,7 +787,10 @@ impl Parser {
                     self.bump()?; // Consume the rbrace.
                     break expression;
                 } else {
-                    self.error_here(format!("Expected `.` to end statement at end of block"))?;
+                    perror_at!(
+                        self.next_span,
+                        "Expected `.` to end statement at end of block"
+                    )?;
                 }
             } else {
                 if !self.check_consume(Token::Dot)? {
@@ -798,7 +825,7 @@ impl Parser {
                 };
 
                 Ok(AstStatement::break_stmt(expr, label))
-            }
+            },
             Token::Continue => {
                 self.bump()?;
 
@@ -809,7 +836,7 @@ impl Parser {
                 };
 
                 Ok(AstStatement::continue_stmt(label))
-            }
+            },
             Token::Return => self.parse_return_statement(),
             Token::Assert => self.parse_assert_statement(),
             _ => self.parse_expression_statement(),
@@ -853,7 +880,11 @@ impl Parser {
                 Ok(AstMatchPattern::tuple(elements))
             } else {
                 // Expected ) , or ..
-                self.error_here(format!("Expected `)` or `,`, found `{}`", self.next_token))
+                perror_at!(
+                    self.next_span,
+                    "Expected `)` or `,`, found `{}`",
+                    self.next_token
+                )
             }
         } else if self.check_identifier() {
             let name_span = self.next_span;
@@ -886,10 +917,11 @@ impl Parser {
         } else if let Ok(lit) = self.parse_literal_expression() {
             Ok(AstMatchPattern::literal(lit))
         } else {
-            return self.error_here(format!(
+            return perror_at!(
+                self.next_span,
                 "Expected match pattern: `_`, identifier, Typename or `(`, found `{}`",
                 self.next_token
-            ));
+            );
         }
     }
 
@@ -935,10 +967,7 @@ impl Parser {
             }
 
             if children.is_empty() && !ignore_rest {
-                return self.error_at(
-                    v_span,
-                    format!("Expected variant `{}` to have > 0 fields.", variant),
-                );
+                return perror_at!(v_span, "Expected variant `{}` to have > 0 fields.", variant,);
             }
 
             Ok(AstMatchPattern::named_enum(
@@ -967,10 +996,7 @@ impl Parser {
             }
 
             if children.is_empty() && !ignore_rest {
-                return self.error_at(
-                    v_span,
-                    format!("Expected variant `{}` to have > 0 fields.", variant),
-                );
+                return perror_at!(v_span, "Expected variant `{}` to have > 0 fields.", variant,);
             }
 
             Ok(AstMatchPattern::positional_enum(
@@ -1094,7 +1120,7 @@ impl Parser {
             Token::And => Ok(2),
             Token::Pipe => Ok(1),
             Token::Equals => Ok(0),
-            _ => self.error_at(span, format!("Unknown token `{}`", token)),
+            _ => perror_at!(span, "Unknown token `{}`", token),
         }
     }
 
@@ -1116,7 +1142,7 @@ impl Parser {
 
                     lhs = AstExpression::access(span, lhs, idx);
                     continue;
-                }
+                },
                 Token::Colon => {
                     self.bump()?;
                     if self.check_identifier() {
@@ -1146,27 +1172,27 @@ impl Parser {
                         lhs = AstExpression::tuple_access(span, lhs, idx);
                         continue;
                     } else {
-                        self.error_here(format!(
-                            "Expected either number or identifier after `:`, \
-                             found {}",
+                        perror_at!(
+                            self.next_span,
+                            "Expected either number or identifier after `:`, found {}",
                             self.next_token
-                        ))?;
+                        )?;
                     }
-                }
+                },
                 Token::LParen => {
                     let (args, args_span) = self.parse_expr_args()?;
                     span = span.unite(args_span);
                     lhs = AstExpression::expr_call(span, lhs, args);
                     continue;
-                }
+                },
                 Token::As => {
                     self.bump()?;
                     let (ty, ty_span) = self.parse_type()?;
                     span = span.unite(ty_span);
                     lhs = AstExpression::transmute(span, lhs, ty);
                     continue;
-                }
-                _ => {}
+                },
+                _ => {},
             }
 
             let new_prec = self.get_precedence(&op, op_span)?;
@@ -1204,7 +1230,7 @@ impl Parser {
             Token::LBrace => {
                 let (block, span) = self.parse_block()?;
                 Ok(AstExpression::block(span, block))
-            }
+            },
             Token::If => self.parse_if_statement(),
             Token::Match => self.parse_match_statement(),
             Token::While => self.parse_while_loop(None),
@@ -1216,28 +1242,29 @@ impl Parser {
                 match &self.next_token {
                     Token::While => self.parse_while_loop(Some(label)),
                     Token::For => self.parse_for_loop(Some(label)),
-                    _ => self.error_here(format!(
+                    _ => perror_at!(
+                        self.next_span,
                         "Expected `while` or `for` following loop label, found `{}`",
                         self.next_token
-                    )),
+                    ),
                 }
-            }
+            },
             Token::Commalipses => {
                 self.bump()?;
                 Ok(AstExpression::unimplemented(span))
-            }
+            },
             Token::Bang => {
                 self.bump()?;
                 let e = self.parse_expr(9)?;
                 span = span.unite(e.span);
                 Ok(AstExpression::not(span, e))
-            }
+            },
             Token::Minus => {
                 self.bump()?;
                 let e = self.parse_expr(9)?;
                 span = span.unite(e.span);
                 Ok(AstExpression::neg(span, e))
-            }
+            },
             Token::Allocate => self.parse_allocate_expr(),
             Token::LParen => self.parse_paren_expr(),
             Token::LSqBracket => self.parse_array_literal(),
@@ -1245,11 +1272,11 @@ impl Parser {
             Token::GenericName(_) | Token::Underscore | Token::SelfType | Token::Lt => {
                 let (ty, _) = self.parse_type()?;
                 self.parse_static_call(ty)
-            }
+            },
             Token::SelfRef => {
                 self.bump()?;
                 Ok(AstExpression::self_ref(span))
-            }
+            },
             Token::True
             | Token::False
             | Token::String(..)
@@ -1257,14 +1284,14 @@ impl Parser {
             | Token::CharLiteral(..) => {
                 let lit = self.parse_literal_expression()?;
                 Ok(AstExpression::literal(span, lit))
-            }
+            },
             Token::InterpolateBegin(..) => self.parse_interpolate(),
             Token::Instruction => self.parse_instruction(),
-            _ => self.error_here(format!(
-                "Expected literal, identifier, `new` or `(`, found \
-                 `{}`",
+            _ => perror_at!(
+                self.next_span,
+                "Expected literal, identifier, `new` or `(`, found `{}`",
                 self.next_token
-            )),
+            ),
         }
     }
 
@@ -1289,7 +1316,7 @@ impl Parser {
                             AstExpression::literal(span, AstLiteral::String(string)),
                             BinOpKind::Add,
                         );
-                    }
+                    },
                     SpanToken(Token::InterpolateEnd(string), span) => {
                         interp_span = interp_span.unite(span);
                         interp = AstExpression::binop(
@@ -1299,17 +1326,14 @@ impl Parser {
                             BinOpKind::Add,
                         );
                         break;
-                    }
+                    },
                     SpanToken(tok, span) => {
-                        return self.error_at(
+                        return perror_at!(
                             span,
-                            format!(
-                                "Unrecognized token `{}`, \
-                        expected the end of a string interpolation!",
-                                tok
-                            ),
+                            "Unrecognized token `{}`, expected the end of a string interpolation!",
+                            tok
                         );
-                    }
+                    },
                 }
             }
 
@@ -1328,7 +1352,7 @@ impl Parser {
             self.bump()?;
             i
         } else {
-            return self.error_here(format!("Expected a string literal"));
+            return perror_at!(self.next_span, "Expected a string literal");
         };
 
         let mut arguments = Vec::new();
@@ -1343,12 +1367,12 @@ impl Parser {
                 Token::InstructionLiteral(lit) => {
                     arguments.push(InstructionArgument::Anonymous(lit.clone()));
                     self.bump()?;
-                }
+                },
                 Token::Colon => {
                     self.bump()?;
                     let (t, _) = self.parse_type()?;
                     arguments.push(InstructionArgument::Type(t));
-                }
+                },
                 _ => arguments.push(InstructionArgument::Expression(self.parse_expression()?)),
             }
         }
@@ -1361,12 +1385,12 @@ impl Parser {
                 let out = InstructionOutput::Anonymous(lit.clone());
                 self.bump()?;
                 out
-            }
+            },
             _ => {
                 let (ty, ty_span) = self.parse_type()?;
                 span = span.unite(ty_span);
                 InstructionOutput::Type(ty)
-            }
+            },
         };
 
         Ok(AstExpression::instruction(
@@ -1382,27 +1406,27 @@ impl Parser {
             Token::True => {
                 self.bump()?;
                 Ok(AstLiteral::True)
-            }
+            },
             Token::False => {
                 self.bump()?;
                 Ok(AstLiteral::False)
-            }
+            },
             Token::String(string) => {
                 let string = string.clone();
                 self.bump()?;
                 Ok(AstLiteral::String(string))
-            }
+            },
             Token::IntLiteral(num) => {
                 let num = num.clone();
                 self.bump()?;
                 Ok(AstLiteral::Int(num))
-            }
+            },
             Token::CharLiteral(ch) => {
                 let ch = *ch;
                 self.bump()?;
                 Ok(AstLiteral::Char(ch))
-            }
-            _ => self.error_here(format!("Expected a literal")),
+            },
+            _ => perror_at!(self.next_span, "Expected a literal"),
         }
     }
 
@@ -1495,10 +1519,11 @@ impl Parser {
                     return self.parse_identifier_expr(path);
                 }
             } else {
-                return self.error_here(format!(
+                return perror_at!(
+                    self.next_span,
                     "Expected a type name or module name, got `{}`",
                     self.next_token
-                ));
+                );
             }
         }
     }
@@ -1553,13 +1578,11 @@ impl Parser {
             }
 
             if children.is_empty() {
-                return self.error_at(
+                return perror_at!(
                     v_span,
-                    format!(
-                        "Expected variant `{}!{}` to have > 0 fields.",
-                        enumerable.full_name()?,
-                        variant
-                    ),
+                    "Expected variant `{}!{}` to have > 0 fields.",
+                    enumerable.full_name(),
+                    variant
                 );
             }
 
@@ -1579,13 +1602,11 @@ impl Parser {
             }
 
             if children.is_empty() {
-                return self.error_at(
+                return perror_at!(
                     v_span,
-                    format!(
-                        "Expected variant `{}!{}` to have > 0 fields.",
-                        enumerable.full_name()?,
-                        variant
-                    ),
+                    "Expected variant `{}!{}` to have > 0 fields.",
+                    enumerable.full_name(),
+                    variant
                 );
             }
 
@@ -1630,7 +1651,11 @@ impl Parser {
                 args,
             ))
         } else {
-            self.error_here(format!("Expected `(` or `:<`, found `{}`", self.next_token))
+            perror_at!(
+                self.next_span,
+                "Expected `(` or `:<`, found `{}`",
+                self.next_token
+            )
         }
     }
 
@@ -1662,7 +1687,11 @@ impl Parser {
             let elements = vec![first];
             Ok(AstExpression::array_literal(span, elements))
         } else {
-            self.error_here(format!("Expected `]` or `,`, found `{}`", self.next_token))
+            perror_at!(
+                self.next_span,
+                "Expected `]` or `,`, found `{}`",
+                self.next_token
+            )
         }
     }
 
@@ -1774,7 +1803,11 @@ impl Parser {
             Ok(AstExpression::tuple_literal(span, elements))
         } else {
             // Expected ) , or ..
-            self.error_here(format!("Expected `)` or `,`, found `{}`", self.next_token))
+            perror_at!(
+                self.next_span,
+                "Expected `)` or `,`, found `{}`",
+                self.next_token
+            )
         }
     }
 
@@ -1816,7 +1849,7 @@ impl Parser {
         }
 
         if generics.len() == 0 {
-            self.error_at(span, format!("Expected generics, got `<>`"))
+            perror_at!(span, "Expected generics, got `<>`")
         } else {
             Ok((generics, span))
         }
@@ -1841,7 +1874,7 @@ impl Parser {
                 self.expect_consume(Token::Equals)?;
                 let (ty, _) = self.parse_type()?;
 
-                bindings.insert(name.clone(), ty).is_not_expected(
+                bindings.insert(name.clone(), ty).as_not_expected(
                     name_span,
                     "associated type binding",
                     &name,
@@ -1855,9 +1888,9 @@ impl Parser {
         }
 
         if generics.len() + bindings.len() == 0 {
-            self.error_at(
+            perror_at!(
                 span,
-                format!("Expected generics or associated type bindings, got `<>`"),
+                "Expected generics or associated type bindings, got `<>`",
             )
         } else {
             Ok((generics, bindings, span))
@@ -1871,7 +1904,7 @@ impl Parser {
             | AstExpressionData::ArrayAccess { .. }
             | AstExpressionData::ObjectAccess { .. } => Ok(()),
             AstExpressionData::TupleAccess { accessible, .. } => self.ensure_lval(accessible),
-            _ => self.error_at(expr.span, format!("Expected lval for left of `=`")),
+            _ => perror_at!(expr.span, "Expected lval for left of `=`"),
         }
     }
 
@@ -1883,9 +1916,9 @@ impl Parser {
                     self.ensure_not_infer(ty, span)?;
                 }
                 Ok(())
-            }
+            },
             // TODO: Add spans to types...
-            AstType::Infer(..) => self.error_at(span, format!("Infer `_` type not expected")),
+            AstType::Infer(..) => perror_at!(span, "Infer `_` type not expected"),
             _ => Ok(()),
         }
     }
@@ -1927,7 +1960,7 @@ impl Parser {
                         ..
                     },
             } => Ok(()),
-            _ => PResult::error_at(span, format!("Statement must be ended with a `.`")),
+            _ => perror_at!(span, "Statement must be ended with a `.`"),
         }
     }
 
@@ -2056,10 +2089,11 @@ impl Parser {
                 let (name, ty) = self.parse_trait_associated_ty()?;
                 tys.insert(name, ty);
             } else {
-                self.error_here(format!(
+                perror_at!(
+                    self.next_span,
                     "Expected `fn` or `type`, found `{}`",
                     self.next_token
-                ))?;
+                )?;
             }
         }
 
@@ -2107,9 +2141,9 @@ impl Parser {
             let (trait_ty, assoc_tys) = trait_ty.split();
 
             if !assoc_tys.is_empty() {
-                return self.error_at(
+                return perror_at!(
                     trt_span,
-                    format!("Did not expect associated bindings in impl trait type"),
+                    "Did not expect associated bindings in impl trait type",
                 );
             }
 
@@ -2132,10 +2166,11 @@ impl Parser {
                 let (name, ty) = self.parse_impl_associated_ty()?;
                 tys.insert(name, ty);
             } else {
-                self.error_here(format!(
+                perror_at!(
+                    self.next_span,
                     "Expected `fn` or `type`, found `{}`",
                     self.next_token
-                ))?;
+                )?;
             }
         }
 
@@ -2188,7 +2223,7 @@ impl Parser {
 
             variants
                 .insert(var.name.clone(), var)
-                .is_not_expected(span, "variant", &name)?;
+                .as_not_expected(span, "variant", &name)?;
         }
 
         Ok(AstEnum::new(
@@ -2223,10 +2258,7 @@ impl Parser {
             }
 
             if fields.is_empty() {
-                return self.error_at(
-                    name_span,
-                    format!("Expected variant `{}` to have > 0 fields.", name),
-                );
+                return perror_at!(name_span, "Expected variant `{}` to have > 0 fields.", name,);
             }
 
             AstEnumVariant {
@@ -2247,10 +2279,7 @@ impl Parser {
             }
 
             if fields.is_empty() {
-                return self.error_at(
-                    name_span,
-                    format!("Expected variant `{}` to have > 0 fields.", name),
-                );
+                return perror_at!(name_span, "Expected variant `{}` to have > 0 fields.", name,);
             }
 
             AstEnumVariant {

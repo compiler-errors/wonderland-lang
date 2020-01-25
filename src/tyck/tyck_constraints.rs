@@ -1,9 +1,9 @@
-use crate::ana::represent::*;
-use crate::parser::ast::*;
-use crate::parser::ast_visitor::AstAdapter;
-use crate::tyck::tyck_instantiation::instantiate_associated_ty_restrictions;
-use crate::tyck::TYCK_MAX_DEPTH;
-use crate::util::{IntoError, PError, PResult};
+use crate::{
+    ana::represent::*,
+    parser::{ast::*, ast_visitor::AstAdapter},
+    tyck::{tyck_instantiation::instantiate_associated_ty_restrictions, TYCK_MAX_DEPTH},
+    util::{PError, PResult},
+};
 use std::collections::{BTreeMap, HashMap};
 
 pub struct TyckConstraintAssumptionAdapter {
@@ -31,10 +31,7 @@ impl TyckConstraintAssumptionAdapter {
         depth: usize,
     ) -> PResult<AnImplData> {
         if depth > TYCK_MAX_DEPTH {
-            return PResult::error(format!(
-                "Typechecker overflow while assuming {} :- {}",
-                ty, trt
-            ));
+            return perror!("Typechecker overflow while assuming {} :- {}", ty, trt);
         }
 
         debug!("Assuming {} :- {}", ty, trt);
@@ -66,7 +63,8 @@ impl TyckConstraintAssumptionAdapter {
                 )?;
 
                 for c in restrictions {
-                    // Alas, this means that we might have assumption bounds that are literally unprovable.
+                    // Alas, this means that we might have assumption bounds that are literally
+                    // unprovable.
                     self.assume(&dummy_ty, &c, depth + 1)?;
                 }
 
@@ -137,7 +135,8 @@ impl AstAdapter for TyckConstraintAssumptionAdapter {
     }
 }
 
-/// An adapter that turns Generics into Dummy types, so we can typecheck generic functions.
+/// An adapter that turns Generics into Dummy types, so we can typecheck generic
+/// functions.
 pub struct Dummifier;
 
 impl Dummifier {

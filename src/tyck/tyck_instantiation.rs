@@ -1,10 +1,14 @@
-use crate::ana::represent::AnalyzedProgram;
-use crate::parser::ast::{
-    AstGeneric, AstTraitType, AstTraitTypeWithAssocs, AstType, AstTypeRestriction, GenericId,
-    ImplId, ModuleRef,
+use crate::{
+    ana::represent::AnalyzedProgram,
+    parser::{
+        ast::{
+            AstGeneric, AstTraitType, AstTraitTypeWithAssocs, AstType, AstTypeRestriction,
+            GenericId, ImplId, ModuleRef,
+        },
+        ast_visitor::AstAdapter,
+    },
+    util::{PResult, Visit},
 };
-use crate::parser::ast_visitor::AstAdapter;
-use crate::util::{PResult, Visit};
 use std::collections::{BTreeMap, HashMap};
 
 pub fn instantiate_object_restrictions(
@@ -322,9 +326,8 @@ impl GenericsAdapter {
 impl AstAdapter for GenericsAdapter {
     fn enter_type(&mut self, t: AstType) -> PResult<AstType> {
         match t {
-            AstType::GenericPlaceholder(id, _) if self.0.contains_key(&id) => {
-                self.0[&id].clone().visit(self)
-            }
+            AstType::GenericPlaceholder(id, _) if self.0.contains_key(&id) =>
+                self.0[&id].clone().visit(self),
             t => Ok(t),
         }
     }

@@ -1,10 +1,11 @@
-use crate::ana::represent::AnalyzedProgram;
-use crate::ana::represent_visitor::PureAnalysisPass;
-use crate::parser::ast::{
-    AstExpression, AstExpressionData, AstFunction, AstImpl, AstObjectFunction, AstType,
+use crate::{
+    ana::{represent::AnalyzedProgram, represent_visitor::PureAnalysisPass},
+    parser::{
+        ast::{AstExpression, AstExpressionData, AstFunction, AstImpl, AstObjectFunction, AstType},
+        ast_visitor::AstAdapter,
+    },
+    util::{PResult, Visit},
 };
-use crate::parser::ast_visitor::AstAdapter;
-use crate::util::{IntoError, PResult, Visit};
 
 pub struct AnalyzeAssociatedTypesAndMethods {
     program: AnalyzedProgram,
@@ -42,32 +43,32 @@ impl AstAdapter for AnalyzeAssociatedTypesAndMethods {
                     .associated_tys
                     .contains_key(name)
                 {
-                    return PResult::error(format!(
+                    return perror!(
                         "The given associated type `{}` does not exist in the trait",
                         t
-                    ));
+                    );
                 }
-            }
+            },
             AstType::AssociatedType {
                 trait_ty: None,
                 name,
                 ..
             } => {
                 if !self.inside_method {
-                    return PResult::error(format!(
+                    return perror!(
                         "In type `{}`, must fully specify trait type outside of method",
                         t
-                    ));
+                    );
                 }
 
                 if !self.program.associated_types_to_traits.contains_key(name) {
-                    return PResult::error(format!(
+                    return perror!(
                         "There are no traits with the given associated type `{}`",
                         name
-                    ));
+                    );
                 }
-            }
-            _ => {}
+            },
+            _ => {},
         }
 
         Ok(t)
@@ -90,10 +91,10 @@ impl AstAdapter for AnalyzeAssociatedTypesAndMethods {
                     .contains_key(&fn_name);
 
                 if !in_trait && !in_impl {
-                    return PResult::error(format!(
+                    return perror!(
                         "There are no traits or impls with the given method `{}`",
                         fn_name
-                    ));
+                    );
                 }
 
                 let call_type = object.ty.clone();
@@ -107,7 +108,7 @@ impl AstAdapter for AnalyzeAssociatedTypesAndMethods {
                     associated_trait: None,
                     impl_signature: None,
                 }
-            }
+            },
             AstExpressionData::StaticCall {
                 call_type,
                 fn_name,
@@ -121,10 +122,13 @@ impl AstAdapter for AnalyzeAssociatedTypesAndMethods {
                         .methods
                         .contains_key(&fn_name)
                     {
-                        return PResult::error(format!(
+                        return perror_at!(
+                            span,
                             "The given method `<{} as {}>:{}(...)` does not exist in the trait",
-                            call_type, associated_trait, fn_name
-                        ));
+                            call_type,
+                            associated_trait,
+                            fn_name
+                        );
                     }
                 } else {
                     let in_trait = self.program.methods_to_traits.contains_key(&fn_name);
@@ -134,10 +138,11 @@ impl AstAdapter for AnalyzeAssociatedTypesAndMethods {
                         .contains_key(&fn_name);
 
                     if !in_trait && !in_impl {
-                        return PResult::error(format!(
+                        return perror_at!(
+                            span,
                             "There are no traits or impls with the given method `{}`",
                             fn_name
-                        ));
+                        );
                     }
                 }
 
@@ -149,7 +154,7 @@ impl AstAdapter for AnalyzeAssociatedTypesAndMethods {
                     associated_trait,
                     impl_signature,
                 }
-            }
+            },
             e => e,
         };
 
@@ -187,7 +192,7 @@ struct DenyAssociatedTypes;
 impl AstAdapter for DenyAssociatedTypes {
     fn enter_type(&mut self, t: AstType) -> PResult<AstType> {
         if let AstType::AssociatedType { .. } = &t {
-            return PResult::error(format!("Unexpected associated type `{}`", t));
+            return perror!("Unexpected associated type `{}`", t);
         }
 
         Ok(t)

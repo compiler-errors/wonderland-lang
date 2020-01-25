@@ -1,7 +1,8 @@
-use crate::ana::represent_visitor::AstAnalysisPass;
-use crate::parser::ast::*;
-use crate::parser::ast_visitor::AstAdapter;
-use crate::util::{IntoError, PResult, Visit};
+use crate::{
+    ana::represent_visitor::AstAnalysisPass,
+    parser::{ast::*, ast_visitor::AstAdapter},
+    util::{PResult, Visit},
+};
 
 pub struct AnalyzeIllegalGlobals;
 
@@ -24,14 +25,14 @@ impl AstAdapter for DenyGlobal {
     fn enter_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
         match &e.data {
             AstExpressionData::GlobalVariable { name } => {
-                return PResult::error(format!(
-                    "Cannot reference global variable `{}` \
-                     from within initialization for global variable `{}`.",
-                    name.full_name()?,
-                    self.0.full_name()?
-                ));
-            }
-            _ => {}
+                return perror!(
+                    "Cannot reference global variable `{}` from within initialization for global \
+                     variable `{}`.",
+                    name.full_name(),
+                    self.0.full_name()
+                );
+            },
+            _ => {},
         }
 
         Ok(e)

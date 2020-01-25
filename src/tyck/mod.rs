@@ -1,14 +1,15 @@
-use crate::ana::represent::{AnImplData, AnalyzedProgram};
-use crate::parser::ast::*;
-use crate::tyck::tyck_constraints::{Dummifier, TyckConstraintAssumptionAdapter};
-pub use crate::tyck::tyck_instantiation::GenericsAdapter;
-pub use crate::tyck::tyck_represent::*;
-pub use crate::tyck::tyck_solver::TypeAmbiguityAdapter;
-pub use crate::tyck::tyck_solver::{TyckObjective, TyckSolver};
-use crate::util::{Comment, FileRegistry, PResult, Visit};
-use std::collections::HashMap;
-use std::fmt::Debug;
-use std::rc::Rc;
+pub use crate::tyck::{
+    tyck_instantiation::GenericsAdapter,
+    tyck_represent::*,
+    tyck_solver::{TyckObjective, TyckSolver, TypeAmbiguityAdapter},
+};
+use crate::{
+    ana::represent::{AnImplData, AnalyzedProgram},
+    parser::ast::*,
+    tyck::tyck_constraints::{Dummifier, TyckConstraintAssumptionAdapter},
+    util::{Context, FileRegistry, PResult, Visit},
+};
+use std::{collections::HashMap, fmt::Debug, rc::Rc};
 
 mod tyck_constraints;
 mod tyck_instantiation;
@@ -33,9 +34,8 @@ pub fn typecheck(analyzed_program: &AnalyzedProgram, parsed_program: &AstProgram
     }
 
     for m in parsed_program.modules {
-        let module_name = FileRegistry::mod_path(m.id)?.join("::");
-        typecheck_module(&analyzed_program, &base_solver, m, &module_name)
-            .with_comment(|| format!("In module: {}", module_name))?;
+        let module_name = FileRegistry::mod_path(m.id).join("::");
+        typecheck_module(&analyzed_program, &base_solver, m, &module_name)?;
     }
 
     Ok(())
@@ -87,7 +87,8 @@ pub fn typecheck_module(
 
         // Try to detect contradictions..!
         for (other_id, other_impl) in &program.analyzed_impls {
-            // Ignore dummies. We don't care about them... Also, an impl always matches itself...
+            // Ignore dummies. We don't care about them... Also, an impl always matches
+            // itself...
             if imp.impl_id == *other_id || other_impl.is_dummy {
                 continue;
             }
@@ -154,7 +155,8 @@ pub fn typecheck_impl_fn(
     Ok(solver.typecheck_loop(t)?.fun)
 }
 
-/// Try to typecheck one impl as another. Useful to detect contradictions where one impl can satisfy another.
+/// Try to typecheck one impl as another. Useful to detect contradictions where
+/// one impl can satisfy another.
 fn typecheck_impl_collision(
     _base_solver: &TyckSolver,
     _imp: &AstImpl,

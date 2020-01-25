@@ -1,8 +1,11 @@
-use crate::ana::represent::*;
-use crate::ana::represent_visitor::{AnAdapter, DirtyAnalysisPass};
-use crate::parser::ast::*;
-use crate::parser::ast_visitor::AstAdapter;
-use crate::util::{IntoError, PResult, StackMap};
+use crate::{
+    ana::{
+        represent::*,
+        represent_visitor::{AnAdapter, DirtyAnalysisPass},
+    },
+    parser::{ast::*, ast_visitor::AstAdapter},
+    util::{PResult, StackMap},
+};
 
 pub struct AnalyzeGenerics {
     pub scope: StackMap<String, GenericId>,
@@ -20,7 +23,7 @@ impl AnalyzeGenerics {
     fn add_generics(&mut self, generics: &[AstGeneric]) -> PResult<()> {
         for g in generics {
             if self.scope.get(&g.1).is_some() {
-                return PResult::error(format!("Duplicate generic with name `_{}`", g.1));
+                return perror!("Duplicate generic with name `_{}`", g.1);
             }
 
             self.scope.add(g.1.clone(), g.0);
@@ -93,7 +96,7 @@ impl AstAdapter for AnalyzeGenerics {
             if let Some(id) = self.scope.get(&name) {
                 Ok(AstType::GenericPlaceholder(id, name))
             } else {
-                PResult::error(format!("Cannot find generic with name `_{}`", name))
+                perror!("Cannot find generic with name `_{}`", name)
             }
         } else {
             Ok(t)

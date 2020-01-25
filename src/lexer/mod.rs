@@ -1,8 +1,6 @@
 mod token;
-
 pub use self::token::Token;
-
-use crate::util::{FileId, FileReader, IntoError, PResult, Span};
+use crate::util::{FileId, FileReader, PResult, Span};
 
 pub struct SpanToken(pub Token, pub Span);
 
@@ -19,7 +17,7 @@ pub enum LexStringChar {
 /// the Cheshire parser.
 pub struct Lexer {
     file: FileReader,
-    next_token_span: Span,
+    next_span: Span,
     next_token: Token,
 
     interp_parenthetical: Vec<usize>,
@@ -28,7 +26,7 @@ pub struct Lexer {
 impl Lexer {
     pub fn new(file: FileId) -> PResult<Lexer> {
         let lexer = Lexer {
-            next_token_span: Span::new(file, 0, 0),
+            next_span: Span::new(file, 0, 0),
             file: FileReader::new(file)?,
             next_token: Token::BOF,
             interp_parenthetical: vec![],
@@ -48,7 +46,7 @@ impl Lexer {
     /// Retrieves the position of the next token waiting to be
     /// consumed by the parser.
     pub fn peek_token_span(&self) -> Span {
-        self.next_token_span
+        self.next_span
     }
 
     /// Retrieves _and consumes_ the next token.
@@ -56,18 +54,14 @@ impl Lexer {
     /// Caches the next token so it may be retrieved by `peek_token`.
     pub fn bump_token(&mut self) -> PResult<SpanToken> {
         let last_token = self.next_token.clone();
-        let last_token_span = self.next_token_span;
+        let last_token_span = self.next_span;
 
         self.discard_whitespace_or_comments()?;
 
-        let next_token_span_start = self.file.current_pos();
+        let next_span_start = self.file.current_pos();
         self.next_token = self.get_token_internal()?;
-        let next_token_span_end = self.file.current_pos();
-        self.next_token_span = Span::new(
-            self.file.file_id,
-            next_token_span_start,
-            next_token_span_end,
-        );
+        let next_span_end = self.file.current_pos();
+        self.next_span = Span::new(self.file.file_id, next_span_start, next_span_end);
 
         Ok(SpanToken(last_token, last_token_span))
     }
@@ -97,7 +91,10 @@ impl Lexer {
                         self.bump(1);
 
                         if self.current_char() != '.' {
-                            return self.error(format!("Expected a third dot for ellipsis..."));
+                            return perror_at!(
+                                self.next_span,
+                                "Expected a third dot for ellipsis..."
+                            );
                         }
 
                         self.bump(1);
@@ -105,7 +102,7 @@ impl Lexer {
                     } else {
                         Ok(Token::Dot)
                     }
-                }
+                },
                 ',' => {
                     self.bump(1);
 
@@ -113,8 +110,10 @@ impl Lexer {
                         self.bump(1);
 
                         if self.current_char() != ',' {
-                            return self
-                                .error(format!("Expected a third comma for commalipses,,,"));
+                            return perror_at!(
+                                self.next_span,
+                                "Expected a third comma for commalipses,,,"
+                            );
                         }
 
                         self.bump(1);
@@ -122,8 +121,8 @@ impl Lexer {
                     } else {
                         Ok(Token::Comma)
                     }
-                }
-                ':' => {
+                },
+                ':' =>
                     if self.next_char() == '<' {
                         self.bump(2);
                         Ok(Token::ColonLt)
@@ -133,28 +132,27 @@ impl Lexer {
                     } else {
                         self.bump(1);
                         Ok(Token::Colon)
-                    }
-                }
+                    },
                 ';' => {
                     self.bump(1);
                     Ok(Token::SemiColon)
-                }
+                },
                 '{' => {
                     self.bump(1);
                     Ok(Token::LBrace)
-                }
+                },
                 '}' => {
                     self.bump(1);
                     Ok(Token::RBrace)
-                }
+                },
                 '[' => {
                     self.bump(1);
                     Ok(Token::LSqBracket)
-                }
+                },
                 ']' => {
                     self.bump(1);
                     Ok(Token::RSqBracket)
-                }
+                },
                 '(' => {
                     self.bump(1);
 
@@ -163,8 +161,8 @@ impl Lexer {
                     }
 
                     Ok(Token::LParen)
-                }
-                ')' => {
+                },
+                ')' =>
                     if let Some(0) = self.interp_parenthetical.last() {
                         self.scan_interp_continue()
                     } else {
@@ -174,46 +172,44 @@ impl Lexer {
 
                         self.bump(1);
                         Ok(Token::RParen)
-                    }
-                }
+                    },
                 '<' => match self.next_char() {
                     '=' => {
                         self.bump(2);
                         Ok(Token::LessEqual)
-                    }
+                    },
                     _ => {
                         self.bump(1);
                         Ok(Token::Lt)
-                    }
+                    },
                 },
                 '>' => match self.next_char() {
                     '=' => {
                         self.bump(2);
                         Ok(Token::GreaterEqual)
-                    }
+                    },
                     _ => {
                         self.bump(1);
                         Ok(Token::Gt)
-                    }
+                    },
                 },
-                '!' => {
+                '!' =>
                     if self.next_char() == '=' {
                         self.bump(2);
                         Ok(Token::NotEquals)
                     } else {
                         self.bump(1);
                         Ok(Token::Bang)
-                    }
-                }
+                    },
                 '&' => {
                     self.bump(1);
                     Ok(Token::And)
-                }
+                },
                 '|' => {
                     self.bump(1);
                     Ok(Token::Pipe)
-                }
-                '=' => {
+                },
+                '=' =>
                     if self.next_char() == '=' {
                         self.bump(2);
                         Ok(Token::EqualsEquals)
@@ -223,34 +219,32 @@ impl Lexer {
                     } else {
                         self.bump(1);
                         Ok(Token::Equals)
-                    }
-                }
+                    },
                 '+' => {
                     self.bump(1);
                     Ok(Token::Plus)
-                }
-                '-' => {
+                },
+                '-' =>
                     if self.next_char() == '>' {
                         self.bump(2);
                         Ok(Token::RArrow)
                     } else {
                         self.bump(1);
                         Ok(Token::Minus)
-                    }
-                }
+                    },
                 '*' => {
                     self.bump(1);
                     Ok(Token::Star)
-                }
+                },
                 '/' => {
                     self.bump(1);
                     Ok(Token::Slash)
-                }
+                },
                 '%' => {
                     self.bump(1);
                     Ok(Token::Modulo)
-                }
-                c => self.error(format!("Unknown symbol '{}'", c)),
+                },
+                c => perror_at!(self.next_span, "Unknown symbol '{}'", c),
             }
         }
     }
@@ -264,14 +258,14 @@ impl Lexer {
             match self.scan_string_char()? {
                 LexStringChar::Char(c) => {
                     string.push(c);
-                }
+                },
                 LexStringChar::QuoteEnd => {
                     return Ok(Token::String(string));
-                }
+                },
                 LexStringChar::InterpolateBegin => {
                     self.interp_parenthetical.push(0);
                     return Ok(Token::InterpolateBegin(string));
-                }
+                },
             }
         }
     }
@@ -284,14 +278,14 @@ impl Lexer {
             match self.scan_string_char()? {
                 LexStringChar::Char(c) => {
                     string.push(c);
-                }
+                },
                 LexStringChar::QuoteEnd => {
                     self.interp_parenthetical.pop();
                     return Ok(Token::InterpolateEnd(string));
-                }
+                },
                 LexStringChar::InterpolateBegin => {
                     return Ok(Token::InterpolateContinue(string));
-                }
+                },
             }
         }
     }
@@ -304,43 +298,46 @@ impl Lexer {
                 match self.next_char() {
                     'r' => {
                         ret = LexStringChar::Char('\r');
-                    }
+                    },
                     'n' => {
                         ret = LexStringChar::Char('\n');
-                    }
+                    },
                     't' => {
                         ret = LexStringChar::Char('\t');
-                    }
+                    },
                     '"' => {
                         ret = LexStringChar::Char('\"');
-                    }
+                    },
                     '\'' => {
                         ret = LexStringChar::Char('\'');
-                    }
+                    },
                     '\\' => {
                         ret = LexStringChar::Char('\\');
-                    }
+                    },
                     '(' => {
                         ret = LexStringChar::InterpolateBegin;
-                    }
+                    },
                     c => {
-                        return self
-                            .error(format!("Unknown escaped character in string '\\{}'", c));
-                    }
+                        return perror_at!(
+                            self.next_span,
+                            "Unknown escaped character in string '\\{}'",
+                            c
+                        );
+                    },
                 }
                 self.bump(2);
-            }
+            },
             '\"' => {
                 ret = LexStringChar::QuoteEnd;
                 self.bump(1);
-            }
+            },
             '\r' | '\n' | EOF => {
-                return self.error("Reached end of line in string".into());
-            }
+                return perror_at!(self.next_span, "Reached end of line in string");
+            },
             c => {
                 ret = LexStringChar::Char(c);
                 self.bump(1);
-            }
+            },
         }
 
         Ok(ret)
@@ -359,21 +356,24 @@ impl Lexer {
                     '\'' => '\'',
                     '\\' => '\\',
                     c => {
-                        return self
-                            .error(format!("Unknown escaped character in literal '\\{}'", c));
-                    }
+                        return perror_at!(
+                            self.next_span,
+                            "Unknown escaped character in literal '\\{}'",
+                            c
+                        );
+                    },
                 };
                 self.bump(2);
                 esc
-            }
+            },
             c => {
                 self.bump(1);
                 c
-            }
+            },
         };
 
         if self.current_char() != '\'' {
-            return self.error("Unclosed character literal".into());
+            return perror_at!(self.next_span, "Unclosed character literal");
         }
 
         self.bump(1);
@@ -392,7 +392,8 @@ impl Lexer {
         Ok(Token::InstructionLiteral(string))
     }
 
-    /// Scans a numeric literal, consuming it and converting it to a token in the process.
+    /// Scans a numeric literal, consuming it and converting it to a token in
+    /// the process.
     fn scan_numeric_literal(&mut self) -> PResult<Token> {
         let mut string = String::new();
 
@@ -491,11 +492,12 @@ impl Lexer {
                 'A'..='Z' => Token::TypeName(string),
                 'a'..='z' => Token::Identifier(string),
                 _ => {
-                    return self.error(format!(
+                    return perror_at!(
+                        self.next_span,
                         "TODO: This should never happen, ever. `{}`",
                         string
-                    ));
-                }
+                    );
+                },
             },
         };
 
@@ -513,11 +515,11 @@ impl Lexer {
                     } else {
                         break; // A division sign
                     }
-                }
+                },
                 ' ' | '\t' | '\n' | '\r' => self.bump(1),
                 _ => {
                     break;
-                }
+                },
             }
         }
 
@@ -538,7 +540,7 @@ impl Lexer {
                     self.bump(1);
                 }
                 self.bump(1);
-            }
+            },
             '*' => {
                 // Read until */ is encountered
                 self.bump(2); // Read /*.
@@ -547,26 +549,18 @@ impl Lexer {
                     if self.current_char() == EOF {
                         let end_pos = self.file.current_pos();
 
-                        return self.error_at(
+                        return perror_at!(
                             Span::new(self.file.file_id, start_pos, end_pos),
-                            "EOF encountered in block comment".into(),
+                            "EOF encountered in block comment",
                         );
                     }
                 }
                 self.bump(2);
-            }
+            },
             _ => unreachable!(),
         }
 
         Ok(())
-    }
-
-    fn error<T>(&self, s: String) -> PResult<T> {
-        PResult::error_at(self.next_token_span, s)
-    }
-
-    fn error_at<T>(&self, span: Span, string: String) -> PResult<T> {
-        PResult::error_at(span, string)
     }
 
     // These are just shortcuts so we don't need to type `self.file`.

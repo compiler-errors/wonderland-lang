@@ -1,8 +1,11 @@
-use crate::ana::represent::AnalyzedProgram;
-use crate::ana::represent_visitor::PureAnalysisPass;
-use crate::parser::ast::{AstMatchPattern, AstMatchPatternData, AstStatement};
-use crate::parser::ast_visitor::AstAdapter;
-use crate::util::{IntoError, PResult};
+use crate::{
+    ana::{represent::AnalyzedProgram, represent_visitor::PureAnalysisPass},
+    parser::{
+        ast::{AstMatchPattern, AstMatchPatternData, AstStatement},
+        ast_visitor::AstAdapter,
+    },
+    util::PResult,
+};
 
 pub struct AnalyzeInfallibleEnums(AnalyzedProgram);
 
@@ -26,21 +29,18 @@ impl AnalyzeInfallibleEnums {
                 enumerable,
                 children,
                 ..
-            } => {
+            } =>
                 self.0.analyzed_enums[enumerable].variants.len() == 1
-                    && children.values().all(|x| self.is_infallible(x))
-            }
+                    && children.values().all(|x| self.is_infallible(x)),
             AstMatchPatternData::PositionalEnum {
                 enumerable,
                 children,
                 ..
-            } => {
+            } =>
                 self.0.analyzed_enums[enumerable].variants.len() == 1
-                    && children.iter().all(|x| self.is_infallible(x))
-            }
-            AstMatchPatternData::PlainEnum { enumerable, .. } => {
-                self.0.analyzed_enums[enumerable].variants.len() == 1
-            }
+                    && children.iter().all(|x| self.is_infallible(x)),
+            AstMatchPatternData::PlainEnum { enumerable, .. } =>
+                self.0.analyzed_enums[enumerable].variants.len() == 1,
         }
     }
 }
@@ -49,9 +49,9 @@ impl AstAdapter for AnalyzeInfallibleEnums {
     fn enter_statement(&mut self, s: AstStatement) -> PResult<AstStatement> {
         if let AstStatement::Let { pattern, .. } = &s {
             if !self.is_infallible(pattern) {
-                return PResult::error(format!(
-                    "The match pattern is not infallible, perhaps use a `match` block"
-                ));
+                // FIXME: This should be a spanned error, once the statement is turned into an
+                // expr.
+                return perror!("The match pattern is not infallible, perhaps use a `match` block");
             }
         }
 

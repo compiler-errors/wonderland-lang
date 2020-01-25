@@ -1,31 +1,27 @@
-use self::analyze_info::AnalyzeInfo;
-use self::analyze_modules::{AnalyzeModules, AnalyzeUses};
-use self::analyze_modules::{AnalyzePubUses, ModuleMap};
-use self::represent::*;
-use self::represent_visitor::*;
-use crate::ana::analyze_argument_parity::AnalyzeArgumentParity;
-use crate::ana::analyze_associated_types_and_methods::AnalyzeAssociatedTypesAndMethods;
-use crate::ana::analyze_constructor_fields::AnalyzeConstructorFields;
-use crate::ana::analyze_control_flow::AnalyzeControlFlow;
-use crate::ana::analyze_elaborations::AnalyzeElaborations;
-use crate::ana::analyze_fn_calls::AnalyzeFnCalls;
-use crate::ana::analyze_for_loops::AnalyzeForLoops;
-use crate::ana::analyze_generics::AnalyzeGenerics;
-use crate::ana::analyze_generics_parity::AnalyzeGenericsParity;
-use crate::ana::analyze_global_names::AnalyzeGlobalNames;
-use crate::ana::analyze_illegal_globals::AnalyzeIllegalGlobals;
-use crate::ana::analyze_illegal_infers::AnalyzeIllegalInfers;
-use crate::ana::analyze_impls::AnalyzeImpls;
-use crate::ana::analyze_infallible_enums::AnalyzeInfallibleEnums;
-use crate::ana::analyze_names::AnalyzeNames;
-use crate::ana::analyze_object_indices::AnalyzeObjectIndices;
-use crate::ana::analyze_operators::AnalyzeOperators;
-use crate::ana::analyze_positional_enums::AnalyzePositionalEnums;
-use crate::ana::analyze_returns::AnalyzeReturns;
-use crate::ana::analyze_self::AnalyzeSelf;
-use crate::ana::analyze_variables::AnalyzeVariables;
-use crate::parser::ast::AstProgram;
-use crate::util::{Comment, PResult, Visit};
+use self::{
+    analyze_info::AnalyzeInfo,
+    analyze_modules::{AnalyzeModules, AnalyzePubUses, AnalyzeUses, ModuleMap},
+    represent::*,
+    represent_visitor::*,
+};
+use crate::{
+    ana::{
+        analyze_argument_parity::AnalyzeArgumentParity,
+        analyze_associated_types_and_methods::AnalyzeAssociatedTypesAndMethods,
+        analyze_constructor_fields::AnalyzeConstructorFields,
+        analyze_control_flow::AnalyzeControlFlow, analyze_elaborations::AnalyzeElaborations,
+        analyze_fn_calls::AnalyzeFnCalls, analyze_for_loops::AnalyzeForLoops,
+        analyze_generics::AnalyzeGenerics, analyze_generics_parity::AnalyzeGenericsParity,
+        analyze_global_names::AnalyzeGlobalNames, analyze_illegal_globals::AnalyzeIllegalGlobals,
+        analyze_illegal_infers::AnalyzeIllegalInfers, analyze_impls::AnalyzeImpls,
+        analyze_infallible_enums::AnalyzeInfallibleEnums, analyze_names::AnalyzeNames,
+        analyze_object_indices::AnalyzeObjectIndices, analyze_operators::AnalyzeOperators,
+        analyze_positional_enums::AnalyzePositionalEnums, analyze_returns::AnalyzeReturns,
+        analyze_self::AnalyzeSelf, analyze_variables::AnalyzeVariables,
+    },
+    parser::ast::AstProgram,
+    util::{Context, PResult, Visit},
+};
 
 mod analyze_argument_parity;
 mod analyze_associated_types_and_methods;
@@ -65,8 +61,8 @@ pub fn analyze(p: AstProgram) -> PResult<(AnalyzedProgram, AstProgram)> {
         p = p.visit(&mut analyze_pub_uses)?;
 
         if !analyze_pub_uses.modified {
-            // We only really propagate errors up if they're not influenced by evolution of the imports.
-            // This is so we can suppress temporary errors.
+            // We only really propagate errors up if they're not influenced by evolution of
+            // the imports. This is so we can suppress temporary errors.
             if analyze_pub_uses.err.is_some() {
                 return Err(analyze_pub_uses.err.unwrap());
             }

@@ -1,8 +1,11 @@
-use crate::ana::represent::AnalyzedProgram;
-use crate::ana::represent_visitor::PureAnalysisPass;
-use crate::parser::ast::{AstExpression, AstExpressionData};
-use crate::parser::ast_visitor::AstAdapter;
-use crate::util::{IntoError, PResult};
+use crate::{
+    ana::{represent::AnalyzedProgram, represent_visitor::PureAnalysisPass},
+    parser::{
+        ast::{AstExpression, AstExpressionData},
+        ast_visitor::AstAdapter,
+    },
+    util::PResult,
+};
 
 pub struct AnalyzeArgumentParity(AnalyzedProgram);
 
@@ -24,18 +27,15 @@ impl AstAdapter for AnalyzeArgumentParity {
                 let provided = args.len();
 
                 if expected != provided {
-                    return PResult::error_at(
+                    return perror_at!(
                         e.span,
-                        format!(
-                            "In function `{}`, expected {} arguments, got {}.",
-                            fn_name.full_name()?,
-                            expected,
-                            provided
-                        ),
+                        "Expected {} arguments, got {}.",
+                        expected,
+                        provided
                     );
                 }
-            }
-            _ => {}
+            },
+            _ => {},
         }
 
         Ok(e)

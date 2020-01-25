@@ -1,8 +1,11 @@
-use crate::ana::represent::AnalyzedProgram;
-use crate::ana::represent_visitor::PureAnalysisPass;
-use crate::parser::ast::{AstExpression, AstExpressionData, AstMatchPattern, AstMatchPatternData};
-use crate::parser::ast_visitor::AstAdapter;
-use crate::util::PResult;
+use crate::{
+    ana::{represent::AnalyzedProgram, represent_visitor::PureAnalysisPass},
+    parser::{
+        ast::{AstExpression, AstExpressionData, AstMatchPattern, AstMatchPatternData},
+        ast_visitor::AstAdapter,
+    },
+    util::PResult,
+};
 use std::collections::HashMap;
 
 pub struct AnalyzePositionalEnums(AnalyzedProgram);
@@ -49,7 +52,7 @@ impl AstAdapter for AnalyzePositionalEnums {
                     variant,
                     children: arrange(ordering, children, None),
                 }
-            }
+            },
             e => e,
         };
 
@@ -89,7 +92,7 @@ impl AstAdapter for AnalyzePositionalEnums {
                     children: augment(children, expected, AstMatchPattern::underscore()),
                     ignore_rest: false,
                 }
-            }
+            },
             AstMatchPatternData::NamedEnum {
                 enumerable,
                 generics,
@@ -109,7 +112,7 @@ impl AstAdapter for AnalyzePositionalEnums {
                     children: arrange(ordering, children, Some(AstMatchPattern::underscore())),
                     ignore_rest: false,
                 }
-            }
+            },
             p => p,
         };
 

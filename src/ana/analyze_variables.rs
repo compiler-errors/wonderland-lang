@@ -1,8 +1,8 @@
-use crate::ana::represent::AnalyzedProgram;
-use crate::ana::represent_visitor::PureAnalysisPass;
-use crate::parser::ast::*;
-use crate::parser::ast_visitor::AstAdapter;
-use crate::util::{Expect, FileId, IntoError, PResult, StackMap, Visit};
+use crate::{
+    ana::{represent::AnalyzedProgram, represent_visitor::PureAnalysisPass},
+    parser::{ast::*, ast_visitor::AstAdapter},
+    util::{Expect, FileId, PResult, StackMap, Visit},
+};
 use std::collections::{HashMap, HashSet};
 
 pub struct AnalyzeVariables {
@@ -30,15 +30,15 @@ impl PureAnalysisPass for AnalyzeVariables {
 
 impl AnalyzeVariables {
     /**
-     * Assigns an index to the AstNamedVariable, then inserts it into the scope
-     * and into the `variables` map.
-     */
+     ** Assigns an index to the AstNamedVariable, then inserts it into the
+     ** scope and into the `variables` map.
+     **/
     fn assign_index(&mut self, a: &AstNamedVariable) -> PResult<()> {
         let AstNamedVariable { span, name, id, .. } = a;
 
         self.scope
             .get_top(name)
-            .is_not_expected(*span, "variable", &name)?;
+            .as_not_expected(*span, "variable", &name)?;
 
         self.all_variables.add(*id, a.clone());
         self.scope.add(name.clone(), *id);
@@ -66,9 +66,10 @@ impl<'a> AstAdapter for AnalyzeVariables {
         self.all_variables.push();
 
         if !f.variables.is_empty() {
-            return PResult::error_at(
+            return perror_at!(
                 f.name_span,
-                format!("Function `{}` has already been analyzed...", f.name),
+                "Function `{}` has already been analyzed...",
+                f.name,
             );
         }
 
@@ -90,7 +91,7 @@ impl<'a> AstAdapter for AnalyzeVariables {
                 let value = value.visit(self)?;
 
                 Ok(AstStatement::Let { pattern, value })
-            }
+            },
             s => Ok(s),
         }
     }
@@ -99,8 +100,8 @@ impl<'a> AstAdapter for AnalyzeVariables {
         match &p.data {
             AstMatchPatternData::Identifier(name) => {
                 self.assign_index(name)?;
-            }
-            _ => {}
+            },
+            _ => {},
         }
 
         Ok(p)
@@ -113,7 +114,7 @@ impl<'a> AstAdapter for AnalyzeVariables {
             AstExpressionData::Identifier {
                 name,
                 variable_id: None,
-            } => {
+            } =>
                 if let Some(id) = self.scope.get(&name) {
                     AstExpressionData::Identifier {
                         name,
@@ -124,9 +125,8 @@ impl<'a> AstAdapter for AnalyzeVariables {
                         name: ModuleRef::Normalized(*id, name),
                     }
                 } else {
-                    return PResult::error(format!("Cannot find variable by name: `{}`", name));
-                }
-            }
+                    return perror_at!(e.span, "Cannot find variable by name: `{}`", name);
+                },
             AstExpressionData::Closure {
                 params,
                 expr,
@@ -167,18 +167,18 @@ impl<'a> AstAdapter for AnalyzeVariables {
                     captured: Some(captured),
                     variables: None,
                 }
-            }
+            },
             AstExpressionData::SelfRef => {
                 let variable_id = Some(
                     self.scope
                         .get("self" /* <- TODO: ew */)
-                        .is_expected(e.span, "variable", "self")?,
+                        .as_expected(e.span, "variable", "self")?,
                 );
                 AstExpressionData::Identifier {
                     name: "self".into(),
                     variable_id,
                 }
-            }
+            },
             e => e,
         };
 
@@ -204,7 +204,7 @@ impl<'a> AstAdapter for AnalyzeVariables {
                     captured,
                     variables,
                 }
-            }
+            },
             e => e,
         };
 
@@ -216,9 +216,10 @@ impl<'a> AstAdapter for AnalyzeVariables {
         self.all_variables.push();
 
         if !f.variables.is_empty() {
-            return PResult::error_at(
+            return perror_at!(
                 f.name_span,
-                format!("Method `{}` has already been analyzed...", f.name),
+                "Method `{}` has already been analyzed...",
+                f.name,
             );
         }
 
@@ -299,13 +300,12 @@ impl AstAdapter for CaptureIdentifier {
                 variable_id: None,
             } => {
                 self.try_capture(&name);
-            }
-            AstExpressionData::Closure { params, .. } => {
+            },
+            AstExpressionData::Closure { params, .. } =>
                 for p in params {
                     self.ignore(&p.name);
-                }
-            }
-            _ => {}
+                },
+            _ => {},
         }
 
         Ok(e)
@@ -319,7 +319,7 @@ impl AstAdapter for CaptureIdentifier {
                 let value = value.visit(self)?;
 
                 Ok(AstStatement::Let { pattern, value })
-            }
+            },
             s => Ok(s),
         }
     }
@@ -328,8 +328,8 @@ impl AstAdapter for CaptureIdentifier {
         match &p.data {
             AstMatchPatternData::Identifier(name) => {
                 self.ignore(&name.name);
-            }
-            _ => {}
+            },
+            _ => {},
         }
 
         Ok(p)

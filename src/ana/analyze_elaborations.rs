@@ -1,8 +1,14 @@
-use crate::ana::represent::AnalyzedProgram;
-use crate::ana::represent_visitor::{AnAdapter, DirtyAnalysisPass};
-use crate::parser::ast::{AstExpression, AstExpressionData, AstType};
-use crate::parser::ast_visitor::AstAdapter;
-use crate::util::{IntoError, PResult};
+use crate::{
+    ana::{
+        represent::AnalyzedProgram,
+        represent_visitor::{AnAdapter, DirtyAnalysisPass},
+    },
+    parser::{
+        ast::{AstExpression, AstExpressionData, AstType},
+        ast_visitor::AstAdapter,
+    },
+    util::PResult,
+};
 
 pub struct AnalyzeElaborations;
 
@@ -28,9 +34,9 @@ impl AstAdapter for AnalyzeElaborations {
                 impl_signature,
             } => {
                 if associated_trait.is_some() && associated_trait.unwrap() != trait_ty {
-                    return PResult::error(
+                    return perror_at!(
+                        span,
                         "Static call has incongruous trait type with its elaborated calling type."
-                            .into(),
                     );
                 }
 
@@ -42,7 +48,7 @@ impl AstAdapter for AnalyzeElaborations {
                     associated_trait: Some(trait_ty),
                     impl_signature,
                 }
-            }
+            },
             e => e,
         };
 
@@ -63,9 +69,8 @@ impl AstAdapter for AnalyzeElaborations {
                     if associated_trait_ty.is_some()
                         && associated_trait_ty.unwrap() != elaborated_trait_ty
                     {
-                        return PResult::error(
+                        return perror!(
                             "Associated type has incongruous trait type with its elaborated type."
-                                .into(),
                         );
                     }
 
@@ -74,17 +79,16 @@ impl AstAdapter for AnalyzeElaborations {
                         trait_ty: Some(elaborated_trait_ty),
                         name,
                     })
-                }
+                },
                 obj_ty => Ok(AstType::AssociatedType {
                     obj_ty: Box::new(obj_ty),
                     trait_ty: associated_trait_ty,
                     name,
                 }),
             },
-            AstType::ElaboratedType { .. } => PResult::error(
-                "Elaborated type not expected here! \
-                 Only expected in associated types and static calls!"
-                    .into(),
+            AstType::ElaboratedType { .. } => perror!(
+                "Elaborated type not expected here! Only expected in associated types and static \
+                 calls!"
             ),
             t => Ok(t),
         }

@@ -1,108 +1,159 @@
-use crate::util::{FileRegistry, Span};
+use crate::util::Span;
 use std::process::exit;
 
-pub type PResult<T> = Result<T, PError>;
-
-pub trait IntoError {
-    fn error(error: String) -> Self;
-    fn error_at(span: Span, error: String) -> Self;
+macro_rules! perror {
+    ($($arg:tt)*) => (crate::util::PError::new_error(format!($($arg)*)))
 }
 
-impl<T> IntoError for PResult<T> {
-    fn error(error: String) -> PResult<T> {
-        Err(PError::new(error))
-    }
+macro_rules! perror_at {
+    ($span:expr, $($arg:tt)*) => (crate::util::PError::new_error_at($span, format!($($arg)*)))
+}
 
-    fn error_at(span: Span, error: String) -> PResult<T> {
-        Err(PError::new_at(span, error))
-    }
+#[derive(Debug)]
+struct SpanString {
+    span: Option<Span>,
+    string: String,
 }
 
 #[derive(Debug)]
 /// An error with a location, error string, and possible comments
 pub struct PError {
-    span: Option<Span>,
-    error_string: String,
+    main_message: SpanString,
     comments: Vec<String>,
+
+    related_messages: Vec<SpanString>,
 }
 
 impl PError {
     pub fn new(error: String) -> PError {
         PError {
-            span: None,
-            error_string: error,
+            main_message: SpanString {
+                span: None,
+                string: error,
+            },
             comments: Vec::new(),
+            related_messages: Vec::new(),
         }
     }
 
     pub fn new_at(span: Span, error: String) -> PError {
         PError {
-            span: Some(span),
-            error_string: error,
+            main_message: SpanString {
+                span: Some(span),
+                string: error,
+            },
             comments: Vec::new(),
+            related_messages: Vec::new(),
         }
     }
 
-    pub fn why(&self) -> String {
-        self.error_string.clone()
+    pub fn new_error<T>(error: String) -> PResult<T> {
+        Err(PError::new(error))
+    }
+
+    pub fn new_error_at<T>(span: Span, error: String) -> PResult<T> {
+        Err(PError::new_at(span, error))
+    }
+
+    pub fn why(&self) -> &str {
+        &self.main_message.string
     }
 }
 
-pub trait Comment<S> {
-    fn add_comment(&mut self, comment: S);
-    fn with_comment(self, comment: S) -> Self;
+pub type PResult<T> = Result<T, PError>;
+
+pub trait Context {
+    fn add_context(&mut self, span: Span);
+
+    fn with_context(self, span: Span) -> Self;
+
+    fn add_comment<F>(&mut self, comment: F)
+    where
+        F: Fn() -> String;
+
+    fn with_comment<F>(self, comment: F) -> Self
+    where
+        F: Fn() -> String;
+
+    fn add_context_comment<F>(&mut self, span: Span, comment: F)
+    where
+        F: Fn() -> String;
+
+    fn with_context_comment<F>(self, span: Span, comment: F) -> Self
+    where
+        F: Fn() -> String;
 }
 
-impl Comment<String> for PError {
-    fn add_comment(&mut self, comment: String) {
-        self.comments.push(comment);
+impl<T> Context for PResult<T> {
+    fn add_context(&mut self, span: Span) {
+        if let Err(e) = self {
+            if e.main_message.span.is_none() {
+                e.main_message.span = Some(span);
+            }
+        }
     }
 
-    fn with_comment(mut self, comment: String) -> PError {
+    fn with_context(mut self, span: Span) -> Self {
+        self.add_context(span);
+
+        self
+    }
+
+    fn add_comment<F>(&mut self, comment: F)
+    where
+        F: Fn() -> String,
+    {
+        if let Err(e) = self {
+            e.comments.push(comment());
+        }
+    }
+
+    fn with_comment<F>(mut self, comment: F) -> Self
+    where
+        F: Fn() -> String,
+    {
         self.add_comment(comment);
+
+        self
+    }
+
+    fn add_context_comment<F>(&mut self, span: Span, comment: F)
+    where
+        F: Fn() -> String,
+    {
+        self.add_context(span);
+        self.add_comment(comment);
+    }
+
+    fn with_context_comment<F>(mut self, span: Span, comment: F) -> PResult<T>
+    where
+        F: Fn() -> String,
+    {
+        self.add_context_comment(span, comment);
 
         self
     }
 }
 
-impl<T, S, F> Comment<F> for Result<T, S>
-where
-    S: Comment<String>,
-    F: (FnOnce() -> String),
-{
-    fn add_comment(&mut self, comment: F) {
-        if let Some(e) = self.as_mut().err() {
-            e.add_comment(comment());
-        }
-    }
-
-    fn with_comment(self, comment: F) -> Result<T, S> {
-        self.map_err(|e| e.with_comment(comment()))
-    }
-}
-
 pub trait Expect<T> {
-    fn is_expected(self, span: Span, type_of: &str, name: &str) -> PResult<T>;
-    fn is_not_expected(self, span: Span, type_of: &str, name: &str) -> PResult<()>;
+    fn as_expected(self, span: Span, type_of: &str, name: &str) -> PResult<T>;
+    fn as_not_expected(self, span: Span, type_of: &str, name: &str) -> PResult<()>;
 }
 
 impl<T> Expect<T> for Option<T> {
-    fn is_expected(self, span: Span, type_of: &str, name: &str) -> PResult<T> {
+    fn as_expected(self, span: Span, type_of: &str, name: &str) -> PResult<T> {
         if let Some(t) = self {
             Ok(t)
         } else {
-            PResult::error_at(
-                span,
-                format!("Couldn't find {} with name `{}`", type_of, name),
-            )
+            perror_at!(span, "Couldn't find {} with name `{}`", type_of, name)
         }
     }
 
-    fn is_not_expected(self, span: Span, type_of: &str, name: &str) -> PResult<()> {
+    fn as_not_expected(self, span: Span, type_of: &str, name: &str) -> PResult<()> {
         if self.is_none() {
             Ok(())
         } else {
-            PResult::error_at(span, format!("Duplicate {} with name `{}`", type_of, name))
+            perror_at!(span, "Duplicate {} with name `{}`", type_of, name)
         }
     }
 }
@@ -133,6 +184,8 @@ pub fn get_line_from_pos(file_contents: &str, pos: usize) -> &str {
 }
 
 pub fn report_err(err: PError) -> ! {
+    /*
+
     let PError {
         span,
         error_string,
@@ -203,6 +256,8 @@ pub fn report_err(err: PError) -> ! {
             println!("   * {}", comment);
         }
     }
+
+    */
 
     exit(1);
 }

@@ -1,14 +1,17 @@
-use crate::ana::represent::*;
 pub use crate::inst::represent::*;
-use crate::parser::ast::*;
-use crate::parser::ast_visitor::AstAdapter;
-use crate::tyck::*;
-use crate::util::{Comment, Expect, IntoError, PResult, Visit};
+use crate::{
+    ana::represent::*,
+    parser::{ast::*, ast_visitor::AstAdapter},
+    tyck::*,
+    util::{Context, Expect, PResult, Visit},
+};
 use either::Either;
-use std::collections::{HashMap, HashSet};
-use std::fmt::Debug;
-use std::hash::Hash;
-use std::rc::Rc;
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::Debug,
+    hash::Hash,
+    rc::Rc,
+};
 
 mod represent;
 
@@ -106,7 +109,7 @@ pub fn instantiate(
     };
 
     if main_finder.0.is_none() {
-        return PResult::error("Cannot find main function.".into());
+        return perror!("Cannot find main function.");
     }
 
     let main_fn = main_finder.0.unwrap();
@@ -114,9 +117,7 @@ pub fn instantiate(
 
     let mut instantiated_globals = HashMap::new();
     for (name, g) in globals {
-        let g = i
-            .process_simple(g, &[], &[])
-            .with_comment(|| format!("In global `{}`", name.full_name().unwrap()))?;
+        let g = i.process_simple(g, &[], &[])?;
         instantiated_globals.insert(name, g);
     }
 
@@ -150,7 +151,7 @@ impl InstantiationAdapter {
         let ids = &self.analyzed_program.clone().analyzed_functions[name].generics;
         let f = self
             .process_simple(self.fns[name].clone(), ids, generics)
-            .with_comment(|| format!("In function `{}`", name.full_name().unwrap()))?;
+            .with_comment(|| format!("In function `{}`", name.full_name()))?;
 
         self.instantiated_fns.insert(sig, Some(f));
 
@@ -170,7 +171,7 @@ impl InstantiationAdapter {
         let ids = &self.analyzed_program.clone().analyzed_objects[name].generics;
         let o = self
             .process_simple(self.objects[name].clone(), ids, generics)
-            .with_comment(|| format!("In object `{}`", name.full_name().unwrap()))?;
+            .with_comment(|| format!("In object `{}`", name.full_name()))?;
 
         self.instantiated_objects.insert(sig, Some(o));
 
@@ -184,10 +185,10 @@ impl InstantiationAdapter {
             if x.is_some() {
                 return Ok(());
             } else {
-                return PResult::error(format!(
+                return perror!(
                     "Enum `{}` cannot be sized, recursively contains itself",
-                    name.full_name()?
-                ));
+                    name.full_name()
+                );
             }
         }
 
@@ -197,7 +198,7 @@ impl InstantiationAdapter {
         let ids = &self.analyzed_program.clone().analyzed_enums[name].generics;
         let o = self
             .process_simple(self.enums[name].clone(), ids, generics)
-            .with_comment(|| format!("In enum `{}`", name.full_name().unwrap()))?;
+            .with_comment(|| format!("In enum `{}`", name.full_name()))?;
         let r = self.solve_enum_representation(o);
 
         self.instantiated_enums.insert(sig, Some(r));
@@ -227,7 +228,7 @@ impl InstantiationAdapter {
             // Ensure that this is the only impl for this specific `<ty as trt>::...`
             self.solved_impls
                 .insert(objective, sig.clone())
-                .is_not_expected(self.impls[&id].name_span, "impl", "<conflicting types>")?;
+                .as_not_expected(self.impls[&id].name_span, "impl", "<conflicting types>")?;
         }
 
         let ids = &self.analyzed_program.clone().analyzed_impls[&id].generics;
@@ -314,10 +315,7 @@ impl InstantiationAdapter {
     }
 
     fn solve_enum_representation(&self, e: AstEnum) -> InstEnumRepresentation {
-        debug!(
-            "Enum {} is represented with ...",
-            e.module_ref.full_name().unwrap()
-        );
+        debug!("Enum {} is represented with ...", e.module_ref.full_name());
 
         let discriminants = e
             .variants
@@ -364,7 +362,7 @@ impl InstantiationAdapter {
         );
 
         for (n, d) in &discriminants {
-            debug!("{}!{} -> {}", e.module_ref.full_name().unwrap(), n, d);
+            debug!("{}!{} -> {}", e.module_ref.full_name(), n, d);
         }
 
         InstEnumRepresentation {
@@ -387,7 +385,7 @@ impl InstantiationAdapter {
                     .unwrap()
                     .fields
                     .clone()
-            }
+            },
             t => vec![t],
         }
     }
@@ -422,11 +420,11 @@ impl AstAdapter for InstantiationAdapter {
         match &t {
             AstType::Object(name, generics) => {
                 self.instantiate_object(name, generics)?;
-            }
+            },
             AstType::Enum(name, generics) => {
                 self.instantiate_enum(name, generics)?;
-            }
-            _ => { /* Do nothing. */ }
+            },
+            _ => { /* Do nothing. */ },
         }
 
         self.instantiated_types.insert(t.clone());
@@ -440,7 +438,7 @@ impl AstAdapter for InstantiationAdapter {
                 fn_name, generics, ..
             } => {
                 self.instantiate_function(fn_name, generics)?;
-            }
+            },
             AstExpressionData::StaticCall {
                 call_type,
                 associated_trait,
@@ -457,11 +455,11 @@ impl AstAdapter for InstantiationAdapter {
                     fn_name,
                     fn_generics,
                 )?;
-            }
+            },
             AstExpressionData::GlobalFn { name } => {
                 self.instantiate_function(name, &[])?;
-            }
-            _ => { /* Do nothing. */ }
+            },
+            _ => { /* Do nothing. */ },
         }
 
         Ok(e)
@@ -474,34 +472,38 @@ impl AstAdapter for MainFinder {
     fn enter_function(&mut self, f: AstFunction) -> PResult<AstFunction> {
         if &f.name == "main" {
             if self.0.is_some() {
-                return PResult::error(format!(
+                return perror_at!(
+                    f.name_span,
                     "Duplicated `main` function: first found at `{}`, also found at `{}`",
-                    self.0.as_ref().unwrap().full_name()?,
-                    f.module_ref.full_name()?
-                ));
+                    self.0.as_ref().unwrap().full_name(),
+                    f.module_ref.full_name()
+                );
             }
 
             if !f.generics.is_empty() {
-                return PResult::error(format!(
+                return perror_at!(
+                    f.name_span,
                     "Main function `{}` must have zero generics, found {}.",
-                    f.module_ref.full_name()?,
+                    f.module_ref.full_name(),
                     f.generics.len()
-                ));
+                );
             }
 
             if !f.parameter_list.is_empty() {
-                return PResult::error(format!(
+                return perror_at!(
+                    f.name_span,
                     "Main function `{}` must have parameters, found {}.",
-                    f.module_ref.full_name()?,
+                    f.module_ref.full_name(),
                     f.parameter_list.len()
-                ));
+                );
             }
 
             if f.return_type != AstType::Int {
-                return PResult::error(format!(
+                return perror_at!(
+                    f.name_span,
                     "Main function `{}` must return `Int`.",
-                    f.module_ref.full_name()?,
-                ));
+                    f.module_ref.full_name(),
+                );
             }
 
             self.0 = Some(f.module_ref.clone());

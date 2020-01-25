@@ -1,5 +1,7 @@
-use crate::parser::ast::*;
-use crate::util::{PResult, Visit};
+use crate::{
+    parser::ast::*,
+    util::{Context, PResult, Visit},
+};
 
 pub trait AstAdapter {
     fn enter_program(&mut self, p: AstProgram) -> PResult<AstProgram> {
@@ -253,16 +255,28 @@ impl<T: AstAdapter> Visit<T> for AstFunction {
             variables,
         } = adapter.enter_function(self)?;
 
+        let ctx = || format!("In function {}", module_ref.full_name());
+
         let i = AstFunction {
+            parameter_list: parameter_list
+                .visit(adapter)
+                .with_context_comment(name_span, ctx)?,
+            return_type: return_type
+                .visit(adapter)
+                .with_context_comment(name_span, ctx)?,
+            restrictions: restrictions
+                .visit(adapter)
+                .with_context_comment(name_span, ctx)?,
+            definition: definition
+                .visit(adapter)
+                .with_context_comment(name_span, ctx)?,
+            variables: variables
+                .visit(adapter)
+                .with_context_comment(name_span, ctx)?,
+            module_ref: module_ref.visit(adapter)?,
             name_span,
             name,
             generics,
-            module_ref: module_ref.visit(adapter)?,
-            parameter_list: parameter_list.visit(adapter)?,
-            return_type: return_type.visit(adapter)?,
-            restrictions: restrictions.visit(adapter)?,
-            definition: definition.visit(adapter)?,
-            variables: variables.visit(adapter)?,
         };
 
         adapter.exit_function(i)
@@ -558,9 +572,8 @@ impl<T: AstAdapter> Visit<T> for InstructionArgument {
     fn visit(self, adapter: &mut T) -> PResult<InstructionArgument> {
         let i = match self {
             InstructionArgument::Type(t) => InstructionArgument::Type(t.visit(adapter)?),
-            InstructionArgument::Expression(e) => {
-                InstructionArgument::Expression(e.visit(adapter)?)
-            }
+            InstructionArgument::Expression(e) =>
+                InstructionArgument::Expression(e.visit(adapter)?),
             InstructionArgument::Anonymous(s) => InstructionArgument::Anonymous(s),
         };
 
@@ -608,9 +621,8 @@ impl<T: AstAdapter> Visit<T> for AstMatchPattern {
 
         let data = match data {
             AstMatchPatternData::Underscore => AstMatchPatternData::Underscore,
-            AstMatchPatternData::Identifier(var) => {
-                AstMatchPatternData::Identifier(var.visit(adapter)?)
-            }
+            AstMatchPatternData::Identifier(var) =>
+                AstMatchPatternData::Identifier(var.visit(adapter)?),
             AstMatchPatternData::PositionalEnum {
                 enumerable,
                 generics,
@@ -646,9 +658,8 @@ impl<T: AstAdapter> Visit<T> for AstMatchPattern {
                 generics: generics.visit(adapter)?,
                 variant,
             },
-            AstMatchPatternData::Tuple(children) => {
-                AstMatchPatternData::Tuple(children.visit(adapter)?)
-            }
+            AstMatchPatternData::Tuple(children) =>
+                AstMatchPatternData::Tuple(children.visit(adapter)?),
             AstMatchPatternData::Literal(lit) => AstMatchPatternData::Literal(lit.visit(adapter)?),
         };
 
@@ -679,15 +690,12 @@ impl<T: AstAdapter> Visit<T> for AstType {
             AstType::Tuple { types } => AstType::Tuple {
                 types: types.visit(adapter)?,
             },
-            AstType::ObjectEnum(name, types) => {
-                AstType::ObjectEnum(name.visit(adapter)?, types.visit(adapter)?)
-            }
-            AstType::Object(name, types) => {
-                AstType::Object(name.visit(adapter)?, types.visit(adapter)?)
-            }
-            AstType::Enum(name, types) => {
-                AstType::Enum(name.visit(adapter)?, types.visit(adapter)?)
-            }
+            AstType::ObjectEnum(name, types) =>
+                AstType::ObjectEnum(name.visit(adapter)?, types.visit(adapter)?),
+            AstType::Object(name, types) =>
+                AstType::Object(name.visit(adapter)?, types.visit(adapter)?),
+            AstType::Enum(name, types) =>
+                AstType::Enum(name.visit(adapter)?, types.visit(adapter)?),
             AstType::ClosureType { args, ret_ty } => AstType::ClosureType {
                 args: args.visit(adapter)?,
                 ret_ty: ret_ty.visit(adapter)?,
@@ -752,13 +760,19 @@ impl<T: AstAdapter> Visit<T> for AstObject {
             restrictions,
         } = adapter.enter_object(self)?;
 
+        let ctx = || format!("In object {}", module_ref.full_name());
+
         let i = AstObject {
-            name_span,
             generics,
-            name,
+            members: members
+                .visit(adapter)
+                .with_context_comment(name_span, ctx)?,
+            restrictions: restrictions
+                .visit(adapter)
+                .with_context_comment(name_span, ctx)?,
             module_ref: module_ref.visit(adapter)?,
-            members: members.visit(adapter)?,
-            restrictions: restrictions.visit(adapter)?,
+            name_span,
+            name,
         };
 
         adapter.exit_object(i)
@@ -779,16 +793,28 @@ impl<T: AstAdapter> Visit<T> for AstObjectFunction {
             variables,
         } = adapter.enter_object_function(self)?;
 
+        let ctx = || format!("In method {}", name);
+
         let i = AstObjectFunction {
-            name_span,
-            name,
             generics,
             has_self,
-            parameter_list: parameter_list.visit(adapter)?,
-            return_type: return_type.visit(adapter)?,
-            restrictions: restrictions.visit(adapter)?,
-            definition: definition.visit(adapter)?,
-            variables: variables.visit(adapter)?,
+            parameter_list: parameter_list
+                .visit(adapter)
+                .with_context_comment(name_span, ctx)?,
+            return_type: return_type
+                .visit(adapter)
+                .with_context_comment(name_span, ctx)?,
+            restrictions: restrictions
+                .visit(adapter)
+                .with_context_comment(name_span, ctx)?,
+            definition: definition
+                .visit(adapter)
+                .with_context_comment(name_span, ctx)?,
+            variables: variables
+                .visit(adapter)
+                .with_context_comment(name_span, ctx)?,
+            name_span,
+            name,
         };
 
         adapter.exit_object_function(i)
@@ -825,14 +851,22 @@ impl<T: AstAdapter> Visit<T> for AstTrait {
             associated_types,
         } = adapter.enter_trait(self)?;
 
+        let ctx = || format!("In trait {}", module_ref.full_name());
+
         let i = AstTrait {
+            generics,
+            functions: functions
+                .visit(adapter)
+                .with_context_comment(name_span, ctx)?,
+            restrictions: restrictions
+                .visit(adapter)
+                .with_context_comment(name_span, ctx)?,
+            associated_types: associated_types
+                .visit(adapter)
+                .with_context_comment(name_span, ctx)?,
+            module_ref: module_ref.visit(adapter)?,
             name_span,
             name,
-            generics,
-            module_ref: module_ref.visit(adapter)?,
-            functions: functions.visit(adapter)?,
-            restrictions: restrictions.visit(adapter)?,
-            associated_types: associated_types.visit(adapter)?,
         };
 
         adapter.exit_trait(i)
@@ -850,13 +884,19 @@ impl<T: AstAdapter> Visit<T> for AstEnum {
             variants,
         } = adapter.enter_enum(self)?;
 
+        let ctx = || format!("In enum {}", module_ref.full_name());
+
         let e = AstEnum {
+            generics,
+            restrictions: restrictions
+                .visit(adapter)
+                .with_context_comment(name_span, ctx)?,
+            variants: variants
+                .visit(adapter)
+                .with_context_comment(name_span, ctx)?,
             name_span,
             name,
             module_ref,
-            generics,
-            restrictions: restrictions.visit(adapter)?,
-            variants: variants.visit(adapter)?,
         };
 
         adapter.exit_enum(e)
@@ -909,15 +949,25 @@ impl<T: AstAdapter> Visit<T> for AstImpl {
             associated_types,
         } = adapter.enter_impl(self)?;
 
+        let ctx = || format!("In impl");
+
         let i = AstImpl {
             impl_id,
-            name_span,
             generics,
-            trait_ty: trait_ty.visit(adapter)?,
-            impl_ty: impl_ty.visit(adapter)?,
-            fns: fns.visit(adapter)?,
-            restrictions: restrictions.visit(adapter)?,
-            associated_types: associated_types.visit(adapter)?,
+            trait_ty: trait_ty
+                .visit(adapter)
+                .with_context_comment(name_span, ctx)?,
+            impl_ty: impl_ty
+                .visit(adapter)
+                .with_context_comment(name_span, ctx)?,
+            fns: fns.visit(adapter).with_context_comment(name_span, ctx)?,
+            restrictions: restrictions
+                .visit(adapter)
+                .with_context_comment(name_span, ctx)?,
+            associated_types: associated_types
+                .visit(adapter)
+                .with_context_comment(name_span, ctx)?,
+            name_span,
         };
 
         adapter.exit_impl(i)
@@ -934,12 +984,14 @@ impl<T: AstAdapter> Visit<T> for AstGlobalVariable {
             init,
         } = adapter.enter_global_variable(self)?;
 
+        let ctx = || format!("In global {}", module_ref.full_name());
+
         let i = AstGlobalVariable {
+            ty: ty.visit(adapter).with_context_comment(name_span, ctx)?,
+            init: init.visit(adapter).with_context_comment(name_span, ctx)?,
             name_span,
             name,
             module_ref: module_ref.visit(adapter)?,
-            ty: ty.visit(adapter)?,
-            init: init.visit(adapter)?,
         };
 
         adapter.exit_global_variable(i)

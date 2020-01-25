@@ -1,8 +1,11 @@
-use crate::ana::represent::AnalyzedProgram;
-use crate::ana::represent_visitor::PureAnalysisPass;
-use crate::parser::ast::{AstExpression, AstExpressionData};
-use crate::parser::ast_visitor::AstAdapter;
-use crate::util::{IntoError, PResult};
+use crate::{
+    ana::{represent::AnalyzedProgram, represent_visitor::PureAnalysisPass},
+    parser::{
+        ast::{AstExpression, AstExpressionData},
+        ast_visitor::AstAdapter,
+    },
+    util::PResult,
+};
 
 pub struct AnalyzeGlobalNames(AnalyzedProgram);
 
@@ -21,35 +24,31 @@ impl AstAdapter for AnalyzeGlobalNames {
         match &e.data {
             AstExpressionData::FnCall { fn_name, .. } => {
                 if !self.0.analyzed_functions.contains_key(fn_name) {
-                    return PResult::error_at(
-                        e.span,
-                        format!("No such function named `{}`.", fn_name.full_name()?),
-                    );
+                    return perror_at!(e.span, "No such function named `{}`.", fn_name.full_name());
                 }
-            }
+            },
             AstExpressionData::GlobalVariable { name } => {
                 if self.0.analyzed_globals.contains_key(name) {
                     // Okay. Do nothing.
                 } else if self.0.analyzed_functions.contains_key(name) {
                     if self.0.analyzed_functions[name].generics.len() > 0 {
-                        return PResult::error_at(
+                        return perror_at!(
                             e.span,
-                            format!(
-                                "Cannot reference global fn `{}` since it has generics!",
-                                name.full_name()?
-                            ),
+                            "Cannot reference global fn `{}` since it has generics!",
+                            name.full_name()
                         );
                     }
 
                     return Ok(AstExpression::global_fn(e.span, name.clone()));
                 } else {
-                    return PResult::error_at(
+                    return perror_at!(
                         e.span,
-                        format!("No such global variable named `{}`.", name.full_name()?),
+                        "No such global variable named `{}`.",
+                        name.full_name()
                     );
                 }
-            }
-            _ => {}
+            },
+            _ => {},
         }
 
         Ok(e)

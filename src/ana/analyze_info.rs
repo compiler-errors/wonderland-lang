@@ -1,10 +1,11 @@
-use crate::ana::represent::{
-    AnEnumData, AnEnumVariantData, AnFunctionData, AnImplData, AnObjectData, AnTraitData,
-    AnalyzedProgram,
+use crate::{
+    ana::represent::{
+        AnEnumData, AnEnumVariantData, AnFunctionData, AnImplData, AnObjectData, AnTraitData,
+        AnalyzedProgram,
+    },
+    parser::{ast::*, ast_visitor::AstAdapter},
+    util::{Expect, PResult},
 };
-use crate::parser::ast::*;
-use crate::parser::ast_visitor::AstAdapter;
-use crate::util::{Expect, IntoError, PResult};
 use std::collections::{HashMap, HashSet};
 
 pub struct AnalyzeInfo {
@@ -61,11 +62,12 @@ impl AstAdapter for AnalyzeInfo {
             let mut seen = HashSet::new();
             for m in &obj.members {
                 if !seen.insert(m.name.clone()) {
-                    return PResult::error(format!(
+                    return perror_at!(
+                        obj.name_span,
                         "Duplicated member `{}` in object `{}`",
                         m.name,
-                        obj.module_ref.full_name()?
-                    ));
+                        obj.module_ref.full_name()
+                    );
                 }
             }
 
@@ -99,11 +101,12 @@ impl AstAdapter for AnalyzeInfo {
             let mut seen = HashSet::new();
             for v in en.variants.keys() {
                 if !seen.insert(v.clone()) {
-                    return PResult::error(format!(
+                    return perror_at!(
+                        en.name_span,
                         "Duplicated variant `{}` in enum `{}`",
                         v,
-                        en.module_ref.full_name()?
-                    ));
+                        en.module_ref.full_name()
+                    );
                 }
             }
 
@@ -118,14 +121,11 @@ impl AstAdapter for AnalyzeInfo {
                     .variants
                     .values()
                     .map(|v| {
-                        (
-                            v.name.clone(),
-                            AnEnumVariantData {
-                                name: v.name.clone(),
-                                fields: v.fields.clone(),
-                                field_names: v.field_names.clone(),
-                            },
-                        )
+                        (v.name.clone(), AnEnumVariantData {
+                            name: v.name.clone(),
+                            fields: v.fields.clone(),
+                            field_names: v.field_names.clone(),
+                        })
                     })
                     .collect(),
                 restrictions: en.restrictions.clone(),
@@ -220,7 +220,7 @@ impl AstAdapter for AnalyzeInfo {
                     self.analyzed_program
                         .analyzed_traits
                         .get_mut(&trt_name)
-                        .is_expected(imp.name_span, "trait", &trt_name.full_name()?)?
+                        .as_expected(imp.name_span, "trait", &trt_name.full_name())?
                         .impls
                         .push(imp.impl_id);
                 }

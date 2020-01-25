@@ -1,11 +1,15 @@
-use crate::util::result::{IntoError, PResult};
+use crate::util::result::PResult;
 
-use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock, Weak};
+use std::{
+    collections::{HashMap, HashSet},
+    path::{Path, PathBuf},
+    sync::{Arc, RwLock, Weak},
+};
 
-use std::ffi::{OsStr, OsString};
-use std::fs;
+use std::{
+    ffi::{OsStr, OsString},
+    fs,
+};
 use tempfile::NamedTempFile;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -27,7 +31,7 @@ lazy_static! {
         paths: HashMap::new(),
         files: HashMap::new(),
         mod_paths: HashMap::new(),
-        temporary_files: Vec::new(),
+        temporary_files: Vec::new()
     });
     static ref EXTENSIONS: HashSet<OsString> = {
         let mut x = HashSet::new();
@@ -51,7 +55,7 @@ impl FileRegistry {
         } else if path.is_dir() {
             files = Self::seek_directory(path, &mut vec![mod_name])?;
         } else {
-            return PResult::error(format!("Unknown file type: {:?}", path));
+            return perror!("Unknown file type: {:?}", path);
         }
 
         Ok(files
@@ -68,8 +72,8 @@ impl FileRegistry {
                 b'A'..=b'Z' | b'a'..=b'z' | b'_' => s.push(b as char),
                 b'0'..=b'9' if !s.is_empty() => s.push(b as char),
                 _ => {
-                    return PResult::error(format!("Bad file name: {:?}", name));
-                }
+                    return perror!("Bad file name: {:?}", name);
+                },
             }
         }
 
@@ -98,12 +102,11 @@ impl FileRegistry {
                 // Pop the name "mod(.cheshire)"...
                 if mod_path.last().unwrap() == "mod" {
                     if mod_path.len() == 1 {
-                        return PResult::error(format!(
-                            "Illegal file! Can't have a file with name \
-                             `src/mod.ch`, since according to \
-                             the rules of module translation, \
-                             that leads to an empty module path!"
-                        ));
+                        return perror!(
+                            "Illegal file! Can't have a file with name `src/mod.ch`, since \
+                             according to the rules of module translation, that leads to an empty \
+                             module path!"
+                        );
                     }
 
                     mod_path.pop();
@@ -152,47 +155,47 @@ impl FileRegistry {
 
             Ok(file_contents)
         } else {
-            PResult::error("Error reading file content".into())
+            perror!("Error reading file content")
         }
     }
 
-    pub fn path(file_id: FileId) -> PResult<PathBuf> {
+    pub fn path(file_id: FileId) -> PathBuf {
         let reg = FILE_REGISTRY.write().unwrap();
-        Ok(reg.paths[&file_id].clone())
+        reg.paths[&file_id].clone()
     }
 
-    pub fn mod_path(file_id: FileId) -> PResult<Vec<String>> {
+    pub fn mod_path(file_id: FileId) -> Vec<String> {
         let reg = FILE_REGISTRY.write().unwrap();
-        Ok(reg.mod_paths[&file_id].clone())
+        reg.mod_paths[&file_id].clone()
     }
 
     /// Gets the mod_path of the folder containing the given file.
     ///
     /// For `mod.ch` files, this is the same as the file's own
     /// mod_path.
-    pub fn parent_mod_path(file_id: FileId) -> PResult<Vec<String>> {
-        let mut mod_path = Self::mod_path(file_id)?;
+    pub fn parent_mod_path(file_id: FileId) -> Vec<String> {
+        let mut mod_path = Self::mod_path(file_id);
 
         // mod_path of `x/mod.ch` is already `x`, so we only need
         // to pop the last part of the path off if it's not a mod file.
-        if Self::path(file_id)?.file_stem().unwrap() != "mod" {
+        if Self::path(file_id).file_stem().unwrap() != "mod" {
             mod_path.pop();
         }
 
-        Ok(mod_path)
+        mod_path
     }
 
-    pub fn name(file_id: FileId) -> PResult<String> {
+    pub fn name(file_id: FileId) -> String {
         let reg = FILE_REGISTRY.write().unwrap();
-        Ok(reg.mod_paths[&file_id].last().unwrap().clone())
+        reg.mod_paths[&file_id].last().unwrap().clone()
     }
 
-    pub fn register_temporary(file: NamedTempFile) -> PResult<FileId> {
+    pub fn register_temporary(file: NamedTempFile) -> FileId {
         let id = FileRegistry::seek_module(file.path().into(), vec!["stdin".into()]);
 
         let mut reg = FILE_REGISTRY.write().unwrap();
         reg.temporary_files.push(file);
 
-        Ok(id)
+        id
     }
 }

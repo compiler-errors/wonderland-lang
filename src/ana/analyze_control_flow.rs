@@ -1,7 +1,11 @@
-use crate::ana::represent_visitor::AstAnalysisPass;
-use crate::parser::ast::{AstExpression, AstExpressionData, AstStatement, LoopId};
-use crate::parser::ast_visitor::AstAdapter;
-use crate::util::{IntoError, PResult, Visit};
+use crate::{
+    ana::represent_visitor::AstAnalysisPass,
+    parser::{
+        ast::{AstExpression, AstExpressionData, AstStatement, LoopId},
+        ast_visitor::AstAdapter,
+    },
+    util::{PResult, Visit},
+};
 
 pub struct AnalyzeControlFlow(Vec<Option<(Option<String>, LoopId)>>);
 
@@ -24,9 +28,9 @@ impl AnalyzeControlFlow {
         }
 
         if let Some(label) = label {
-            PResult::error(format!("Couldn't find loop with label `[{}]`", label))
+            perror!("Couldn't find loop with label `[{}]`", label)
         } else {
-            PResult::error(format!("Couldn't find loop to break/continue"))
+            perror!("Couldn't find loop to break/continue")
         }
     }
 }
@@ -45,9 +49,9 @@ impl AstAdapter for AnalyzeControlFlow {
                 ..
             } => {
                 *id = Some(self.find(label.as_deref())?);
-            }
+            },
             // Fn call, save the useful stuff and clone everything above...
-            _ => {}
+            _ => {},
         }
 
         Ok(s)
@@ -76,11 +80,11 @@ impl AstAdapter for AnalyzeControlFlow {
                     block,
                     else_block,
                 }
-            }
+            },
             c @ AstExpressionData::Closure { .. } => {
                 self.0.push(None);
                 c
-            }
+            },
             e => e,
         };
 
@@ -91,8 +95,8 @@ impl AstAdapter for AnalyzeControlFlow {
         match e.data {
             AstExpressionData::Closure { .. } => {
                 self.0.pop();
-            }
-            _ => {}
+            },
+            _ => {},
         }
 
         Ok(e)

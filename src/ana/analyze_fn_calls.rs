@@ -1,7 +1,11 @@
-use crate::ana::represent_visitor::AstAnalysisPass;
-use crate::parser::ast::{AstExpression, AstExpressionData};
-use crate::parser::ast_visitor::AstAdapter;
-use crate::util::PResult;
+use crate::{
+    ana::represent_visitor::AstAnalysisPass,
+    parser::{
+        ast::{AstExpression, AstExpressionData},
+        ast_visitor::AstAdapter,
+    },
+    util::PResult,
+};
 
 pub struct AnalyzeFnCalls;
 

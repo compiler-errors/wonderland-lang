@@ -27,15 +27,21 @@ use crate::tr::translate;
 use crate::tyck::typecheck;
 
 use crate::util::{report_err, FileId, FileRegistry, PError, PResult};
+
 use getopts::{Matches, Options};
 
 use crate::lexer::SpanToken;
 use log::LevelFilter;
-use std::ffi::OsString;
-use std::io::{Read, Write};
-use std::path::Path;
-use std::process::exit;
+use std::{
+    ffi::OsString,
+    io::{Read, Write},
+    path::Path,
+    process::exit,
+};
 use tempfile::NamedTempFile;
+
+#[macro_use]
+mod util;
 
 #[cfg(feature = "ana")]
 mod ana;
@@ -54,8 +60,6 @@ mod tr;
 
 #[cfg(feature = "tyck")]
 mod tyck;
-
-mod util;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Mode {
@@ -238,7 +242,7 @@ fn read_stdin() -> PResult<FileId> {
     file.write_all(&buf)
         .map_err(|e| PError::new(format!("Error writing to temporary file: {}", e)))?;
 
-    FileRegistry::register_temporary(file)
+    Ok(FileRegistry::register_temporary(file))
 }
 
 fn help(fail: bool) -> ! {

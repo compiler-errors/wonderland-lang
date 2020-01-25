@@ -1,9 +1,11 @@
-use crate::ana::represent_visitor::AstAnalysisPass;
-use crate::parser::ast::{
-    AstBlock, AstExpression, AstExpressionData, AstMatchPattern, AstStatement, AstType,
+use crate::{
+    ana::represent_visitor::AstAnalysisPass,
+    parser::{
+        ast::{AstBlock, AstExpression, AstExpressionData, AstMatchPattern, AstStatement, AstType},
+        ast_visitor::AstAdapter,
+    },
+    util::PResult,
 };
-use crate::parser::ast_visitor::AstAdapter;
-use crate::util::PResult;
 
 pub struct AnalyzeForLoops;
 
@@ -73,7 +75,7 @@ impl AstAdapter for AnalyzeForLoops {
                         ),
                     ),
                 ))
-            }
+            },
             s => Ok(s),
         }
     }

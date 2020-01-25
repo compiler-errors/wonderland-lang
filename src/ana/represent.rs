@@ -1,6 +1,4 @@
-use crate::ana::analyze_modules::SharedModule;
-use crate::parser::ast::*;
-use crate::util::FileId;
+use crate::{ana::analyze_modules::SharedModule, parser::ast::*, util::FileId};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]

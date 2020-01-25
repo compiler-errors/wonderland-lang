@@ -1,6 +1,8 @@
 use crate::util::PResult;
-use std::collections::{BTreeMap, HashMap};
-use std::hash::Hash;
+use std::{
+    collections::{BTreeMap, HashMap},
+    hash::Hash,
+};
 
 pub trait Visit<A>: Sized {
     fn visit(self, adapter: &mut A) -> PResult<Self>;

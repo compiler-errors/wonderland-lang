@@ -1,8 +1,14 @@
-use crate::ana::represent::*;
-use crate::ana::represent_visitor::{AnAdapter, DirtyAnalysisPass};
-use crate::parser::ast::{AstEnum, AstFunction, AstImpl, AstObject, AstType};
-use crate::parser::ast_visitor::AstAdapter;
-use crate::util::{Comment, IntoError, PResult, Visit};
+use crate::{
+    ana::{
+        represent::*,
+        represent_visitor::{AnAdapter, DirtyAnalysisPass},
+    },
+    parser::{
+        ast::{AstEnum, AstFunction, AstImpl, AstObject, AstType},
+        ast_visitor::AstAdapter,
+    },
+    util::{PResult, Visit},
+};
 
 pub struct AnalyzeSelf;
 
@@ -29,10 +35,7 @@ impl AnAdapter for AnalyzeSelf {
 
 impl AstAdapter for AnalyzeSelf {
     fn enter_function(&mut self, f: AstFunction) -> PResult<AstFunction> {
-        let name = f.name.clone();
-
         f.visit(&mut DenySelf)
-            .with_comment(|| format!("In function: {}", name))
     }
 
     fn enter_object(&mut self, o: AstObject) -> PResult<AstObject> {
@@ -86,9 +89,7 @@ impl AnAdapter for DenySelf {}
 impl AstAdapter for DenySelf {
     fn enter_type(&mut self, t: AstType) -> PResult<AstType> {
         if t == AstType::SelfType {
-            PResult::error(format!(
-                "The `Self` type is not allowed in this environment"
-            ))
+            perror!("The `Self` type is not allowed in this environment")
         } else {
             Ok(t)
         }

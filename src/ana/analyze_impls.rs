@@ -1,8 +1,8 @@
-use crate::ana::represent::AnalyzedProgram;
-use crate::ana::represent_visitor::PureAnalysisPass;
-use crate::parser::ast::AstImpl;
-use crate::parser::ast_visitor::AstAdapter;
-use crate::util::{IntoError, PResult};
+use crate::{
+    ana::{represent::AnalyzedProgram, represent_visitor::PureAnalysisPass},
+    parser::{ast::AstImpl, ast_visitor::AstAdapter},
+    util::{PResult, Span},
+};
 use std::collections::HashSet;
 
 pub struct AnalyzeImpls(AnalyzedProgram);
@@ -23,21 +23,23 @@ impl AstAdapter for AnalyzeImpls {
             let info = &self.0.analyzed_traits[&trait_ty.name];
 
             compare(
+                i.name_span,
                 "method",
                 info.methods.keys().cloned().collect(),
                 i.fns.keys().cloned().collect(),
             )?;
 
             compare(
+                i.name_span,
                 "associated type",
                 info.associated_tys.keys().cloned().collect(),
                 i.associated_types.keys().cloned().collect(),
             )?;
         } else {
             if !i.associated_types.is_empty() {
-                return PResult::error_at(
+                return perror_at!(
                     i.name_span,
-                    format!("Did not expect anonymous impl to have associated types"),
+                    "Did not expect anonymous impl to have associated types"
                 );
             }
         }
@@ -46,19 +48,26 @@ impl AstAdapter for AnalyzeImpls {
     }
 }
 
-fn compare(what: &str, expected: HashSet<String>, given: HashSet<String>) -> PResult<()> {
+fn compare(
+    span: Span,
+    what: &str,
+    expected: HashSet<String>,
+    given: HashSet<String>,
+) -> PResult<()> {
     for k in &given {
         if !expected.contains(k) {
-            return PResult::error(format!(
+            return perror_at!(
+                span,
                 "Impl provides {} `{}`, but it is not expected.",
-                what, k
-            ));
+                what,
+                k
+            );
         }
     }
 
     for k in &expected {
         if !given.contains(k) {
-            return PResult::error(format!("Expected {} `{}`, but not found in impl.", what, k));
+            return perror_at!(span, "Expected {} `{}`, but not found in impl.", what, k);
         }
     }
 

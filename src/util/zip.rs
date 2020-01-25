@@ -1,4 +1,4 @@
-use crate::util::result::{IntoError, PResult};
+use crate::util::result::PResult;
 
 use std::iter::Zip;
 
@@ -21,12 +21,12 @@ impl<
         let t = other.into_iter();
 
         if s.len() != t.len() {
-            PResult::error(format!(
+            perror!(
                 "Mismatched {}! LHS has {}, RHS has {}.",
                 what,
                 s.len(),
                 t.len()
-            ))
+            )
         } else {
             Ok(Iterator::zip(s, t))
         }

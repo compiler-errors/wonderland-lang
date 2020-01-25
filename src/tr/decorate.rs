@@ -1,9 +1,11 @@
-use crate::parser::ast::*;
-use crate::util::{FileRegistry, PResult};
+use crate::{
+    parser::ast::*,
+    util::{FileRegistry, PResult},
+};
 
 pub fn decorate_module(module: &ModuleRef) -> PResult<(String, String)> {
     if let ModuleRef::Normalized(file, symbol_name) = module {
-        let path = FileRegistry::mod_path(*file)?;
+        let path = FileRegistry::mod_path(*file);
         let mut decorated_module = String::new();
 
         for m in path {
@@ -41,12 +43,12 @@ pub fn decorate_ty(t: &AstType) -> PResult<String> {
             }
 
             string
-        }
+        },
 
         AstType::Object(name, generics) if generics.len() == 0 => {
             let (decorated_module, name) = decorate_module(name)?;
             format!("o{}{}{}", decorated_module, name.len(), name)
-        }
+        },
 
         AstType::Object(name, generics) => {
             let (decorated_module, name) = decorate_module(name)?;
@@ -63,12 +65,12 @@ pub fn decorate_ty(t: &AstType) -> PResult<String> {
             }
 
             string
-        }
+        },
 
         AstType::Enum(name, generics) if generics.len() == 0 => {
             let (decorated_module, name) = decorate_module(name)?;
             format!("e{}{}{}", decorated_module, name.len(), name)
-        }
+        },
 
         AstType::Enum(name, generics) => {
             let (decorated_module, name) = decorate_module(name)?;
@@ -85,9 +87,9 @@ pub fn decorate_ty(t: &AstType) -> PResult<String> {
             }
 
             string
-        }
+        },
 
-        AstType::ClosureType { args, ret_ty } => {
+        AstType::ClosureType { args, ret_ty } =>
             if args.is_empty() {
                 format!("c{}", decorate_ty(&ret_ty)?)
             } else {
@@ -98,10 +100,9 @@ pub fn decorate_ty(t: &AstType) -> PResult<String> {
                 }
 
                 string
-            }
-        }
+            },
 
-        AstType::FnPointerType { args, ret_ty } => {
+        AstType::FnPointerType { args, ret_ty } =>
             if args.is_empty() {
                 format!("f{}", decorate_ty(&ret_ty)?)
             } else {
@@ -112,8 +113,7 @@ pub fn decorate_ty(t: &AstType) -> PResult<String> {
                 }
 
                 string
-            }
-        }
+            },
 
         _ => unreachable!(),
     })

@@ -1,9 +1,14 @@
-use crate::ana::represent_visitor::AstAnalysisPass;
-use crate::parser::ast::{
-    AstBlock, AstExpression, AstExpressionData, AstFunction, AstObjectFunction, AstStatement,
+use crate::{
+    ana::represent_visitor::AstAnalysisPass,
+    parser::{
+        ast::{
+            AstBlock, AstExpression, AstExpressionData, AstFunction, AstObjectFunction,
+            AstStatement,
+        },
+        ast_visitor::AstAdapter,
+    },
+    util::PResult,
 };
-use crate::parser::ast_visitor::AstAdapter;
-use crate::util::PResult;
 
 pub struct AnalyzeReturns;
 

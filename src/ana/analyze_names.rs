@@ -1,8 +1,14 @@
-use crate::ana::represent::{AnEnumData, AnObjectData, AnTraitData, AnalyzedProgram};
-use crate::ana::represent_visitor::{AnAdapter, DirtyAnalysisPass};
-use crate::parser::ast::{AstExpression, AstExpressionData, AstTraitType, AstType, ModuleRef};
-use crate::parser::ast_visitor::AstAdapter;
-use crate::util::{IntoError, PResult};
+use crate::{
+    ana::{
+        represent::{AnEnumData, AnObjectData, AnTraitData, AnalyzedProgram},
+        represent_visitor::{AnAdapter, DirtyAnalysisPass},
+    },
+    parser::{
+        ast::{AstExpression, AstExpressionData, AstTraitType, AstType, ModuleRef},
+        ast_visitor::AstAdapter,
+    },
+    util::PResult,
+};
 use std::collections::HashMap;
 
 pub struct AnalyzeNames {
@@ -26,25 +32,21 @@ impl AnAdapter for AnalyzeNames {}
 impl AstAdapter for AnalyzeNames {
     fn enter_type(&mut self, t: AstType) -> PResult<AstType> {
         match t {
-            AstType::ObjectEnum(name, generics) => {
+            AstType::ObjectEnum(name, generics) =>
                 if self.analyzed_objects.contains_key(&name) {
                     Ok(AstType::object(name, generics))
                 } else if self.analyzed_enums.contains_key(&name) {
                     Ok(AstType::enumerable(name, generics))
                 } else {
-                    PResult::error(format!(
-                        "No such object or enum named `{}`.",
-                        name.full_name()?
-                    ))
-                }
-            }
+                    perror!("No such object or enum named `{}`.", name.full_name())
+                },
             t => Ok(t),
         }
     }
 
     fn enter_trait_type(&mut self, t: AstTraitType) -> PResult<AstTraitType> {
         if !self.analyzed_traits.contains_key(&t.name) {
-            return PResult::error(format!("No such trait named `{}`.", t.name.full_name()?));
+            return perror!("No such trait named `{}`.", t.name.full_name());
         }
 
         Ok(t)
@@ -54,13 +56,10 @@ impl AstAdapter for AnalyzeNames {
         match &e.data {
             AstExpressionData::AllocateObject { object, .. } => {
                 if !self.analyzed_objects.contains_key(object) {
-                    return PResult::error(format!(
-                        "No such object named `{}`.",
-                        object.full_name()?
-                    ));
+                    return perror_at!(e.span, "No such object named `{}`.", object.full_name());
                 }
-            }
-            _ => {}
+            },
+            _ => {},
         }
 
         Ok(e)

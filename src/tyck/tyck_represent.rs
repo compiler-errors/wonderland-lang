@@ -1,6 +1,10 @@
-use crate::parser::ast::{AstObjectFunction, AstTraitType, AstType};
-use crate::parser::ast_visitor::AstAdapter;
-use crate::util::{PResult, Visit};
+use crate::{
+    parser::{
+        ast::{AstObjectFunction, AstTraitType, AstType},
+        ast_visitor::AstAdapter,
+    },
+    util::{PResult, Visit},
+};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct TyckInstantiatedObjectFunction {

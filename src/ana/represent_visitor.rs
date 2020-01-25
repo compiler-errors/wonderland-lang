@@ -1,7 +1,8 @@
-use crate::ana::represent::*;
-use crate::parser::ast::AstProgram;
-use crate::parser::ast_visitor::AstAdapter;
-use crate::util::{PResult, Visit};
+use crate::{
+    ana::represent::*,
+    parser::{ast::AstProgram, ast_visitor::AstAdapter},
+    util::{PResult, Visit},
+};
 
 pub type AnalysisPassFn =
     Box<dyn FnOnce(AnalyzedProgram, AstProgram) -> PResult<(AnalyzedProgram, AstProgram)>>;

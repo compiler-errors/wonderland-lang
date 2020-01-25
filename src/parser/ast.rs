@@ -1,7 +1,8 @@
-use crate::util::{FileId, FileRegistry, IntoError, PResult, Span};
-
-use std::collections::{BTreeMap, HashMap};
-use std::sync::RwLock;
+use crate::util::{FileId, FileRegistry, PResult, Span};
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::RwLock,
+};
 
 #[derive(Debug, Clone)]
 pub struct AstProgram {
@@ -15,14 +16,11 @@ pub enum ModuleRef {
 }
 
 impl ModuleRef {
-    pub fn full_name(&self) -> PResult<String> {
+    pub fn full_name(&self) -> String {
         match self {
-            ModuleRef::Denormalized(path) => Ok(path.join("::")),
-            ModuleRef::Normalized(file, name) => Ok(format!(
-                "{}::{}",
-                FileRegistry::mod_path(*file)?.join("::"),
-                name
-            )),
+            ModuleRef::Denormalized(path) => path.join("::"),
+            ModuleRef::Normalized(file, name) =>
+                format!("{}::{}", FileRegistry::mod_path(*file).join("::"), name),
         }
     }
 }
@@ -174,8 +172,8 @@ impl AstNamedVariable {
 
         AstNamedVariable {
             span,
-            name: name,
-            ty: ty,
+            name,
+            ty,
             id: VariableId(id_ref.clone()),
         }
     }
@@ -206,7 +204,8 @@ impl AstTraitType {
 pub struct AstTraitTypeWithAssocs {
     pub trt: AstTraitType,
 
-    /// We store these bindings like this because hashmap is not hash, I think...
+    /// We store these bindings like this because hashmap is not hash, I
+    /// think...
     pub assoc_bindings: BTreeMap<String, AstType>,
 }
 
@@ -309,10 +308,7 @@ impl AstType {
         if let AstType::Array { ty } = ty {
             Ok(*ty.clone())
         } else {
-            PResult::error(format!(
-                "Trying to access element type of non-array: {:?}",
-                ty
-            ))
+            perror!("Trying to access element type of non-array: {:?}", ty)
         }
     }
 
@@ -893,9 +889,9 @@ impl AstExpression {
             span,
             data: AstExpressionData::ObjectCall {
                 object: Box::new(object),
-                fn_name: fn_name,
-                generics: generics,
-                args: args,
+                fn_name,
+                generics,
+                args,
             },
             ty: AstType::infer(),
         }
@@ -946,7 +942,7 @@ impl AstExpression {
             span,
             data: AstExpressionData::TupleAccess {
                 accessible: Box::new(lhs),
-                idx: idx,
+                idx,
             },
             ty: AstType::infer(),
         }
@@ -1514,8 +1510,9 @@ pub struct AstEnumVariant {
 
     pub fields: Vec<AstType>,
 
-    /// If Some, then this enum is structural and this maps field names to positions.
-    /// If None, then this enum is positional, and we cannot use field names.
+    /// If Some, then this enum is structural and this maps field names to
+    /// positions. If None, then this enum is positional, and we cannot use
+    /// field names.
     pub field_names: Option<HashMap<String, usize>>,
 }
 

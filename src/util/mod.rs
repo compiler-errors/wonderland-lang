@@ -1,9 +1,9 @@
+#[macro_use]
 mod result;
-pub use self::result::{report_err, Comment, Expect, IntoError, PError, PResult};
+pub use self::result::{report_err, Context, Expect, PError, PResult};
 
 mod file_registry;
-pub use self::file_registry::FileId;
-pub use self::file_registry::FileRegistry;
+pub use self::file_registry::{FileId, FileRegistry};
 
 mod file_reader;
 pub use self::file_reader::FileReader;

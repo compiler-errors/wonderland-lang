@@ -1,10 +1,14 @@
-use crate::parser::ast::{AstType, VariableId};
-use crate::util::PResult;
+use crate::{
+    parser::ast::{AstType, VariableId},
+    util::PResult,
+};
 use either::Either;
-use inkwell::context::Context;
-use inkwell::types::{BasicTypeEnum, FunctionType, PointerType};
-use inkwell::values::{BasicValueEnum, CallSiteValue, IntValue};
-use inkwell::AddressSpace;
+use inkwell::{
+    context::Context,
+    types::{BasicTypeEnum, FunctionType, PointerType},
+    values::{BasicValueEnum, CallSiteValue, IntValue},
+    AddressSpace,
+};
 use std::collections::HashMap;
 
 pub const GLOBAL: AddressSpace = AddressSpace::Generic; /* Wot. */

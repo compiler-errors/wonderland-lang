@@ -1,7 +1,9 @@
-use std::borrow::Borrow;
-use std::collections::{HashMap, HashSet};
-use std::fmt::Debug;
-use std::hash::Hash;
+use std::{
+    borrow::Borrow,
+    collections::{HashMap, HashSet},
+    fmt::Debug,
+    hash::Hash,
+};
 
 #[derive(Debug)]
 pub struct StackMap<K: Eq + Hash, V: Debug> {

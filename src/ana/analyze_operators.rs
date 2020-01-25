@@ -1,10 +1,14 @@
-use crate::ana::represent::AnalyzedProgram;
-use crate::parser::ast::{
-    AstExpression, AstExpressionData, AstProgram, AstTraitTypeWithAssocs, AstType, BinOpKind,
-    ModuleRef,
+use crate::{
+    ana::represent::AnalyzedProgram,
+    parser::{
+        ast::{
+            AstExpression, AstExpressionData, AstProgram, AstTraitTypeWithAssocs, AstType,
+            BinOpKind, ModuleRef,
+        },
+        ast_visitor::AstAdapter,
+    },
+    util::{FileId, FileRegistry, PResult, Visit},
 };
-use crate::parser::ast_visitor::AstAdapter;
-use crate::util::{FileId, FileRegistry, IntoError, PResult, Visit};
 use std::collections::BTreeMap;
 
 pub struct AnalyzeOperators {
@@ -20,16 +24,14 @@ impl AnalyzeOperators {
         let mut operators_file = None;
 
         for m in &p.modules {
-            if FileRegistry::mod_path(m.id)? == vec!["std", "operators"] {
+            if FileRegistry::mod_path(m.id) == vec!["std", "operators"] {
                 operators_file = Some(m.id);
                 break;
             }
         }
 
         if operators_file.is_none() {
-            return PResult::error(format!(
-                "Cannot find `std::operations` file. This should never happen!"
-            ));
+            return perror!("Cannot find `std::operations` file. This should never happen!");
         }
 
         let mut pass = AnalyzeOperators {
@@ -46,11 +48,11 @@ impl AnalyzeOperators {
         let r = ModuleRef::Normalized(self.operators_file, trt_name.into());
 
         if !self.analyzed_program.analyzed_traits.contains_key(&r) {
-            PResult::error(format!(
-                "Error realizing operator: trait {} does not exist in module `{}`",
+            perror!(
+                "ICE: Error realizing operator: trait {} does not exist in module `{}`",
                 trt_name,
-                FileRegistry::mod_path(self.operators_file)?.join("::")
-            ))
+                FileRegistry::mod_path(self.operators_file).join("::")
+            )
         } else {
             Ok(r)
         }
@@ -61,11 +63,11 @@ impl AnalyzeOperators {
             .methods
             .contains_key(fn_name)
         {
-            PResult::error(format!(
-                "Error realizing operator: trait {} does not contain function `{}`",
-                trt.full_name()?,
+            perror!(
+                "ICE: Error realizing operator: trait {} does not contain function `{}`",
+                trt.full_name(),
                 fn_name
-            ))
+            )
         } else {
             Ok(())
         }
@@ -152,7 +154,7 @@ impl AstAdapter for AnalyzeOperators {
                 } = *lhs;
 
                 match lhs_data {
-                    AstExpressionData::ArrayAccess { accessible, idx } => {
+                    AstExpressionData::ArrayAccess { accessible, idx } =>
                         AstExpressionData::StaticCall {
                             call_type: AstType::infer(),
                             fn_name: "deref_assign".into(),
@@ -164,8 +166,7 @@ impl AstAdapter for AnalyzeOperators {
                                 BTreeMap::new(),
                             )),
                             impl_signature: None,
-                        }
-                    }
+                        },
                     lhs_data => AstExpressionData::Assign {
                         lhs: Box::new(AstExpression {
                             data: lhs_data,
@@ -175,7 +176,7 @@ impl AstAdapter for AnalyzeOperators {
                         rhs,
                     },
                 }
-            }
+            },
             AstExpressionData::ArrayAccess { accessible, idx } => AstExpressionData::StaticCall {
                 call_type: AstType::infer(),
                 fn_name: "deref".into(),
@@ -205,7 +206,7 @@ impl AstAdapter for AnalyzeOperators {
                     )),
                     impl_signature: None,
                 }
-            }
+            },
             AstExpressionData::AllocateArray { object, size } => AstExpressionData::StaticCall {
                 call_type: object.clone(),
                 fn_name: "allocate_array".into(),

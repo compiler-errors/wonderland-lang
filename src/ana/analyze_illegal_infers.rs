@@ -1,10 +1,14 @@
-use crate::ana::represent_visitor::AstAnalysisPass;
-use crate::parser::ast::{
-    AstEnum, AstFunction, AstGlobalVariable, AstImpl, AstObject, AstObjectFunction, AstTrait,
-    AstType,
+use crate::{
+    ana::represent_visitor::AstAnalysisPass,
+    parser::{
+        ast::{
+            AstEnum, AstFunction, AstGlobalVariable, AstImpl, AstObject, AstObjectFunction,
+            AstTrait, AstType,
+        },
+        ast_visitor::AstAdapter,
+    },
+    util::{PResult, Visit},
 };
-use crate::parser::ast_visitor::AstAdapter;
-use crate::util::{IntoError, PResult, Visit};
 
 pub struct AnalyzeIllegalInfers;
 
@@ -73,7 +77,7 @@ struct DenyInfer;
 impl AstAdapter for DenyInfer {
     fn enter_type(&mut self, t: AstType) -> PResult<AstType> {
         if let AstType::Infer(_) = t {
-            PResult::error(format!("The `_` type is not allowed in this environment"))
+            perror!("The `_` type is not allowed in this environment")
         } else {
             Ok(t)
         }

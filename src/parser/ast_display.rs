@@ -20,7 +20,7 @@ impl fmt::Display for AstType {
             | AstType::ObjectEnum(module, generics) => write!(
                 f,
                 "{}{}",
-                module.full_name().unwrap(),
+                module.full_name(),
                 DisplayGenerics(generics, None)
             ),
             AstType::ClosureType { args, ret_ty } => write!(
@@ -39,7 +39,7 @@ impl fmt::Display for AstType {
                 obj_ty,
                 trait_ty,
                 name,
-            } => {
+            } =>
                 if trait_ty.is_none() {
                     write!(f, "{}::{}", obj_ty, name)
                 } else {
@@ -50,11 +50,9 @@ impl fmt::Display for AstType {
                         trait_ty.as_ref().unwrap(),
                         name
                     )
-                }
-            }
-            AstType::ElaboratedType { obj_ty, trait_ty } => {
-                write!(f, "<{} as {}>", obj_ty, trait_ty)
-            }
+                },
+            AstType::ElaboratedType { obj_ty, trait_ty } =>
+                write!(f, "<{} as {}>", obj_ty, trait_ty),
             AstType::GenericPlaceholder(id, name) => write!(f, "_{}{}(gp)", name, id.0),
             AstType::DummyGeneric(id, name) => write!(f, "_{}{}(dg)", name, id.0),
             AstType::Dummy(id) => write!(f, "_{}(d)", id.0),
@@ -65,12 +63,7 @@ impl fmt::Display for AstType {
 impl fmt::Display for AstTraitType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let AstTraitType { name, generics } = self;
-        write!(
-            f,
-            "{}{}",
-            name.full_name().unwrap(),
-            DisplayGenerics(generics, None)
-        )
+        write!(f, "{}{}", name.full_name(), DisplayGenerics(generics, None))
     }
 }
 
@@ -83,7 +76,7 @@ impl fmt::Display for AstTraitTypeWithAssocs {
         write!(
             f,
             "{}{}",
-            name.full_name().unwrap(),
+            name.full_name(),
             DisplayGenerics(generics, Some(assoc_bindings))
         )
     }
@@ -123,7 +116,8 @@ impl<'a> fmt::Display for DisplayAstTypeList<'a> {
     }
 }
 
-/// Wrapper type which conditionally displays a generics list (e.g. for Foo vs Foo<String, Int>).
+/// Wrapper type which conditionally displays a generics list (e.g. for Foo vs
+/// Foo<String, Int>).
 struct DisplayGenerics<'a>(&'a [AstType], Option<&'a BTreeMap<String, AstType>>);
 
 impl<'a> fmt::Display for DisplayGenerics<'a> {
