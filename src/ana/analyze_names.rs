@@ -30,7 +30,7 @@ impl DirtyAnalysisPass for AnalyzeNames {
 impl AnAdapter for AnalyzeNames {}
 
 impl AstAdapter for AnalyzeNames {
-    fn enter_type(&mut self, t: AstType) -> PResult<AstType> {
+    fn enter_ast_type(&mut self, t: AstType) -> PResult<AstType> {
         match t {
             AstType::ObjectEnum(name, generics) =>
                 if self.analyzed_objects.contains_key(&name) {
@@ -44,7 +44,7 @@ impl AstAdapter for AnalyzeNames {
         }
     }
 
-    fn enter_trait_type(&mut self, t: AstTraitType) -> PResult<AstTraitType> {
+    fn enter_ast_trait_type(&mut self, t: AstTraitType) -> PResult<AstTraitType> {
         if !self.analyzed_traits.contains_key(&t.name) {
             return perror!("No such trait named `{}`.", t.name.full_name());
         }
@@ -52,7 +52,7 @@ impl AstAdapter for AnalyzeNames {
         Ok(t)
     }
 
-    fn enter_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
+    fn enter_ast_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
         match &e.data {
             AstExpressionData::AllocateObject { object, .. } => {
                 if !self.analyzed_objects.contains_key(object) {

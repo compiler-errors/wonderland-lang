@@ -416,7 +416,7 @@ impl InstantiationAdapter {
 }
 
 impl AstAdapter for InstantiationAdapter {
-    fn enter_type(&mut self, t: AstType) -> PResult<AstType> {
+    fn enter_ast_type(&mut self, t: AstType) -> PResult<AstType> {
         match &t {
             AstType::Object(name, generics) => {
                 self.instantiate_object(name, generics)?;
@@ -432,7 +432,7 @@ impl AstAdapter for InstantiationAdapter {
         Ok(t)
     }
 
-    fn enter_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
+    fn enter_ast_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
         match &e.data {
             AstExpressionData::FnCall {
                 fn_name, generics, ..
@@ -469,7 +469,7 @@ impl AstAdapter for InstantiationAdapter {
 struct MainFinder(Option<ModuleRef>);
 
 impl AstAdapter for MainFinder {
-    fn enter_function(&mut self, f: AstFunction) -> PResult<AstFunction> {
+    fn enter_ast_function(&mut self, f: AstFunction) -> PResult<AstFunction> {
         if &f.name == "main" {
             if self.0.is_some() {
                 return perror_at!(

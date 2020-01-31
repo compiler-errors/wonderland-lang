@@ -324,7 +324,7 @@ impl GenericsAdapter {
 }
 
 impl AstAdapter for GenericsAdapter {
-    fn enter_type(&mut self, t: AstType) -> PResult<AstType> {
+    fn enter_ast_type(&mut self, t: AstType) -> PResult<AstType> {
         match t {
             AstType::GenericPlaceholder(id, _) if self.0.contains_key(&id) =>
                 self.0[&id].clone().visit(self),
@@ -342,7 +342,7 @@ impl SelfAdapter {
 }
 
 impl AstAdapter for SelfAdapter {
-    fn enter_type(&mut self, t: AstType) -> PResult<AstType> {
+    fn enter_ast_type(&mut self, t: AstType) -> PResult<AstType> {
         match t {
             AstType::SelfType => Ok(self.0.clone()),
             t => Ok(t),

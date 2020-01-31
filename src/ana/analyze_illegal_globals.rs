@@ -13,7 +13,10 @@ impl AstAnalysisPass for AnalyzeIllegalGlobals {
 }
 
 impl AstAdapter for AnalyzeIllegalGlobals {
-    fn enter_global_variable(&mut self, mut g: AstGlobalVariable) -> PResult<AstGlobalVariable> {
+    fn enter_ast_global_variable(
+        &mut self,
+        mut g: AstGlobalVariable,
+    ) -> PResult<AstGlobalVariable> {
         g.init = g.init.visit(&mut DenyGlobal(g.module_ref.clone()))?;
         Ok(g)
     }
@@ -22,7 +25,7 @@ impl AstAdapter for AnalyzeIllegalGlobals {
 struct DenyGlobal(ModuleRef);
 
 impl AstAdapter for DenyGlobal {
-    fn enter_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
+    fn enter_ast_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
         match &e.data {
             AstExpressionData::GlobalVariable { name } => {
                 return perror!(

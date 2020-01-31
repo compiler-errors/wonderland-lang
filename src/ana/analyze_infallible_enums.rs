@@ -46,7 +46,7 @@ impl AnalyzeInfallibleEnums {
 }
 
 impl AstAdapter for AnalyzeInfallibleEnums {
-    fn enter_statement(&mut self, s: AstStatement) -> PResult<AstStatement> {
+    fn enter_ast_statement(&mut self, s: AstStatement) -> PResult<AstStatement> {
         if let AstStatement::Let { pattern, .. } = &s {
             if !self.is_infallible(pattern) {
                 // FIXME: This should be a spanned error, once the statement is turned into an

@@ -26,13 +26,13 @@ impl PureAnalysisPass for AnalyzeAssociatedTypesAndMethods {
 }
 
 impl AstAdapter for AnalyzeAssociatedTypesAndMethods {
-    fn enter_function(&mut self, f: AstFunction) -> PResult<AstFunction> {
+    fn enter_ast_function(&mut self, f: AstFunction) -> PResult<AstFunction> {
         self.inside_method = true;
 
         Ok(f)
     }
 
-    fn enter_type(&mut self, t: AstType) -> PResult<AstType> {
+    fn enter_ast_type(&mut self, t: AstType) -> PResult<AstType> {
         match &t {
             AstType::AssociatedType {
                 trait_ty: Some(trait_ty),
@@ -74,7 +74,7 @@ impl AstAdapter for AnalyzeAssociatedTypesAndMethods {
         Ok(t)
     }
 
-    fn enter_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
+    fn enter_ast_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
         let AstExpression { data, ty, span } = e;
 
         let data = match data {
@@ -161,26 +161,26 @@ impl AstAdapter for AnalyzeAssociatedTypesAndMethods {
         Ok(AstExpression { data, ty, span })
     }
 
-    fn enter_object_function(&mut self, o: AstObjectFunction) -> PResult<AstObjectFunction> {
+    fn enter_ast_object_function(&mut self, o: AstObjectFunction) -> PResult<AstObjectFunction> {
         self.inside_method = true;
 
         Ok(o)
     }
 
-    fn enter_impl(&mut self, mut i: AstImpl) -> PResult<AstImpl> {
+    fn enter_ast_impl(&mut self, mut i: AstImpl) -> PResult<AstImpl> {
         i.impl_ty = i.impl_ty.visit(&mut DenyAssociatedTypes)?;
         i.trait_ty = i.trait_ty.visit(&mut DenyAssociatedTypes)?;
 
         Ok(i)
     }
 
-    fn exit_function(&mut self, f: AstFunction) -> PResult<AstFunction> {
+    fn exit_ast_function(&mut self, f: AstFunction) -> PResult<AstFunction> {
         self.inside_method = false;
 
         Ok(f)
     }
 
-    fn exit_object_function(&mut self, o: AstObjectFunction) -> PResult<AstObjectFunction> {
+    fn exit_ast_object_function(&mut self, o: AstObjectFunction) -> PResult<AstObjectFunction> {
         self.inside_method = false;
 
         Ok(o)
@@ -190,7 +190,7 @@ impl AstAdapter for AnalyzeAssociatedTypesAndMethods {
 struct DenyAssociatedTypes;
 
 impl AstAdapter for DenyAssociatedTypes {
-    fn enter_type(&mut self, t: AstType) -> PResult<AstType> {
+    fn enter_ast_type(&mut self, t: AstType) -> PResult<AstType> {
         if let AstType::AssociatedType { .. } = &t {
             return perror!("Unexpected associated type `{}`", t);
         }

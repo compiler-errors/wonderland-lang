@@ -1,7 +1,8 @@
 use crate::{ana::analyze_modules::SharedModule, parser::ast::*, util::FileId};
 use std::collections::HashMap;
 
-#[derive(Debug, Clone)]
+#[Adapter("crate::ana::represent_visitor::AnAdapter")]
+#[derive(Debug, Clone, Visit)]
 pub struct AnalyzedProgram {
     pub variable_ids: HashMap<VariableId, AstNamedVariable>,
     pub analyzed_functions: HashMap<ModuleRef, AnFunctionData>,
@@ -16,7 +17,8 @@ pub struct AnalyzedProgram {
     pub methods_to_anonymous_impls: HashMap<String, Vec<ImplId>>,
 }
 
-#[derive(Debug, Clone)]
+#[Adapter("crate::ana::represent_visitor::AnAdapter")]
+#[derive(Debug, Clone, Visit)]
 pub struct AnObjectData {
     pub name: ModuleRef,
     pub self_ty: AstType,
@@ -26,7 +28,8 @@ pub struct AnObjectData {
     pub restrictions: Vec<AstTypeRestriction>,
 }
 
-#[derive(Debug, Clone)]
+#[Adapter("crate::ana::represent_visitor::AnAdapter")]
+#[derive(Debug, Clone, Visit)]
 pub struct AnEnumData {
     pub name: ModuleRef,
     pub self_ty: AstType,
@@ -35,14 +38,16 @@ pub struct AnEnumData {
     pub restrictions: Vec<AstTypeRestriction>,
 }
 
-#[derive(Debug, Clone)]
+#[Adapter("crate::ana::represent_visitor::AnAdapter")]
+#[derive(Debug, Clone, Visit)]
 pub struct AnEnumVariantData {
     pub name: String,
     pub fields: Vec<AstType>,
     pub field_names: Option<HashMap<String, usize>>,
 }
 
-#[derive(Debug, Clone)]
+#[Adapter("crate::ana::represent_visitor::AnAdapter")]
+#[derive(Debug, Clone, Visit)]
 pub struct AnTraitData {
     pub name: ModuleRef,
     pub generics: Vec<AstGeneric>,
@@ -52,7 +57,8 @@ pub struct AnTraitData {
     pub impls: Vec<ImplId>,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[Adapter("crate::ana::represent_visitor::AnAdapter")]
+#[derive(Debug, Clone, Eq, PartialEq, Visit)]
 pub struct AnFunctionData {
     pub name: Option<ModuleRef>,
     pub generics: Vec<AstGeneric>,
@@ -61,7 +67,8 @@ pub struct AnFunctionData {
     pub restrictions: Vec<AstTypeRestriction>,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[Adapter("crate::ana::represent_visitor::AnAdapter")]
+#[derive(Debug, Clone, Eq, PartialEq, Visit)]
 pub struct AnImplData {
     pub impl_id: ImplId,
     pub generics: Vec<AstGeneric>,

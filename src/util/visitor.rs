@@ -1,12 +1,21 @@
-use crate::util::PResult;
+use crate::util::{FileId, PResult, Span};
 use std::{
     collections::{BTreeMap, HashMap},
     hash::Hash,
 };
 
 pub trait Visit<A>: Sized {
-    fn visit(self, adapter: &mut A) -> PResult<Self>;
+    fn visit(self, _adapter: &mut A) -> PResult<Self> {
+        Ok(self)
+    }
 }
+
+impl<T> Visit<T> for String {}
+impl<T> Visit<T> for FileId {}
+impl<T> Visit<T> for Span {}
+impl<T> Visit<T> for usize {}
+impl<T> Visit<T> for bool {}
+impl<T> Visit<T> for char {}
 
 impl<T, S: Visit<T>> Visit<T> for Box<S> {
     fn visit(self, adapter: &mut T) -> PResult<Self> {

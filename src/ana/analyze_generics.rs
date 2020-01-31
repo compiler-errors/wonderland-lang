@@ -34,64 +34,64 @@ impl AnalyzeGenerics {
 }
 
 impl AnAdapter for AnalyzeGenerics {
-    fn enter_analyzed_function(&mut self, f: AnFunctionData) -> PResult<AnFunctionData> {
+    fn enter_an_function_data(&mut self, f: AnFunctionData) -> PResult<AnFunctionData> {
         self.scope.push();
         self.add_generics(&f.generics)?;
         Ok(f)
     }
 
-    fn enter_analyzed_trait(&mut self, t: AnTraitData) -> PResult<AnTraitData> {
+    fn enter_an_trait_data(&mut self, t: AnTraitData) -> PResult<AnTraitData> {
         self.scope.push();
         self.add_generics(&t.generics)?;
         Ok(t)
     }
 
-    fn enter_analyzed_object(&mut self, o: AnObjectData) -> PResult<AnObjectData> {
+    fn enter_an_object_data(&mut self, o: AnObjectData) -> PResult<AnObjectData> {
         self.scope.push();
         self.add_generics(&o.generics)?;
         Ok(o)
     }
 
-    fn enter_analyzed_enum(&mut self, e: AnEnumData) -> PResult<AnEnumData> {
+    fn enter_an_enum_data(&mut self, e: AnEnumData) -> PResult<AnEnumData> {
         self.scope.push();
         self.add_generics(&e.generics)?;
         Ok(e)
     }
 
-    fn enter_analyzed_impl(&mut self, i: AnImplData) -> PResult<AnImplData> {
+    fn enter_an_impl_data(&mut self, i: AnImplData) -> PResult<AnImplData> {
         self.scope.push();
         self.add_generics(&i.generics)?;
         Ok(i)
     }
 
-    fn exit_analyzed_function(&mut self, f: AnFunctionData) -> PResult<AnFunctionData> {
+    fn exit_an_function_data(&mut self, f: AnFunctionData) -> PResult<AnFunctionData> {
         self.scope.pop();
         Ok(f)
     }
 
-    fn exit_analyzed_trait(&mut self, t: AnTraitData) -> PResult<AnTraitData> {
+    fn exit_an_trait_data(&mut self, t: AnTraitData) -> PResult<AnTraitData> {
         self.scope.pop();
         Ok(t)
     }
 
-    fn exit_analyzed_object(&mut self, o: AnObjectData) -> PResult<AnObjectData> {
+    fn exit_an_object_data(&mut self, o: AnObjectData) -> PResult<AnObjectData> {
         self.scope.pop();
         Ok(o)
     }
 
-    fn exit_analyzed_enum(&mut self, e: AnEnumData) -> PResult<AnEnumData> {
+    fn exit_an_enum_data(&mut self, e: AnEnumData) -> PResult<AnEnumData> {
         self.scope.pop();
         Ok(e)
     }
 
-    fn exit_analyzed_impl(&mut self, i: AnImplData) -> PResult<AnImplData> {
+    fn exit_an_impl_data(&mut self, i: AnImplData) -> PResult<AnImplData> {
         self.scope.pop();
         Ok(i)
     }
 }
 
 impl AstAdapter for AnalyzeGenerics {
-    fn enter_type(&mut self, t: AstType) -> PResult<AstType> {
+    fn enter_ast_type(&mut self, t: AstType) -> PResult<AstType> {
         if let AstType::Generic(name) = t {
             if let Some(id) = self.scope.get(&name) {
                 Ok(AstType::GenericPlaceholder(id, name))
@@ -103,68 +103,68 @@ impl AstAdapter for AnalyzeGenerics {
         }
     }
 
-    fn enter_function(&mut self, f: AstFunction) -> PResult<AstFunction> {
+    fn enter_ast_function(&mut self, f: AstFunction) -> PResult<AstFunction> {
         self.scope.push();
         self.add_generics(&f.generics)?;
         Ok(f)
     }
 
-    fn enter_object_function(&mut self, f: AstObjectFunction) -> PResult<AstObjectFunction> {
+    fn enter_ast_object_function(&mut self, f: AstObjectFunction) -> PResult<AstObjectFunction> {
         self.scope.push();
         self.add_generics(&f.generics)?;
         Ok(f)
     }
 
-    fn enter_trait(&mut self, t: AstTrait) -> PResult<AstTrait> {
+    fn enter_ast_trait(&mut self, t: AstTrait) -> PResult<AstTrait> {
         self.scope.push();
         self.add_generics(&t.generics)?;
         Ok(t)
     }
 
-    fn enter_object(&mut self, o: AstObject) -> PResult<AstObject> {
+    fn enter_ast_object(&mut self, o: AstObject) -> PResult<AstObject> {
         self.scope.push();
         self.add_generics(&o.generics)?;
         Ok(o)
     }
 
-    fn enter_enum(&mut self, e: AstEnum) -> PResult<AstEnum> {
+    fn enter_ast_enum(&mut self, e: AstEnum) -> PResult<AstEnum> {
         self.scope.push();
         self.add_generics(&e.generics)?;
         Ok(e)
     }
 
-    fn enter_impl(&mut self, i: AstImpl) -> PResult<AstImpl> {
+    fn enter_ast_impl(&mut self, i: AstImpl) -> PResult<AstImpl> {
         self.scope.push();
         self.add_generics(&i.generics)?;
         Ok(i)
     }
 
-    fn exit_function(&mut self, f: AstFunction) -> PResult<AstFunction> {
+    fn exit_ast_function(&mut self, f: AstFunction) -> PResult<AstFunction> {
         self.scope.pop();
         Ok(f)
     }
 
-    fn exit_object_function(&mut self, f: AstObjectFunction) -> PResult<AstObjectFunction> {
+    fn exit_ast_object_function(&mut self, f: AstObjectFunction) -> PResult<AstObjectFunction> {
         self.scope.pop();
         Ok(f)
     }
 
-    fn exit_trait(&mut self, t: AstTrait) -> PResult<AstTrait> {
+    fn exit_ast_trait(&mut self, t: AstTrait) -> PResult<AstTrait> {
         self.scope.pop();
         Ok(t)
     }
 
-    fn exit_object(&mut self, o: AstObject) -> PResult<AstObject> {
+    fn exit_ast_object(&mut self, o: AstObject) -> PResult<AstObject> {
         self.scope.pop();
         Ok(o)
     }
 
-    fn exit_enum(&mut self, e: AstEnum) -> PResult<AstEnum> {
+    fn exit_ast_enum(&mut self, e: AstEnum) -> PResult<AstEnum> {
         self.scope.pop();
         Ok(e)
     }
 
-    fn exit_impl(&mut self, i: AstImpl) -> PResult<AstImpl> {
+    fn exit_ast_impl(&mut self, i: AstImpl) -> PResult<AstImpl> {
         self.scope.pop();
         Ok(i)
     }

@@ -21,7 +21,7 @@ impl DirtyAnalysisPass for AnalyzeElaborations {
 impl AnAdapter for AnalyzeElaborations {}
 
 impl AstAdapter for AnalyzeElaborations {
-    fn enter_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
+    fn enter_ast_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
         let AstExpression { data, ty, span } = e;
 
         let data = match data {
@@ -55,7 +55,7 @@ impl AstAdapter for AnalyzeElaborations {
         Ok(AstExpression { data, ty, span })
     }
 
-    fn enter_type(&mut self, t: AstType) -> PResult<AstType> {
+    fn enter_ast_type(&mut self, t: AstType) -> PResult<AstType> {
         match t {
             AstType::AssociatedType {
                 obj_ty,

@@ -16,7 +16,7 @@ impl AstAnalysisPass for AnalyzeForLoops {
 }
 
 impl AstAdapter for AnalyzeForLoops {
-    fn enter_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
+    fn enter_ast_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
         match e {
             AstExpression {
                 data:

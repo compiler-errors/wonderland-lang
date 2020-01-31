@@ -7,6 +7,8 @@ extern crate getopts;
 extern crate inkwell;
 #[macro_use]
 extern crate log;
+#[macro_use]
+extern crate adapter;
 
 #[cfg(feature = "ana")]
 use crate::ana::analyze;

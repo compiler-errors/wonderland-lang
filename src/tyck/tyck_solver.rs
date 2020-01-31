@@ -924,7 +924,7 @@ impl TyckSolver {
 }
 
 impl AstAdapter for TyckSolver {
-    fn enter_function(&mut self, f: AstFunction) -> PResult<AstFunction> {
+    fn enter_ast_function(&mut self, f: AstFunction) -> PResult<AstFunction> {
         self.satisfy_restrictions(&f.restrictions)?;
 
         self.return_type = Some(f.return_type.clone());
@@ -941,7 +941,7 @@ impl AstAdapter for TyckSolver {
         Ok(f)
     }
 
-    fn enter_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
+    fn enter_ast_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
         if let AstExpressionData::Closure { variables, .. } = &e.data {
             self.variables.extend(
                 variables
@@ -959,14 +959,14 @@ impl AstAdapter for TyckSolver {
         Ok(e)
     }
 
-    fn enter_object(&mut self, o: AstObject) -> PResult<AstObject> {
+    fn enter_ast_object(&mut self, o: AstObject) -> PResult<AstObject> {
         self.satisfy_restrictions(&o.restrictions)?;
 
         // Nothing special here to do.
         Ok(o)
     }
 
-    fn enter_object_function(&mut self, o: AstObjectFunction) -> PResult<AstObjectFunction> {
+    fn enter_ast_object_function(&mut self, o: AstObjectFunction) -> PResult<AstObjectFunction> {
         self.satisfy_restrictions(&o.restrictions)?;
 
         self.return_type = Some(o.return_type.clone());
@@ -983,19 +983,19 @@ impl AstAdapter for TyckSolver {
         Ok(o)
     }
 
-    fn enter_trait(&mut self, t: AstTrait) -> PResult<AstTrait> {
+    fn enter_ast_trait(&mut self, t: AstTrait) -> PResult<AstTrait> {
         self.satisfy_restrictions(&t.restrictions)?;
 
         Ok(t)
     }
 
-    fn enter_enum(&mut self, e: AstEnum) -> PResult<AstEnum> {
+    fn enter_ast_enum(&mut self, e: AstEnum) -> PResult<AstEnum> {
         self.satisfy_restrictions(&e.restrictions)?;
 
         Ok(e)
     }
 
-    fn enter_impl(&mut self, i: AstImpl) -> PResult<AstImpl> {
+    fn enter_ast_impl(&mut self, i: AstImpl) -> PResult<AstImpl> {
         if let Some(trait_ty) = &i.trait_ty {
             self.satisfy_restrictions(&instantiate_trait_restrictions(
                 &self.program,
@@ -1017,20 +1017,20 @@ impl AstAdapter for TyckSolver {
         Ok(i)
     }
 
-    fn enter_global_variable(&mut self, g: AstGlobalVariable) -> PResult<AstGlobalVariable> {
+    fn enter_ast_global_variable(&mut self, g: AstGlobalVariable) -> PResult<AstGlobalVariable> {
         self.unify(true, &g.ty, &g.init.ty)?;
 
         Ok(g)
     }
 
-    fn exit_function(&mut self, f: AstFunction) -> PResult<AstFunction> {
+    fn exit_ast_function(&mut self, f: AstFunction) -> PResult<AstFunction> {
         self.return_type = None;
         self.variables.clear();
 
         Ok(f)
     }
 
-    fn exit_type(&mut self, t: AstType) -> PResult<AstType> {
+    fn exit_ast_type(&mut self, t: AstType) -> PResult<AstType> {
         match self.normalize_ty(t)? {
             AstType::Object(name, generics) => {
                 self.satisfy_well_formed_object(&name, &generics)?;
@@ -1044,7 +1044,7 @@ impl AstAdapter for TyckSolver {
         }
     }
 
-    fn exit_statement(&mut self, s: AstStatement) -> PResult<AstStatement> {
+    fn exit_ast_statement(&mut self, s: AstStatement) -> PResult<AstStatement> {
         match &s {
             // Removed in earlier stages
             AstStatement::Expression { .. } | AstStatement::Continue { .. } => {},
@@ -1067,7 +1067,7 @@ impl AstAdapter for TyckSolver {
         Ok(s)
     }
 
-    fn exit_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
+    fn exit_ast_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
         let AstExpression { mut data, ty, span } = e;
 
         match &mut data {
@@ -1463,13 +1463,13 @@ impl AstAdapter for TyckSolver {
         Ok(AstExpression { data, ty, span })
     }
 
-    fn exit_pattern(&mut self, p: AstMatchPattern) -> PResult<AstMatchPattern> {
+    fn exit_ast_match_pattern(&mut self, p: AstMatchPattern) -> PResult<AstMatchPattern> {
         self.full_unify_pattern(&p, &AstType::infer())?;
 
         Ok(p)
     }
 
-    fn exit_object_function(&mut self, o: AstObjectFunction) -> PResult<AstObjectFunction> {
+    fn exit_ast_object_function(&mut self, o: AstObjectFunction) -> PResult<AstObjectFunction> {
         self.return_type = None;
         self.variables.clear();
 
@@ -1545,7 +1545,7 @@ impl TyckAdapter for TyckSolver {
 }
 
 impl AnAdapter for TyckSolver {
-    fn enter_analyzed_impl(&mut self, i: AnImplData) -> PResult<AnImplData> {
+    fn enter_an_impl_data(&mut self, i: AnImplData) -> PResult<AnImplData> {
         assert!(i.is_dummy);
 
         if let Some(trait_ty) = &i.trait_ty {
@@ -1577,7 +1577,7 @@ fn into_types(values: &[AstExpression]) -> Vec<AstType> {
 struct NormalizationAdapter<'a>(&'a mut TyckSolver);
 
 impl<'a> AstAdapter for NormalizationAdapter<'a> {
-    fn exit_type(&mut self, t: AstType) -> PResult<AstType> {
+    fn exit_ast_type(&mut self, t: AstType) -> PResult<AstType> {
         match t {
             AstType::Infer(id) =>
                 if let Some(t) = top_epoch!(self.0).inferences.get(&id) {
@@ -1635,7 +1635,7 @@ impl<'a> AstAdapter for NormalizationAdapter<'a> {
 pub struct TypeAmbiguityAdapter<'a>(&'a mut TyckSolver);
 
 impl<'a> AstAdapter for TypeAmbiguityAdapter<'a> {
-    fn exit_type(&mut self, t: AstType) -> PResult<AstType> {
+    fn exit_ast_type(&mut self, t: AstType) -> PResult<AstType> {
         if let AstType::Infer(_) = &t {
             if top_epoch!(self.0).ambiguous.is_none() {
                 top_epoch_mut!(self.0).ambiguous = Some(format!("Ambiguous infer type `{}`", t));

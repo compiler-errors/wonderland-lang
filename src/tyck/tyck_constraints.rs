@@ -98,7 +98,7 @@ impl TyckConstraintAssumptionAdapter {
 }
 
 impl AstAdapter for TyckConstraintAssumptionAdapter {
-    fn enter_type(&mut self, t: AstType) -> PResult<AstType> {
+    fn enter_ast_type(&mut self, t: AstType) -> PResult<AstType> {
         match t {
             AstType::SelfType => self
                 .self_ty
@@ -108,20 +108,20 @@ impl AstAdapter for TyckConstraintAssumptionAdapter {
         }
     }
 
-    fn enter_trait(&mut self, t: AstTrait) -> PResult<AstTrait> {
+    fn enter_ast_trait(&mut self, t: AstTrait) -> PResult<AstTrait> {
         // The trait's own restrictions will be assumed here.
         self.self_ty = Some(AstType::dummy());
 
         Ok(t)
     }
 
-    fn exit_type_restriction(&mut self, t: AstTypeRestriction) -> PResult<AstTypeRestriction> {
+    fn exit_ast_type_restriction(&mut self, t: AstTypeRestriction) -> PResult<AstTypeRestriction> {
         self.assume(&t.ty, &t.trt, 0)?;
 
         Ok(t)
     }
 
-    fn exit_trait(&mut self, t: AstTrait) -> PResult<AstTrait> {
+    fn exit_ast_trait(&mut self, t: AstTrait) -> PResult<AstTrait> {
         let self_trt = AstTraitTypeWithAssocs::new(
             t.module_ref.clone(),
             Dummifier::from_generics(&t.generics)?,
@@ -151,7 +151,7 @@ impl Dummifier {
 }
 
 impl AstAdapter for Dummifier {
-    fn enter_type(&mut self, t: AstType) -> PResult<AstType> {
+    fn enter_ast_type(&mut self, t: AstType) -> PResult<AstType> {
         if let AstType::GenericPlaceholder(id, name) = t {
             Ok(AstType::DummyGeneric(id, name))
         } else {

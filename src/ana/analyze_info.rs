@@ -43,7 +43,7 @@ impl AnalyzeInfo {
 }
 
 impl AstAdapter for AnalyzeInfo {
-    fn enter_module(&mut self, m: AstModule) -> PResult<AstModule> {
+    fn enter_ast_module(&mut self, m: AstModule) -> PResult<AstModule> {
         for fun in m.functions.values() {
             let ana_fun = AnFunctionData {
                 name: Some(fun.module_ref.clone()),
@@ -212,7 +212,7 @@ impl AstAdapter for AnalyzeInfo {
     }
 
     // Need to do this on the way up.
-    fn exit_program(&mut self, p: AstProgram) -> PResult<AstProgram> {
+    fn exit_ast_program(&mut self, p: AstProgram) -> PResult<AstProgram> {
         for m in &p.modules {
             for imp in m.impls.values() {
                 if let Some(trait_ty) = &imp.trait_ty {

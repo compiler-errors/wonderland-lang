@@ -21,7 +21,7 @@ impl PureAnalysisPass for AnalyzeConstructorFields {
 }
 
 impl AstAdapter for AnalyzeConstructorFields {
-    fn enter_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
+    fn enter_ast_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
         match &e.data {
             AstExpressionData::PlainEnum {
                 enumerable,
@@ -106,7 +106,7 @@ impl AstAdapter for AnalyzeConstructorFields {
         Ok(e)
     }
 
-    fn enter_pattern(&mut self, p: AstMatchPattern) -> PResult<AstMatchPattern> {
+    fn enter_ast_match_pattern(&mut self, p: AstMatchPattern) -> PResult<AstMatchPattern> {
         match &p.data {
             AstMatchPatternData::PlainEnum {
                 enumerable,

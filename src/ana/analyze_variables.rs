@@ -48,7 +48,7 @@ impl AnalyzeVariables {
 }
 
 impl<'a> AstAdapter for AnalyzeVariables {
-    fn enter_module(&mut self, m: AstModule) -> PResult<AstModule> {
+    fn enter_ast_module(&mut self, m: AstModule) -> PResult<AstModule> {
         self.global_variables.clear();
 
         let mm = self.analyzed_program.analyzed_modules[&m.id].clone();
@@ -61,7 +61,7 @@ impl<'a> AstAdapter for AnalyzeVariables {
         Ok(m)
     }
 
-    fn enter_function(&mut self, f: AstFunction) -> PResult<AstFunction> {
+    fn enter_ast_function(&mut self, f: AstFunction) -> PResult<AstFunction> {
         self.scope.push();
         self.all_variables.push();
 
@@ -80,12 +80,12 @@ impl<'a> AstAdapter for AnalyzeVariables {
         Ok(f)
     }
 
-    fn enter_block(&mut self, b: AstBlock) -> PResult<AstBlock> {
+    fn enter_ast_block(&mut self, b: AstBlock) -> PResult<AstBlock> {
         self.scope.push();
         Ok(b)
     }
 
-    fn enter_statement(&mut self, s: AstStatement) -> PResult<AstStatement> {
+    fn enter_ast_statement(&mut self, s: AstStatement) -> PResult<AstStatement> {
         match s {
             AstStatement::Let { pattern, value } => {
                 let value = value.visit(self)?;
@@ -96,7 +96,7 @@ impl<'a> AstAdapter for AnalyzeVariables {
         }
     }
 
-    fn enter_pattern(&mut self, p: AstMatchPattern) -> PResult<AstMatchPattern> {
+    fn enter_ast_match_pattern(&mut self, p: AstMatchPattern) -> PResult<AstMatchPattern> {
         match &p.data {
             AstMatchPatternData::Identifier(name) => {
                 self.assign_index(name)?;
@@ -107,7 +107,7 @@ impl<'a> AstAdapter for AnalyzeVariables {
         Ok(p)
     }
 
-    fn enter_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
+    fn enter_ast_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
         let AstExpression { data, ty, span } = e;
 
         let data = match data {
@@ -185,7 +185,7 @@ impl<'a> AstAdapter for AnalyzeVariables {
         Ok(AstExpression { data, ty, span })
     }
 
-    fn exit_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
+    fn exit_ast_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
         let AstExpression { data, ty, span } = e;
 
         let data = match data {
@@ -211,7 +211,7 @@ impl<'a> AstAdapter for AnalyzeVariables {
         Ok(AstExpression { data, ty, span })
     }
 
-    fn enter_object_function(&mut self, f: AstObjectFunction) -> PResult<AstObjectFunction> {
+    fn enter_ast_object_function(&mut self, f: AstObjectFunction) -> PResult<AstObjectFunction> {
         self.scope.push();
         self.all_variables.push();
 
@@ -230,12 +230,12 @@ impl<'a> AstAdapter for AnalyzeVariables {
         Ok(f)
     }
 
-    fn exit_module(&mut self, a: AstModule) -> PResult<AstModule> {
+    fn exit_ast_module(&mut self, a: AstModule) -> PResult<AstModule> {
         self.global_variables.clear();
         Ok(a)
     }
 
-    fn exit_function(&mut self, f: AstFunction) -> PResult<AstFunction> {
+    fn exit_ast_function(&mut self, f: AstFunction) -> PResult<AstFunction> {
         let variables = self.all_variables.pop();
         self.analyzed_program.variable_ids.extend(variables.clone());
         self.scope.pop();
@@ -243,13 +243,13 @@ impl<'a> AstAdapter for AnalyzeVariables {
         Ok(AstFunction { variables, ..f })
     }
 
-    fn exit_block(&mut self, b: AstBlock) -> PResult<AstBlock> {
+    fn exit_ast_block(&mut self, b: AstBlock) -> PResult<AstBlock> {
         self.scope.pop();
 
         Ok(b)
     }
 
-    fn exit_object_function(&mut self, o: AstObjectFunction) -> PResult<AstObjectFunction> {
+    fn exit_ast_object_function(&mut self, o: AstObjectFunction) -> PResult<AstObjectFunction> {
         let variables = self.all_variables.pop();
         self.analyzed_program.variable_ids.extend(variables.clone());
 
@@ -257,12 +257,12 @@ impl<'a> AstAdapter for AnalyzeVariables {
         Ok(AstObjectFunction { variables, ..o })
     }
 
-    fn enter_match_branch(&mut self, b: AstMatchBranch) -> PResult<AstMatchBranch> {
+    fn enter_ast_match_branch(&mut self, b: AstMatchBranch) -> PResult<AstMatchBranch> {
         self.scope.push();
         Ok(b)
     }
 
-    fn exit_match_branch(&mut self, b: AstMatchBranch) -> PResult<AstMatchBranch> {
+    fn exit_ast_match_branch(&mut self, b: AstMatchBranch) -> PResult<AstMatchBranch> {
         self.scope.pop();
         Ok(b)
     }
@@ -293,7 +293,7 @@ impl CaptureIdentifier {
 }
 
 impl AstAdapter for CaptureIdentifier {
-    fn enter_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
+    fn enter_ast_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
         match &e.data {
             AstExpressionData::Identifier {
                 name,
@@ -311,7 +311,7 @@ impl AstAdapter for CaptureIdentifier {
         Ok(e)
     }
 
-    fn enter_statement(&mut self, s: AstStatement) -> PResult<AstStatement> {
+    fn enter_ast_statement(&mut self, s: AstStatement) -> PResult<AstStatement> {
         match s {
             AstStatement::Let { pattern, value } => {
                 // Still need to detect if we capture in the value, e.g. `let x = x.`
@@ -324,7 +324,7 @@ impl AstAdapter for CaptureIdentifier {
         }
     }
 
-    fn enter_pattern(&mut self, p: AstMatchPattern) -> PResult<AstMatchPattern> {
+    fn enter_ast_match_pattern(&mut self, p: AstMatchPattern) -> PResult<AstMatchPattern> {
         match &p.data {
             AstMatchPatternData::Identifier(name) => {
                 self.ignore(&name.name);

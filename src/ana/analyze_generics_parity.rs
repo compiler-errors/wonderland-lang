@@ -73,7 +73,7 @@ impl DirtyAnalysisPass for AnalyzeGenericsParity {
 impl AnAdapter for AnalyzeGenericsParity {}
 
 impl AstAdapter for AnalyzeGenericsParity {
-    fn enter_type(&mut self, t: AstType) -> PResult<AstType> {
+    fn enter_ast_type(&mut self, t: AstType) -> PResult<AstType> {
         match t {
             AstType::Object(object, generics) => {
                 let generics = self.check_generics(None, &object, generics)?;
@@ -87,12 +87,12 @@ impl AstAdapter for AnalyzeGenericsParity {
         }
     }
 
-    fn enter_trait_type(&mut self, mut t: AstTraitType) -> PResult<AstTraitType> {
+    fn enter_ast_trait_type(&mut self, mut t: AstTraitType) -> PResult<AstTraitType> {
         t.generics = self.check_generics(None, &t.name, t.generics)?;
         Ok(t)
     }
 
-    fn enter_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
+    fn enter_ast_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
         let AstExpression { data, ty, span } = e;
 
         let data = match data {
@@ -168,7 +168,7 @@ impl AstAdapter for AnalyzeGenericsParity {
         Ok(AstExpression { data, ty, span })
     }
 
-    fn enter_pattern(&mut self, p: AstMatchPattern) -> PResult<AstMatchPattern> {
+    fn enter_ast_match_pattern(&mut self, p: AstMatchPattern) -> PResult<AstMatchPattern> {
         let AstMatchPattern { data, ty } = p;
 
         let data = match data {

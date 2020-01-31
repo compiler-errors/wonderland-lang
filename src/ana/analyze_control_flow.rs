@@ -36,7 +36,7 @@ impl AnalyzeControlFlow {
 }
 
 impl AstAdapter for AnalyzeControlFlow {
-    fn enter_statement(&mut self, mut s: AstStatement) -> PResult<AstStatement> {
+    fn enter_ast_statement(&mut self, mut s: AstStatement) -> PResult<AstStatement> {
         match &mut s {
             AstStatement::Break {
                 id: id @ None,
@@ -57,7 +57,7 @@ impl AstAdapter for AnalyzeControlFlow {
         Ok(s)
     }
 
-    fn enter_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
+    fn enter_ast_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
         let AstExpression { data, ty, span } = e;
 
         let data = match data {
@@ -91,7 +91,7 @@ impl AstAdapter for AnalyzeControlFlow {
         Ok(AstExpression { data, ty, span })
     }
 
-    fn exit_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
+    fn exit_ast_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
         match e.data {
             AstExpressionData::Closure { .. } => {
                 self.0.pop();

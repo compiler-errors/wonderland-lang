@@ -21,7 +21,7 @@ impl PureAnalysisPass for AnalyzePositionalEnums {
 }
 
 impl AstAdapter for AnalyzePositionalEnums {
-    fn enter_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
+    fn enter_ast_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
         let AstExpression { data, ty, span } = e;
 
         let data = match data {
@@ -59,7 +59,7 @@ impl AstAdapter for AnalyzePositionalEnums {
         Ok(AstExpression { data, ty, span })
     }
 
-    fn enter_pattern(&mut self, p: AstMatchPattern) -> PResult<AstMatchPattern> {
+    fn enter_ast_match_pattern(&mut self, p: AstMatchPattern) -> PResult<AstMatchPattern> {
         let AstMatchPattern { data, ty } = p;
 
         let data = match data {

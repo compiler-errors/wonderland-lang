@@ -19,13 +19,16 @@ impl AstAnalysisPass for AnalyzeReturns {
 }
 
 impl AstAdapter for AnalyzeReturns {
-    fn enter_function(&mut self, mut f: AstFunction) -> PResult<AstFunction> {
+    fn enter_ast_function(&mut self, mut f: AstFunction) -> PResult<AstFunction> {
         f.definition = f.definition.map(lift_returns);
 
         Ok(f)
     }
 
-    fn enter_object_function(&mut self, mut o: AstObjectFunction) -> PResult<AstObjectFunction> {
+    fn enter_ast_object_function(
+        &mut self,
+        mut o: AstObjectFunction,
+    ) -> PResult<AstObjectFunction> {
         o.definition = o.definition.map(lift_returns);
 
         Ok(o)

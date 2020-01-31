@@ -118,7 +118,7 @@ impl AnalyzeOperators {
 }
 
 impl AstAdapter for AnalyzeOperators {
-    fn enter_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
+    fn enter_ast_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
         let AstExpression { data, ty, span } = e;
 
         let data = match data {

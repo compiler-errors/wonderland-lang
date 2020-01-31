@@ -18,7 +18,7 @@ impl PureAnalysisPass for AnalyzeImpls {
 }
 
 impl AstAdapter for AnalyzeImpls {
-    fn enter_impl(&mut self, i: AstImpl) -> PResult<AstImpl> {
+    fn enter_ast_impl(&mut self, i: AstImpl) -> PResult<AstImpl> {
         if let Some(trait_ty) = &i.trait_ty {
             let info = &self.0.analyzed_traits[&trait_ty.name];
 

@@ -19,13 +19,13 @@ impl DirtyAnalysisPass for AnalyzeSelf {
 }
 
 impl AnAdapter for AnalyzeSelf {
-    fn enter_analyzed_object(&mut self, o: AnObjectData) -> PResult<AnObjectData> {
+    fn enter_an_object_data(&mut self, o: AnObjectData) -> PResult<AnObjectData> {
         let self_type = o.self_ty.clone();
 
         o.visit(&mut ReplaceSelf(self_type))
     }
 
-    fn enter_analyzed_impl(&mut self, i: AnImplData) -> PResult<AnImplData> {
+    fn enter_an_impl_data(&mut self, i: AnImplData) -> PResult<AnImplData> {
         // No `Self` type in the impl_ty!
         let impl_ty = i.impl_ty.clone().visit(&mut DenySelf)?;
 
@@ -34,11 +34,11 @@ impl AnAdapter for AnalyzeSelf {
 }
 
 impl AstAdapter for AnalyzeSelf {
-    fn enter_function(&mut self, f: AstFunction) -> PResult<AstFunction> {
+    fn enter_ast_function(&mut self, f: AstFunction) -> PResult<AstFunction> {
         f.visit(&mut DenySelf)
     }
 
-    fn enter_object(&mut self, o: AstObject) -> PResult<AstObject> {
+    fn enter_ast_object(&mut self, o: AstObject) -> PResult<AstObject> {
         let self_type = AstType::Object(
             o.module_ref.clone(),
             o.generics.iter().map(|g| g.clone().into()).collect(),
@@ -47,7 +47,7 @@ impl AstAdapter for AnalyzeSelf {
         o.visit(&mut ReplaceSelf(self_type))
     }
 
-    fn enter_enum(&mut self, e: AstEnum) -> PResult<AstEnum> {
+    fn enter_ast_enum(&mut self, e: AstEnum) -> PResult<AstEnum> {
         let self_type = AstType::Enum(
             e.module_ref.clone(),
             e.generics.iter().map(|g| g.clone().into()).collect(),
@@ -56,7 +56,7 @@ impl AstAdapter for AnalyzeSelf {
         e.visit(&mut ReplaceSelf(self_type))
     }
 
-    fn enter_impl(&mut self, i: AstImpl) -> PResult<AstImpl> {
+    fn enter_ast_impl(&mut self, i: AstImpl) -> PResult<AstImpl> {
         // No `Self` type in the impl_ty.
         let impl_ty = i.impl_ty.clone().visit(&mut DenySelf)?;
 
@@ -73,7 +73,7 @@ struct ReplaceSelf(AstType);
 impl AnAdapter for ReplaceSelf {}
 
 impl AstAdapter for ReplaceSelf {
-    fn enter_type(&mut self, t: AstType) -> PResult<AstType> {
+    fn enter_ast_type(&mut self, t: AstType) -> PResult<AstType> {
         if t == AstType::SelfType {
             Ok(self.0.clone())
         } else {
@@ -87,7 +87,7 @@ struct DenySelf;
 impl AnAdapter for DenySelf {}
 
 impl AstAdapter for DenySelf {
-    fn enter_type(&mut self, t: AstType) -> PResult<AstType> {
+    fn enter_ast_type(&mut self, t: AstType) -> PResult<AstType> {
         if t == AstType::SelfType {
             perror!("The `Self` type is not allowed in this environment")
         } else {

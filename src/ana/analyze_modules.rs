@@ -1,6 +1,6 @@
 use crate::{
     parser::{ast::*, ast_visitor::AstAdapter},
-    util::{Context, FileId, FileRegistry, PError, PResult},
+    util::{Context, FileId, FileRegistry, PError, PResult, Visit},
 };
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
@@ -94,6 +94,10 @@ pub struct MappedModule {
     children: HashMap<String, ModuleItem>,
 }
 
+// Dummy impl to satisfy the visitor derive...
+// TODO: Make a #[SkipVisit] or something
+impl<T> Visit<T> for Rc<RefCell<MappedModule>> {}
+
 impl MappedModule {
     fn new_shared() -> SharedModule {
         Rc::new(RefCell::new(MappedModule {
@@ -160,7 +164,7 @@ impl<'a> AnalyzeModules<'a> {
 }
 
 impl<'a> AstAdapter for AnalyzeModules<'a> {
-    fn enter_module(&mut self, m: AstModule) -> PResult<AstModule> {
+    fn enter_ast_module(&mut self, m: AstModule) -> PResult<AstModule> {
         let id = m.id;
         let symbols: Vec<_> = (m.functions.keys())
             .chain(m.traits.keys())
@@ -235,7 +239,7 @@ impl<'a> AnalyzePubUses<'a> {
 }
 
 impl<'a> AstAdapter for AnalyzePubUses<'a> {
-    fn enter_module(&mut self, m: AstModule) -> PResult<AstModule> {
+    fn enter_ast_module(&mut self, m: AstModule) -> PResult<AstModule> {
         for u in &m.pub_uses {
             match u {
                 AstUse::Use(module, item) => {
@@ -298,7 +302,7 @@ impl<'a> AnalyzeUses<'a> {
 }
 
 impl<'a> AstAdapter for AnalyzeUses<'a> {
-    fn enter_module(&mut self, mut m: AstModule) -> PResult<AstModule> {
+    fn enter_ast_module(&mut self, mut m: AstModule) -> PResult<AstModule> {
         let std_path = vec!["std".into()];
 
         if FileRegistry::mod_path(m.id) != std_path {
@@ -388,7 +392,7 @@ impl<'a> AstAdapter for AnalyzeUses<'a> {
         }
     }
 
-    fn exit_module(&mut self, m: AstModule) -> PResult<AstModule> {
+    fn exit_ast_module(&mut self, m: AstModule) -> PResult<AstModule> {
         let s = std::mem::take(&mut self.current_mod);
         self.modules.insert(m.id, s.unwrap());
 

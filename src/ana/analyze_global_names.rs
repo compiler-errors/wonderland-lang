@@ -20,7 +20,7 @@ impl PureAnalysisPass for AnalyzeGlobalNames {
 }
 
 impl AstAdapter for AnalyzeGlobalNames {
-    fn enter_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
+    fn enter_ast_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
         match &e.data {
             AstExpressionData::FnCall { fn_name, .. } => {
                 if !self.0.analyzed_functions.contains_key(fn_name) {
