@@ -1047,20 +1047,9 @@ impl AstAdapter for TyckSolver {
     fn exit_ast_statement(&mut self, s: AstStatement) -> PResult<AstStatement> {
         match &s {
             // Removed in earlier stages
-            AstStatement::Expression { .. } | AstStatement::Continue { .. } => {},
-            AstStatement::Break { id, value, .. } => {
-                let id = id.as_ref().unwrap();
-                self.unify(true, &self.loops[id].clone(), &value.ty)?;
-            },
+            AstStatement::Expression { .. } => {},
             AstStatement::Let { pattern, value } => {
                 self.full_unify_pattern(pattern, &value.ty)?;
-            },
-            AstStatement::Return { value } => {
-                let return_ty = self.return_type.clone().unwrap();
-                self.unify(true, &value.ty, &return_ty)?;
-            },
-            AstStatement::Assert { condition } => {
-                self.unify(true, &condition.ty, &AstType::Bool)?;
             },
         }
 
@@ -1458,6 +1447,27 @@ impl AstAdapter for TyckSolver {
             } => {
                 self.unify(true, &ty, &t)?;
             },
+
+            AstExpressionData::Continue { .. } => {
+                self.unify(true, &ty, &AstType::none())?;
+            },
+
+            AstExpressionData::Break { id, value, .. } => {
+                self.unify(true, &ty, &AstType::none())?;
+                let id = id.as_ref().unwrap();
+                self.unify(true, &self.loops[id].clone(), &value.ty)?;
+            },
+
+            AstExpressionData::Return { value } => {
+                self.unify(true, &ty, &AstType::none())?;
+                let return_ty = self.return_type.clone().unwrap();
+                self.unify(true, &value.ty, &return_ty)?;
+            },
+
+            AstExpressionData::Assert { condition } => {
+                self.unify(true, &ty, &AstType::none())?;
+                self.unify(true, &condition.ty, &AstType::Bool)?;
+            },
         }
 
         Ok(AstExpression { data, ty, span })
@@ -1478,7 +1488,7 @@ impl AstAdapter for TyckSolver {
 }
 
 impl TyckAdapter for TyckSolver {
-    fn exit_tyck_object_fn(
+    fn exit_tyck_instantiated_object_function(
         &mut self,
         i: TyckInstantiatedObjectFunction,
     ) -> PResult<TyckInstantiatedObjectFunction> {

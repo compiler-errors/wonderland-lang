@@ -3,10 +3,11 @@ use crate::{
         ast::{AstObjectFunction, AstTraitType, AstType},
         ast_visitor::AstAdapter,
     },
-    util::{PResult, Visit},
+    util::PResult,
 };
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[Adapter("crate::tyck::tyck_represent::TyckAdapter")]
+#[derive(Debug, Clone, Eq, PartialEq, Visit)]
 pub struct TyckInstantiatedObjectFunction {
     pub fun: AstObjectFunction,
     pub impl_ty: AstType,
@@ -15,36 +16,16 @@ pub struct TyckInstantiatedObjectFunction {
 }
 
 pub trait TyckAdapter: AstAdapter {
-    fn enter_tyck_object_fn(
+    fn enter_tyck_instantiated_object_function(
         &mut self,
         i: TyckInstantiatedObjectFunction,
     ) -> PResult<TyckInstantiatedObjectFunction> {
         Ok(i)
     }
-    fn exit_tyck_object_fn(
+    fn exit_tyck_instantiated_object_function(
         &mut self,
         i: TyckInstantiatedObjectFunction,
     ) -> PResult<TyckInstantiatedObjectFunction> {
         Ok(i)
-    }
-}
-
-impl<T: TyckAdapter> Visit<T> for TyckInstantiatedObjectFunction {
-    fn visit(self, adapter: &mut T) -> PResult<TyckInstantiatedObjectFunction> {
-        let TyckInstantiatedObjectFunction {
-            fun,
-            impl_ty,
-            trait_ty,
-            fn_generics,
-        } = adapter.enter_tyck_object_fn(self)?;
-
-        let i = TyckInstantiatedObjectFunction {
-            fun: fun.visit(adapter)?,
-            impl_ty: impl_ty.visit(adapter)?,
-            trait_ty: trait_ty.visit(adapter)?,
-            fn_generics: fn_generics.visit(adapter)?,
-        };
-
-        adapter.exit_tyck_object_fn(i)
     }
 }

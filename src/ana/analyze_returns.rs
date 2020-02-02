@@ -63,7 +63,14 @@ fn is_unit(e: &AstExpression) -> bool {
 }
 
 fn is_return(s: &AstStatement) -> bool {
-    if let AstStatement::Return { .. } = s {
+    if let AstStatement::Expression {
+        expression:
+            AstExpression {
+                data: AstExpressionData::Return { .. },
+                ..
+            },
+    } = s
+    {
         true
     } else {
         false
@@ -71,8 +78,15 @@ fn is_return(s: &AstStatement) -> bool {
 }
 
 fn get_return_value(s: AstStatement) -> AstExpression {
-    if let AstStatement::Return { value } = s {
-        value
+    if let AstStatement::Expression {
+        expression:
+            AstExpression {
+                data: AstExpressionData::Return { value },
+                ..
+            },
+    } = s
+    {
+        *value
     } else {
         unreachable!()
     }

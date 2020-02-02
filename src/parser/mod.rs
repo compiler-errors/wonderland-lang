@@ -809,36 +809,6 @@ impl Parser {
     fn parse_statement(&mut self) -> PResult<AstStatement> {
         match &self.next_token {
             Token::Let => self.parse_let_statement(),
-            Token::Break => {
-                self.bump()?;
-
-                let expr = if !self.check(Token::Dot) && !self.check(Token::At) {
-                    self.parse_expression()?
-                } else {
-                    AstExpression::nothing(self.next_span)
-                };
-
-                let label = if self.check_consume(Token::At)? {
-                    Some(self.expect_consume_identifier()?)
-                } else {
-                    None
-                };
-
-                Ok(AstStatement::break_stmt(expr, label))
-            },
-            Token::Continue => {
-                self.bump()?;
-
-                let label = if self.check_consume(Token::At)? {
-                    Some(self.expect_consume_identifier()?)
-                } else {
-                    None
-                };
-
-                Ok(AstStatement::continue_stmt(label))
-            },
-            Token::Return => self.parse_return_statement(),
-            Token::Assert => self.parse_assert_statement(),
             _ => self.parse_expression_statement(),
         }
     }
@@ -854,6 +824,12 @@ impl Parser {
         let value = self.parse_expression()?;
 
         Ok(AstStatement::let_statement(match_pattern, value))
+    }
+
+    fn parse_expression_statement(&mut self) -> PResult<AstStatement> {
+        let expression = self.parse_expression()?;
+
+        Ok(AstStatement::expression_statement(expression))
     }
 
     fn parse_match_pattern(&mut self) -> PResult<AstMatchPattern> {
@@ -1055,28 +1031,27 @@ impl Parser {
         ))
     }
 
-    fn parse_return_statement(&mut self) -> PResult<AstStatement> {
-        let span = self.next_span;
+    fn parse_return_statement(&mut self) -> PResult<AstExpression> {
+        let mut span = self.next_span;
         self.expect_consume(Token::Return)?;
 
         if self.check(Token::Dot) {
-            Ok(AstStatement::return_nothing(span))
+            Ok(AstExpression::return_nothing(span))
         } else {
             let value = self.parse_expression()?;
-            Ok(AstStatement::return_statement(value))
+            span = span.unite(value.span);
+
+            Ok(AstExpression::return_statement(span, value))
         }
     }
 
-    fn parse_assert_statement(&mut self) -> PResult<AstStatement> {
+    fn parse_assert_statement(&mut self) -> PResult<AstExpression> {
+        let mut span = self.next_span;
         self.expect_consume(Token::Assert)?;
         let condition = self.parse_expression()?;
-        Ok(AstStatement::assert_statement(condition))
-    }
+        span = span.unite(condition.span);
 
-    fn parse_expression_statement(&mut self) -> PResult<AstStatement> {
-        let expression = self.parse_expression()?;
-
-        Ok(AstStatement::expression_statement(expression))
+        Ok(AstExpression::assert_statement(span, condition))
     }
 
     fn parse_expression(&mut self) -> PResult<AstExpression> {
@@ -1287,6 +1262,40 @@ impl Parser {
             },
             Token::InterpolateBegin(..) => self.parse_interpolate(),
             Token::Instruction => self.parse_instruction(),
+            Token::Break => {
+                self.bump()?;
+
+                let expr = if !self.check(Token::Dot) && !self.check(Token::At) {
+                    self.parse_expression()?
+                } else {
+                    AstExpression::nothing(self.next_span)
+                };
+
+                span = span.unite(self.next_span);
+
+                let label = if self.check_consume(Token::At)? {
+                    span = span.unite(self.next_span);
+                    Some(self.expect_consume_identifier()?)
+                } else {
+                    None
+                };
+
+                Ok(AstExpression::break_stmt(span, expr, label))
+            },
+            Token::Continue => {
+                self.bump()?;
+
+                let label = if self.check_consume(Token::At)? {
+                    span = span.unite(self.next_span);
+                    Some(self.expect_consume_identifier()?)
+                } else {
+                    None
+                };
+
+                Ok(AstExpression::continue_stmt(span, label))
+            },
+            Token::Return => self.parse_return_statement(),
+            Token::Assert => self.parse_assert_statement(),
             _ => perror_at!(
                 self.next_span,
                 "Expected literal, identifier, `new` or `(`, found `{}`",

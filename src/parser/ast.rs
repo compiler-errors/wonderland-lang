@@ -411,21 +411,6 @@ pub enum AstStatement {
         pattern: AstMatchPattern,
         value: AstExpression,
     },
-    Break {
-        label: Option<String>,
-        id: Option<LoopId>,
-        value: AstExpression,
-    },
-    Continue {
-        label: Option<String>,
-        id: Option<LoopId>,
-    },
-    Return {
-        value: AstExpression,
-    },
-    Assert {
-        condition: AstExpression,
-    },
     Expression {
         expression: AstExpression,
     },
@@ -438,32 +423,6 @@ lazy_static! {
 impl AstStatement {
     pub fn let_statement(pattern: AstMatchPattern, value: AstExpression) -> AstStatement {
         AstStatement::Let { pattern, value }
-    }
-
-    pub fn return_statement(value: AstExpression) -> AstStatement {
-        AstStatement::Return { value }
-    }
-
-    pub fn return_nothing(span: Span) -> AstStatement {
-        AstStatement::Return {
-            value: AstExpression::nothing(span),
-        }
-    }
-
-    pub fn break_stmt(value: AstExpression, label: Option<String>) -> AstStatement {
-        AstStatement::Break {
-            value,
-            label,
-            id: None,
-        }
-    }
-
-    pub fn continue_stmt(label: Option<String>) -> AstStatement {
-        AstStatement::Continue { label, id: None }
-    }
-
-    pub fn assert_statement(condition: AstExpression) -> AstStatement {
-        AstStatement::Assert { condition }
     }
 
     pub fn expression_statement(expression: AstExpression) -> AstStatement {
@@ -633,6 +592,21 @@ pub enum AstExpressionData {
         instruction: String,
         arguments: Vec<InstructionArgument>,
         output: InstructionOutput,
+    },
+    Break {
+        label: Option<String>,
+        id: Option<LoopId>,
+        value: SubExpression,
+    },
+    Continue {
+        label: Option<String>,
+        id: Option<LoopId>,
+    },
+    Return {
+        value: SubExpression,
+    },
+    Assert {
+        condition: SubExpression,
     },
 }
 
@@ -1093,6 +1067,56 @@ impl AstExpression {
                 instruction,
                 arguments,
                 output,
+            },
+            ty: AstType::infer(),
+        }
+    }
+
+    pub fn return_statement(span: Span, value: AstExpression) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::Return {
+                value: Box::new(value),
+            },
+            ty: AstType::infer(),
+        }
+    }
+
+    pub fn return_nothing(span: Span) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::Return {
+                value: Box::new(AstExpression::nothing(span)),
+            },
+            ty: AstType::infer(),
+        }
+    }
+
+    pub fn break_stmt(span: Span, value: AstExpression, label: Option<String>) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::Break {
+                value: Box::new(value),
+                label,
+                id: None,
+            },
+            ty: AstType::infer(),
+        }
+    }
+
+    pub fn continue_stmt(span: Span, label: Option<String>) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::Continue { label, id: None },
+            ty: AstType::infer(),
+        }
+    }
+
+    pub fn assert_statement(span: Span, condition: AstExpression) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::Assert {
+                condition: Box::new(condition),
             },
             ty: AstType::infer(),
         }

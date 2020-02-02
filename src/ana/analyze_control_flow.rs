@@ -1,7 +1,7 @@
 use crate::{
     ana::represent_visitor::AstAnalysisPass,
     parser::{
-        ast::{AstExpression, AstExpressionData, AstStatement, LoopId},
+        ast::{AstExpression, AstExpressionData, LoopId},
         ast_visitor::AstAdapter,
     },
     util::{PResult, Visit},
@@ -36,27 +36,6 @@ impl AnalyzeControlFlow {
 }
 
 impl AstAdapter for AnalyzeControlFlow {
-    fn enter_ast_statement(&mut self, mut s: AstStatement) -> PResult<AstStatement> {
-        match &mut s {
-            AstStatement::Break {
-                id: id @ None,
-                label,
-                ..
-            }
-            | AstStatement::Continue {
-                id: id @ None,
-                label,
-                ..
-            } => {
-                *id = Some(self.find(label.as_deref())?);
-            },
-            // Fn call, save the useful stuff and clone everything above...
-            _ => {},
-        }
-
-        Ok(s)
-    }
-
     fn enter_ast_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
         let AstExpression { data, ty, span } = e;
 
@@ -80,6 +59,19 @@ impl AstAdapter for AnalyzeControlFlow {
                     block,
                     else_block,
                 }
+            },
+            AstExpressionData::Break {
+                id: None,
+                label,
+                value,
+            } => AstExpressionData::Break {
+                id: Some(self.find(label.as_deref())?),
+                label,
+                value,
+            },
+            AstExpressionData::Continue { id: None, label } => AstExpressionData::Continue {
+                id: Some(self.find(label.as_deref())?),
+                label,
             },
             c @ AstExpressionData::Closure { .. } => {
                 self.0.push(None);

@@ -571,9 +571,6 @@ impl Translator {
 
     fn translate_statement(&mut self, builder: &Builder, statement: &AstStatement) -> PResult<()> {
         match statement {
-            // Removed in earlier stages
-            AstStatement::Assert { .. } => unimplemented!(),
-
             AstStatement::Let { pattern, value } => {
                 let values = &self.translate_expression(builder, value)?;
                 self.translate_pattern(builder, pattern, values, None)?
@@ -581,36 +578,6 @@ impl Translator {
 
             AstStatement::Expression { expression } => {
                 self.translate_expression(builder, expression)?;
-            },
-
-            AstStatement::Break { id, value, .. } => {
-                let value = self.translate_expression(builder, value)?;
-                let info = &self.break_continue[&id.unwrap()];
-
-                for (ptr, val) in ZipExact::zip_exact(&info.loop_ptrs, value, "loop values")? {
-                    builder.build_store(*ptr, val);
-                }
-
-                builder.build_unconditional_branch(&info.break_block);
-
-                let (fake_block, _) = self.get_new_block(builder)?;
-                builder.position_at_end(&fake_block);
-            },
-            AstStatement::Continue { id, .. } => {
-                let info = &self.break_continue[&id.unwrap()];
-                builder.build_unconditional_branch(&info.continue_block);
-
-                let (fake_block, _) = self.get_new_block(builder)?;
-                builder.position_at_end(&fake_block);
-            },
-            AstStatement::Return { value } => {
-                let val = self.translate_expression(builder, value)?;
-                let ret = self.bundle_vals(builder, &val, &value.ty)?;
-
-                builder.build_return(Some(&ret));
-
-                let (fake_block, _) = self.get_new_block(builder)?;
-                builder.position_at_end(&fake_block);
             },
         }
 
@@ -630,7 +597,8 @@ impl Translator {
             | AstExpressionData::PlainEnum { .. }
             | AstExpressionData::AllocateArray { .. }
             | AstExpressionData::As { .. }
-            | AstExpressionData::For { .. } => unreachable!(),
+            | AstExpressionData::For { .. }
+            | AstExpressionData::Assert { .. } => unreachable!(),
 
             c @ AstExpressionData::Closure { .. } => {
                 let env = self.translate_closure_capture_environment(c)?;
@@ -964,14 +932,12 @@ impl Translator {
                     builder.build_store(lval, *rval);
                 }
 
-                return Ok(rvals);
+                rvals
             },
 
             AstExpressionData::BinOp { .. } => unreachable!(),
 
-            AstExpressionData::Block { block } => {
-                return self.translate_block(builder, block);
-            },
+            AstExpressionData::Block { block } => self.translate_block(builder, block)?,
 
             AstExpressionData::If {
                 condition,
@@ -1075,6 +1041,54 @@ impl Translator {
                 arguments,
                 output,
             } => self.translate_instruction(builder, &instruction, &arguments, output)?,
+
+            AstExpressionData::Break { id, value, .. } => {
+                let value = self.translate_expression(builder, value)?;
+                let info = &self.break_continue[&id.unwrap()];
+
+                for (ptr, val) in ZipExact::zip_exact(&info.loop_ptrs, value, "loop values")? {
+                    builder.build_store(*ptr, val);
+                }
+
+                builder.build_unconditional_branch(&info.break_block);
+
+                let (fake_block, _) = self.get_new_block(builder)?;
+                builder.position_at_end(&fake_block);
+
+                self.flatten_val(
+                    builder,
+                    type_undefined(self.get_llvm_ty(&expression.ty)?)?,
+                    &expression.ty,
+                )?
+            },
+            AstExpressionData::Continue { id, .. } => {
+                let info = &self.break_continue[&id.unwrap()];
+                builder.build_unconditional_branch(&info.continue_block);
+
+                let (fake_block, _) = self.get_new_block(builder)?;
+                builder.position_at_end(&fake_block);
+
+                self.flatten_val(
+                    builder,
+                    type_undefined(self.get_llvm_ty(&expression.ty)?)?,
+                    &expression.ty,
+                )?
+            },
+            AstExpressionData::Return { value } => {
+                let val = self.translate_expression(builder, value)?;
+                let ret = self.bundle_vals(builder, &val, &value.ty)?;
+
+                builder.build_return(Some(&ret));
+
+                let (fake_block, _) = self.get_new_block(builder)?;
+                builder.position_at_end(&fake_block);
+
+                self.flatten_val(
+                    builder,
+                    type_undefined(self.get_llvm_ty(&expression.ty)?)?,
+                    &expression.ty,
+                )?
+            },
         };
 
         Ok(value)
