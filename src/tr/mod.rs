@@ -133,7 +133,8 @@ fn emit_module(
         }
 
         let ll = dir_path.join("file.ll").into_os_string();
-        let ll_gc = dir_path.join("file.gc.ll").into_os_string();
+        let ll_opt = dir_path.join("file.opt.ll").into_os_string();
+        let ll_opt_gc = dir_path.join("file.opt.gc.ll").into_os_string();
         let ll_o = dir_path.join("file.o").into_os_string();
         module.write_bitcode_to_path(Path::new(&ll));
 
@@ -146,15 +147,22 @@ fn emit_module(
             // statepoint shit later, but let's hope
             // not...
             OsStr::new("-O3"),
+            OsStr::new("-o"),
+            &ll_opt,
+        ]);
+
+        let mut opt_command2 = Command::new("opt".to_string());
+        opt_command2.args(&[
+            &ll_opt,
             // Emit a bunch of statepoint bullshit so we can walk the stack later.
             OsStr::new("--rewrite-statepoints-for-gc"),
             OsStr::new("-o"),
-            &ll_gc,
+            &ll_opt_gc,
         ]);
 
         let mut llc_command = Command::new("llc".to_string());
         llc_command.args(&[
-            &ll_gc,
+            &ll_opt_gc,
             OsStr::new("-o"),
             &ll_o,
             OsStr::new("-relocation-model=pic"),
@@ -188,6 +196,7 @@ fn emit_module(
             .args(&included_files);
 
         execute_command(opt_command)?;
+        execute_command(opt_command2)?;
         execute_command(llc_command)?;
         execute_command(objcopy_command)?;
         execute_command(clang_command)?;
@@ -287,6 +296,9 @@ impl Translator {
             &[string_ty, i8_ptr_global_ty, i64_ty],
             true,
         );
+
+        tr.add_void_function("exit", &[i64_ty], false)
+            .add_attribute(AttributeLoc::Function, noreturn);
 
         tr
     }
@@ -1115,6 +1127,49 @@ impl Translator {
                 let ty = self.get_llvm_ty(ty)?.into_int_type();
                 builder.build_int_s_extend(a, ty, &temp_name()).into()
             },
+            ("zext", [a, InstructionArgument::Type(ty)]) => {
+                let a = self
+                    .translate_instruction_argument(builder, a)?
+                    .into_int_value();
+                let ty = self.get_llvm_ty(ty)?.into_int_type();
+                builder.build_int_z_extend(a, ty, &temp_name()).into()
+            },
+            ("xor", [a, b]) => {
+                let a = self
+                    .translate_instruction_argument(builder, a)?
+                    .into_int_value();
+                let b = self
+                    .translate_instruction_argument(builder, b)?
+                    .into_int_value();
+                builder.build_xor(a, b, &temp_name()).into()
+            },
+            ("shl", [a, b]) => {
+                let a = self
+                    .translate_instruction_argument(builder, a)?
+                    .into_int_value();
+                let b = self
+                    .translate_instruction_argument(builder, b)?
+                    .into_int_value();
+                builder.build_left_shift(a, b, &temp_name()).into()
+            },
+            ("shr", [a, b]) => {
+                let a = self
+                    .translate_instruction_argument(builder, a)?
+                    .into_int_value();
+                let b = self
+                    .translate_instruction_argument(builder, b)?
+                    .into_int_value();
+                builder.build_right_shift(a, b, true, &temp_name()).into()
+            },
+            ("lshr", [a, b]) => {
+                let a = self
+                    .translate_instruction_argument(builder, a)?
+                    .into_int_value();
+                let b = self
+                    .translate_instruction_argument(builder, b)?
+                    .into_int_value();
+                builder.build_right_shift(a, b, false, &temp_name()).into()
+            },
             ("add", [a, b]) => {
                 let a = self
                     .translate_instruction_argument(builder, a)?
@@ -1240,6 +1295,9 @@ impl Translator {
                 let id = self.type_ids[&ty];
                 self.context.i16_type().const_int(id as u64, false).into()
             },
+            ("ch_undefined", [InstructionArgument::Type(ty)]) =>
+                type_undefined(self.get_llvm_ty(ty)?)?,
+            ("ch_zeroed", [InstructionArgument::Type(ty)]) => type_zero(self.get_llvm_ty(ty)?)?,
             _ => {
                 return perror!(
                     "Unknown instruction `{}`, {:?} -> {:?}",
@@ -1488,7 +1546,7 @@ impl Translator {
                         IntPredicate::EQ,
                         value.into_int_value(),
                         self.context
-                            .bool_type()
+                            .i64_type()
                             .const_int_from_string(&i, StringRadix::Decimal)
                             .unwrap(),
                         &temp_name(),
@@ -1626,12 +1684,13 @@ impl Translator {
             params,
             expr,
             variables,
+            return_ty,
             ..
         } = c
         {
             let variables = variables.as_ref().unwrap();
 
-            let ret_ty = self.get_llvm_ty(&expr.ty)?;
+            let return_ty = self.get_llvm_ty(return_ty)?;
             let mut param_tys: Vec<_> = params
                 .iter()
                 .map(|p| self.get_llvm_ty(&p.ty))
@@ -1640,13 +1699,8 @@ impl Translator {
 
             let llvm_fun =
                 self.module
-                    .add_function(&temp_name(), fun_type(ret_ty, &param_tys), None);
+                    .add_function(&temp_name(), fun_type(return_ty, &param_tys), None);
             set_cheshire_fn_attributes(&self.context, llvm_fun);
-
-            let param_values: HashMap<_, _> =
-                ZipExact::zip_exact(params, &llvm_fun.get_params()[1..], "params")?
-                    .map(|(p, v)| (p.id, v.clone()))
-                    .collect();
 
             let block = llvm_fun.append_basic_block("pre");
             let first_builder = Builder::create();
@@ -1666,9 +1720,7 @@ impl Translator {
 
             for (id, var) in variables {
                 let ty = self.get_llvm_ty(&var.ty)?;
-                let val = if let Some(..) = param_values.get(id) {
-                    param_values[id]
-                } else if let Some(..) = capture_values.get(id) {
+                let val = if let Some(..) = capture_values.get(id) {
                     capture_values[id]
                 } else {
                     type_zero(ty)?
@@ -1676,6 +1728,15 @@ impl Translator {
 
                 let ptrs = self.flatten_alloca(&first_builder, val, &var.ty)?;
                 self.variables.insert(*id, ptrs);
+            }
+
+            // Let's unpack the parameters now.
+            // We do this separately from above because it's not ergonomic to process them
+            // the same way as captures (since they could be any number of values...)
+            for (idx, pattern) in params.iter().enumerate() {
+                let param = llvm_fun.get_params()[idx + 1];
+                let vals = self.flatten_val(&first_builder, param, &pattern.ty)?;
+                self.translate_pattern(&first_builder, pattern, &vals, None)?;
             }
 
             let start_block = llvm_fun.append_basic_block("start");

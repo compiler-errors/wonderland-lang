@@ -1,7 +1,12 @@
 #include "clib.h"
 
 void fp5print(struct string* str) {
-  printf("%s", str->payload);
+  if (str == NULL) {
+    DEBUG_PRINTF("String is NULL in std::print");
+    printf("<NULL>");
+  } else {
+    printf("%s", str->payload);
+  }
 }
 
 NOINLINE struct string* fpP8internalP16transmute_string15int_into_string(i64 i) {
@@ -27,8 +32,12 @@ NOINLINE struct string* fpP8internalP16transmute_string16char_into_string(i8 c) 
   return string_ptr;
 }
 
-NOINLINE struct string* fpP8internalP9operators10add_string(struct string* a,
+NOINLINE struct string* fpP9operators19add_string_internal(struct string* a,
                                                    struct string* b) {
+  if (a == NULL || b == NULL) {
+    PANIC("String is NULL in std::operators::add_string_internal");
+  }
+
   i64 length = strlen((char*) a->payload) + strlen((char*) b->payload);
 
   i64 block_size = (i64) (sizeof(struct string) + (length + 1) * sizeof(i8));
@@ -45,10 +54,10 @@ NOINLINE struct string* fpP8internalP9operators10add_string(struct string* a,
   return string_ptr;
 }
 
-i1 fpP8internalP9operators9eq_string(struct string* a, struct string* b) {
-    if (a->length != b->length) {
-        return false;
-    }
+i1 fpP9operators18eq_string_internal(struct string* a, struct string* b) {
+  if (a->length != b->length) {
+    return false;
+  }
 
-    return strncmp((char*) a->payload, (char*) b->payload, a->length) == 0;
+  return strncmp((char*) a->payload, (char*) b->payload, a->length) == 0;
 }

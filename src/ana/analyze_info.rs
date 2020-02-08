@@ -1,10 +1,13 @@
 use crate::{
-    ana::represent::{
-        AnEnumData, AnEnumVariantData, AnFunctionData, AnImplData, AnObjectData, AnTraitData,
-        AnalyzedProgram,
+    ana::{
+        analyze_modules::{ModuleMap, SharedModule},
+        represent::{
+            AnEnumData, AnEnumVariantData, AnFunctionData, AnImplData, AnObjectData, AnTraitData,
+            AnalyzedProgram,
+        },
     },
     parser::{ast::*, ast_visitor::AstAdapter},
-    util::{Expect, PResult},
+    util::{Expect, FileId, PResult},
 };
 use std::collections::{HashMap, HashSet};
 
@@ -13,7 +16,7 @@ pub struct AnalyzeInfo {
 }
 
 impl AnalyzeInfo {
-    pub fn new() -> AnalyzeInfo {
+    pub fn new(mod_map: ModuleMap, analyzed_modules: HashMap<FileId, SharedModule>) -> AnalyzeInfo {
         AnalyzeInfo {
             analyzed_program: AnalyzedProgram {
                 variable_ids: HashMap::new(),
@@ -22,11 +25,12 @@ impl AnalyzeInfo {
                 analyzed_objects: HashMap::new(),
                 analyzed_enums: HashMap::new(),
                 analyzed_impls: HashMap::new(),
-                analyzed_modules: HashMap::new(),
                 analyzed_globals: HashMap::new(),
                 associated_types_to_traits: HashMap::new(),
                 methods_to_traits: HashMap::new(),
                 methods_to_anonymous_impls: HashMap::new(),
+                analyzed_modules,
+                top_module: mod_map.top,
             },
         }
     }

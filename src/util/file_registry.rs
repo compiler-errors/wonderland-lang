@@ -6,6 +6,7 @@ use std::{
     sync::{Arc, RwLock, Weak},
 };
 
+use crate::util::Span;
 use std::{
     ffi::{OsStr, OsString},
     fs,
@@ -197,5 +198,45 @@ impl FileRegistry {
         reg.temporary_files.push(file);
 
         id
+    }
+
+    pub fn location_info(span: Span) -> PResult<(String, usize, usize, usize, usize, String)> {
+        let file = Self::open(span.file)?;
+        let (row, col) = Self::get_row_col(&file, span.start);
+        let (end_row, end_col) = Self::get_row_col(&file, span.end);
+        // TODO: this is technically unsafe...
+        let name = Self::path(span.file).to_str().unwrap().to_owned();
+        let line = Self::get_line_from_pos(&file, span.start);
+
+        Ok((name, row + 1, col + 1, end_row + 1, end_col + 1, line))
+    }
+
+    fn get_row_col(file_contents: &str, pos: usize) -> (usize, usize) {
+        let mut row = 0;
+        let mut col = 0;
+
+        for c in file_contents[0..pos].chars() {
+            if c == '\n' {
+                row += 1;
+                col = 0;
+            } else {
+                col += 1;
+            }
+        }
+
+        (row, col)
+    }
+
+    fn get_line_from_pos(file_contents: &str, pos: usize) -> String {
+        if pos > file_contents.len() {
+            return "<EOF>".to_string();
+        }
+
+        let (line, _) = Self::get_row_col(file_contents, pos);
+        file_contents
+            .lines()
+            .nth(line)
+            .unwrap_or_else(|| "<EOF>")
+            .to_string()
     }
 }

@@ -1525,7 +1525,7 @@ impl Parser {
                 path.push(self.expect_consume_identifier()?);
 
                 if !self.check_consume(Token::ColonColon)? {
-                    return self.parse_identifier_expr(path);
+                    return self.parse_identifier_expr(span, path);
                 }
             } else {
                 return perror_at!(
@@ -1537,9 +1537,11 @@ impl Parser {
         }
     }
 
-    fn parse_identifier_expr(&mut self, path: Vec<String>) -> PResult<AstExpression> {
-        let mut span = self.next_span;
-
+    fn parse_identifier_expr(
+        &mut self,
+        mut span: Span,
+        path: Vec<String>,
+    ) -> PResult<AstExpression> {
         if self.check(Token::ColonLt) {
             span = span.unite(self.next_span);
             self.expect_consume_colon()?;
@@ -1714,22 +1716,19 @@ impl Parser {
                 self.expect_consume(Token::Comma)?;
             }
 
-            let name_span = self.next_span;
-            let var_name = self.expect_consume_identifier()?;
-
-            let ty = if self.check_consume_colon()? {
-                self.parse_type()?.0
-            } else {
-                AstType::infer()
-            };
-
-            args.push(AstNamedVariable::new(name_span, var_name, ty));
+            args.push(self.parse_match_pattern()?);
         }
+
+        let return_ty = if self.check_consume(Token::RArrow)? {
+            self.parse_type()?.0
+        } else {
+            AstType::infer()
+        };
 
         let expr = self.parse_expression()?;
         span = span.unite(expr.span);
 
-        Ok(AstExpression::closure(span, args, expr))
+        Ok(AstExpression::closure(span, args, return_ty, expr))
     }
 
     fn parse_allocate_expr(&mut self) -> PResult<AstExpression> {

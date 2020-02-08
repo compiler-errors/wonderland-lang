@@ -9,7 +9,7 @@ pub type SharedModule = Rc<RefCell<MappedModule>>;
 #[derive(Debug)]
 pub struct ModuleMap {
     modules: HashMap<FileId, SharedModule>,
-    top: SharedModule,
+    pub top: SharedModule,
 }
 
 impl ModuleMap {
@@ -105,7 +105,7 @@ impl MappedModule {
         }))
     }
 
-    fn get_child(&self, item: &str, path: &[String]) -> PResult<ModuleItem> {
+    pub fn get_child(&self, item: &str, path: &[String]) -> PResult<ModuleItem> {
         self.children
             .get(item)
             .ok_or_else(|| {
@@ -306,7 +306,13 @@ impl<'a> AstAdapter for AnalyzeUses<'a> {
         let std_path = vec!["std".into()];
 
         if FileRegistry::mod_path(m.id) != std_path {
+            debug!("Using std in {}", FileRegistry::mod_path(m.id).join("::"));
             m.uses.push(AstUse::UseAll(std_path));
+        } else {
+            debug!(
+                "Not using std in {}",
+                FileRegistry::mod_path(m.id).join("::")
+            );
         }
 
         if self.current_mod.is_some() {
@@ -394,7 +400,7 @@ impl<'a> AstAdapter for AnalyzeUses<'a> {
 
     fn exit_ast_module(&mut self, m: AstModule) -> PResult<AstModule> {
         let s = std::mem::take(&mut self.current_mod);
-        self.modules.insert(m.id, s.unwrap());
+        self.modules.insert(m.id, s.unwrap()).expect_none("Yikes");
 
         Ok(m)
     }

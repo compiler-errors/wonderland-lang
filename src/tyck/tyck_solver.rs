@@ -5,7 +5,7 @@ use crate::{
     },
     parser::{ast::*, ast_visitor::AstAdapter},
     tyck::{tyck_instantiation::*, TyckAdapter, TyckInstantiatedObjectFunction, TYCK_MAX_DEPTH},
-    util::{PResult, Visit, ZipExact},
+    util::{PError, PResult, Visit, ZipExact},
 };
 use std::{
     collections::{HashMap, HashSet},
@@ -19,7 +19,7 @@ pub struct TyckSolver {
     epochs: Vec<TyckEpoch>,
 
     // Temporary values
-    return_type: Option<AstType>,
+    return_type: Vec<AstType>,
     variables: HashMap<VariableId, AstType>,
     loops: HashMap<LoopId, AstType>,
 }
@@ -64,7 +64,7 @@ impl TyckSolver {
                 successes: HashMap::new(),
                 ambiguous: None,
             }],
-            return_type: None,
+            return_type: Vec::new(),
             variables: HashMap::new(),
             loops: HashMap::new(),
         }
@@ -276,14 +276,7 @@ impl TyckSolver {
             AstMatchPatternData::Underscore => {},
             AstMatchPatternData::Identifier(v) => self.unify(true, &v.ty, other_ty)?,
             AstMatchPatternData::Tuple(children) => {
-                let mut children_tys = Vec::new();
-
-                for child in children {
-                    let child_ty = AstType::infer();
-                    self.full_unify_pattern(child, &child_ty)?;
-                    children_tys.push(child_ty);
-                }
-
+                let children_tys = children.iter().map(|child| child.ty.clone()).collect();
                 self.unify(true, &AstType::tuple(children_tys), other_ty)?;
             },
             AstMatchPatternData::Literal(lit) => match lit {
@@ -466,8 +459,11 @@ impl TyckSolver {
             Ok(None) => {
                 debug!("{}>Ambig", INDENT.repeat(self.epochs.len()),);
                 if top_epoch!(self).ambiguous.is_none() {
-                    top_epoch_mut!(self).ambiguous =
-                        Some(format!("Ambiguous impl `{}` for `{}`", trt, ty));
+                    top_epoch_mut!(self).ambiguous = Some(format!(
+                        "Ambiguous impl `{}` for `{}`",
+                        self.normalize_trt(trt.clone())?,
+                        self.normalize_ty(ty.clone())?
+                    ));
                 }
                 Ok(None)
             },
@@ -673,6 +669,7 @@ impl TyckSolver {
                         arg_tys,
                         return_ty,
                         ty,
+                        None,
                     );
                     let epoch = self.rollback_epoch();
 
@@ -721,6 +718,7 @@ impl TyckSolver {
                     arg_tys,
                     return_ty,
                     ty,
+                    None,
                 );
                 let epoch = self.rollback_epoch();
 
@@ -762,6 +760,101 @@ impl TyckSolver {
         }
     }
 
+    fn satisfy_method_with_trait(
+        &mut self,
+        ty: &AstType,
+        trt: &AstTraitTypeWithAssocs,
+        name: &str,
+        fn_generics: &[AstType],
+        arg_tys: &[AstType],
+        return_ty: &AstType,
+    ) -> PResult<Option<AstImplSignature>> {
+        let key = TyckObjective::Impl(ty.clone(), trt.trt.clone());
+
+        if let Some(Some(imp)) = top_epoch!(self).successes.get(&key) {
+            return Ok(Some(imp.clone()));
+        }
+
+        debug!(
+            "{}Satisfying {} :- {} (METHOD)",
+            INDENT.repeat(self.epochs.len()),
+            ty,
+            trt
+        );
+
+        let mut solutions = Vec::new();
+
+        let trait_data = &self.program.clone().analyzed_traits[&trt.trt.name];
+
+        for imp in &trait_data.impls {
+            let impl_generics: Vec<_> = self.program.analyzed_impls[imp]
+                .generics
+                .iter()
+                .map(|_| AstType::infer())
+                .collect();
+
+            self.push_new_epoch()?;
+            let sol = self.elaborate_method(
+                *imp,
+                &impl_generics,
+                name,
+                &fn_generics,
+                arg_tys,
+                return_ty,
+                ty,
+                Some(&trt.trt),
+            );
+            let epoch = self.rollback_epoch();
+
+            if let Err(e) = &sol {
+                debug!("{}... Err: {}", INDENT.repeat(self.epochs.len()), e.why());
+            } else if let Some(a) = &epoch.ambiguous {
+                debug!("{}... Amb: {}", INDENT.repeat(self.epochs.len()), a);
+            } else {
+                debug!("{}... Ok!", INDENT.repeat(self.epochs.len()));
+            }
+
+            solutions.push((sol, epoch));
+        }
+
+        match self.internal_disambiguate(solutions) {
+            Ok(Some(imp)) => {
+                // Make sure we finally apply the trait bindings!
+                for (name, bound_ty) in &trt.assoc_bindings {
+                    self.unify(
+                        true,
+                        &instantiate_associated_ty(
+                            &self.program,
+                            imp.impl_id,
+                            &imp.generics,
+                            name,
+                            ty,
+                        )?,
+                        bound_ty,
+                    )?;
+                }
+
+                top_epoch_mut!(self)
+                    .successes
+                    .insert(key, Some(imp.clone()));
+
+                Ok(Some(imp))
+            },
+            Ok(None) => {
+                if top_epoch!(self).ambiguous.is_none() {
+                    top_epoch_mut!(self).ambiguous =
+                        Some(format!("Ambiguous method `<{}>:{}(...)`", ty, name));
+                }
+                Ok(None)
+            },
+            Err(_) => perror!(
+                "No suitable trait for method `<{}>:{}(...)`",
+                self.normalize_ty(ty.clone())?,
+                name
+            ),
+        }
+    }
+
     fn elaborate_method(
         &mut self,
         impl_id: ImplId,
@@ -771,6 +864,7 @@ impl TyckSolver {
         fn_args: &[AstType],
         return_ty: &AstType,
         call_ty: &AstType,
+        call_trt: Option<&AstTraitType>,
     ) -> PResult<AstImplSignature> {
         let impl_info = &self.program.clone().analyzed_impls[&impl_id];
         debug!(
@@ -781,9 +875,22 @@ impl TyckSolver {
             impl_info.restrictions
         );
 
-        let (expected_call_ty, _, restrictions) =
+        let (expected_call_ty, expected_trt, restrictions) =
             instantiate_impl_signature(&self.program, impl_id, impl_generics, call_ty)?;
         self.unify(false, &expected_call_ty, call_ty)?;
+
+        match (&expected_trt, call_trt) {
+            (Some(expected_trt), Some(trt)) =>
+                self.unify_all(false, &expected_trt.generics, &trt.generics)?,
+            (Some(_), None) => { /* This is okay! */ },
+            (None, Some(_)) => {
+                return perror!(
+                    "ICE: Tried to unify an expected trait with no given trait. This should NEVER \
+                     happen."
+                );
+            },
+            (None, None) => {},
+        }
 
         if !impl_info.is_dummy {
             let (expected_args, expected_return_ty, _) = instantiate_impl_fn_signature(
@@ -927,7 +1034,7 @@ impl AstAdapter for TyckSolver {
     fn enter_ast_function(&mut self, f: AstFunction) -> PResult<AstFunction> {
         self.satisfy_restrictions(&f.restrictions)?;
 
-        self.return_type = Some(f.return_type.clone());
+        self.return_type.push(f.return_type.clone());
         self.variables = f
             .variables
             .iter()
@@ -942,7 +1049,13 @@ impl AstAdapter for TyckSolver {
     }
 
     fn enter_ast_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
-        if let AstExpressionData::Closure { variables, .. } = &e.data {
+        if let AstExpressionData::Closure {
+            variables,
+            return_ty,
+            ..
+        } = &e.data
+        {
+            self.return_type.push(return_ty.clone());
             self.variables.extend(
                 variables
                     .as_ref()
@@ -969,7 +1082,7 @@ impl AstAdapter for TyckSolver {
     fn enter_ast_object_function(&mut self, o: AstObjectFunction) -> PResult<AstObjectFunction> {
         self.satisfy_restrictions(&o.restrictions)?;
 
-        self.return_type = Some(o.return_type.clone());
+        self.return_type.push(o.return_type.clone());
         self.variables = o
             .variables
             .iter()
@@ -1024,7 +1137,7 @@ impl AstAdapter for TyckSolver {
     }
 
     fn exit_ast_function(&mut self, f: AstFunction) -> PResult<AstFunction> {
-        self.return_type = None;
+        self.return_type.pop();
         self.variables.clear();
 
         Ok(f)
@@ -1232,7 +1345,20 @@ impl AstAdapter for TyckSolver {
                     self.satisfy_restrictions(&objectives)?;
 
                     if impl_signature.is_none() {
-                        let impl_candidate = self.satisfy_impl(&call_type, &associated_trait)?;
+                        debug!(
+                            "{}Satisfying impl for {}",
+                            INDENT.repeat(self.epochs.len()),
+                            self.normalize_ty(call_type.clone())?
+                        );
+
+                        let impl_candidate = self.satisfy_method_with_trait(
+                            call_type,
+                            associated_trait,
+                            fn_name,
+                            fn_generics,
+                            &into_types(&args),
+                            &ty,
+                        )?;
                         *impl_signature = impl_candidate;
                     }
                 }
@@ -1406,10 +1532,21 @@ impl AstAdapter for TyckSolver {
                 self.unify(true, &ty, &fn_ptr_ty)?;
             },
 
-            AstExpressionData::Closure { params, expr, .. } => {
-                let ret_ty = expr.ty.clone();
-                let param_tys = params.iter().map(|p| p.ty.clone()).collect();
-                self.unify(true, &ty, &AstType::closure_type(param_tys, ret_ty))?;
+            AstExpressionData::Closure {
+                params,
+                expr,
+                return_ty,
+                ..
+            } => {
+                self.return_type.pop().unwrap();
+                let param_tys = params.iter().map(|param| param.ty.clone()).collect();
+
+                self.unify(true, &return_ty, &expr.ty)?;
+                self.unify(
+                    true,
+                    &ty,
+                    &AstType::closure_type(param_tys, return_ty.clone()),
+                )?;
             },
 
             AstExpressionData::PositionalEnum {
@@ -1460,8 +1597,15 @@ impl AstAdapter for TyckSolver {
 
             AstExpressionData::Return { value } => {
                 self.unify(true, &ty, &AstType::none())?;
-                let return_ty = self.return_type.clone().unwrap();
+
+                let return_ty = self.return_type.pop().ok_or_else(|| {
+                    PError::new_at(span, format!("Unexpected `return` in non-function context"))
+                })?;
+
                 self.unify(true, &value.ty, &return_ty)?;
+                self.return_type.push(return_ty); // FIXME: I can't borrow
+                                                  // .last(), so I pop/push
+                                                  // while I use it.
             },
 
             AstExpressionData::Assert { condition } => {
@@ -1474,13 +1618,13 @@ impl AstAdapter for TyckSolver {
     }
 
     fn exit_ast_match_pattern(&mut self, p: AstMatchPattern) -> PResult<AstMatchPattern> {
-        self.full_unify_pattern(&p, &AstType::infer())?;
+        self.full_unify_pattern(&p, &p.ty)?;
 
         Ok(p)
     }
 
     fn exit_ast_object_function(&mut self, o: AstObjectFunction) -> PResult<AstObjectFunction> {
-        self.return_type = None;
+        self.return_type.pop();
         self.variables.clear();
 
         Ok(o)

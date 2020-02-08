@@ -4,7 +4,7 @@ pub use crate::tyck::{
     tyck_solver::{TyckObjective, TyckSolver, TypeAmbiguityAdapter},
 };
 use crate::{
-    ana::represent::{AnImplData, AnalyzedProgram},
+    ana::represent::AnalyzedProgram,
     parser::ast::*,
     tyck::tyck_constraints::{Dummifier, TyckConstraintAssumptionAdapter},
     util::{Context, FileRegistry, PResult, Visit},
@@ -85,15 +85,8 @@ pub fn typecheck_module(
     for (_, imp) in impls {
         let imp = typecheck_impl(&base_solver, imp)?;
 
-        // Try to detect contradictions..!
-        for (other_id, other_impl) in &program.analyzed_impls {
-            // Ignore dummies. We don't care about them... Also, an impl always matches
-            // itself...
-            if imp.impl_id == *other_id || other_impl.is_dummy {
-                continue;
-            }
-
-            typecheck_impl_collision(&base_solver, &imp, &other_impl)?;
+        if !program.analyzed_impls[&imp.impl_id].is_dummy {
+            typecheck_impl_collisions(&base_solver, &imp)?;
         }
     }
 
@@ -157,43 +150,16 @@ pub fn typecheck_impl_fn(
 
 /// Try to typecheck one impl as another. Useful to detect contradictions where
 /// one impl can satisfy another.
-fn typecheck_impl_collision(
-    _base_solver: &TyckSolver,
-    _imp: &AstImpl,
-    _other_impl: &AnImplData,
-) -> PResult<()> {
-    // TODO
+fn typecheck_impl_collisions(base_solver: &TyckSolver, imp: &AstImpl) -> PResult<()> {
+    if let Some(trait_ty) = &imp.trait_ty {
+        let t = TyckInstantiatedImpl {
+            impl_ty: imp.impl_ty.clone(),
+            trait_ty: trait_ty.clone(),
+        };
+
+        let mut solver = base_solver.clone();
+        solver.typecheck_loop(t)?;
+    }
+
     Ok(())
-
-    /*
-    return PResult::error_at(
-                    imp.name_span,
-                    format!(
-                        "This `impl {} for {}` conflicts with `impl {} for {}`",
-                        imp.trait_ty, imp.impl_ty, other_impl.trait_ty, other_impl.impl_ty,
-                    ),
-                );
-
-
-
-    let mut solver = base_solver.clone();
-
-    let fresh_generics: Vec<_> = other_impl
-        .generics
-        .iter()
-        .map(|_| AstType::infer())
-        .collect();
-    let mut instantiate =
-        GenericsInstantiator::from_generics(&other_impl.generics, &fresh_generics)?;
-
-    let other_impl_ty = other_impl.impl_ty.clone().visit(&mut instantiate)?;
-    let other_trait_ty = other_impl.trait_ty.clone().visit(&mut instantiate)?;
-
-    solver.unify(&imp.impl_ty, &other_impl_ty)?;
-    solver.unify_traits(&imp.trait_ty, &other_trait_ty)?;
-    solver.add_objectives(&other_impl.restrictions.clone().visit(&mut instantiate)?)?;
-
-    solver.solve()?;
-    Ok(())
-    */
 }

@@ -2,6 +2,7 @@
 #include "statepoint.h"
 
 #define GC_CALLBACK i1(*callback)(i8** ptr)
+#define GC_PREADJUST i8*(*preadjust)(i8* ptr)
 const i16 MARK_FLAG = 1 << 15;
 
 // ----- ----- ----- ----- ----- ----- GC mark shit ----- ----- ----- ----- ----- ----- //
@@ -84,7 +85,7 @@ i8* gc_remap_block(i8* ptr) {
         entry = entry->next;
     }
 
-    PANIC("Bad entry.\n");
+    PANIC("Bad entry for %p.\n", ptr);
     exit(-1);
 }
 
@@ -116,7 +117,7 @@ i1 gc_remap_and_unmark(i8** ptr) {
     return false;
   }
 
-  DEBUG_PRINTF("Locate (%p) %p => ", ptr, *ptr);
+  //DEBUG_PRINTF("Locate (%p) %p => ", ptr, *ptr);
   i8* to = *ptr = gc_remap_object(*ptr);
   //printf("%p\n", *ptr);
 
@@ -229,7 +230,11 @@ void* gc_alloc_block(i64 size, i16 type, i8* cheshire_stack_root) {
 
 // ----- ----- ----- ----- ----- ----- GC resize shit ----- ----- ----- ----- ----- ----- //
 
-void gc_walk(i8* cheshire_stack_root, i1 verify_derives, GC_CALLBACK);
+void gc_walk(i8* cheshire_stack_root, i1 verify_derives, GC_CALLBACK, GC_PREADJUST);
+
+i8* gc_adjust_offset(i8* ptr) {
+  return (ptr - GC_OLD_OFFSET + GC_BEGIN);
+}
 
 i1 gc_adjust_offset_and_unmark(i8** ptr) {
   if (*ptr == NULL) {
@@ -238,7 +243,9 @@ i1 gc_adjust_offset_and_unmark(i8** ptr) {
   }
 
   // Calculate the new offset.
+  i8* old = *ptr;
   i8* to = *ptr = (*ptr - GC_OLD_OFFSET + GC_BEGIN);
+  DEBUG_PRINTF("Adjusting %p to %p\n", old, to);
 
   // Is it marked? If so, then we haven't yet visited the children. Unmark and visit.
   if (gc_get_mark(to)) {
@@ -261,7 +268,7 @@ void gc_resize_pool(i8* cheshire_stack_root, i64 new_pool_size) {
     }
 
     if (GC_OLD_OFFSET != NULL) {
-        gc_walk(cheshire_stack_root, true, gc_mark);
+        gc_walk(cheshire_stack_root, true, gc_mark, NULL);
     }
 
     GC_BEGIN = realloc(GC_BEGIN, new_pool_size);
@@ -275,7 +282,7 @@ void gc_resize_pool(i8* cheshire_stack_root, i64 new_pool_size) {
 
     if (GC_OLD_OFFSET != NULL && GC_OLD_OFFSET != GC_BEGIN) {
         DEBUG_PRINTF("Remapping pool from %p => %p\n", GC_OLD_OFFSET, GC_BEGIN);
-        gc_walk(cheshire_stack_root, false, gc_adjust_offset_and_unmark);
+        gc_walk(cheshire_stack_root, false, gc_adjust_offset_and_unmark, gc_adjust_offset);
     }
 }
 
@@ -336,7 +343,7 @@ void gc_verify_trivial_derive(i8* cheshire_stack_root, pointer_slot_t* slots, po
     }
 }
 
-void gc_walk(i8* cheshire_stack_root, i1 verify_derives, GC_CALLBACK) {
+void gc_walk(i8* cheshire_stack_root, i1 verify_derives, GC_CALLBACK, GC_PREADJUST) {
     cheshire_stack_root += sizeof(void*);
     int64_t ret = *(int64_t*) cheshire_stack_root;
     cheshire_stack_root += sizeof(void*);
@@ -371,7 +378,18 @@ void gc_walk(i8* cheshire_stack_root, i1 verify_derives, GC_CALLBACK) {
                 gc_verify_trivial_derive(cheshire_stack_root, frame->slots, ptrSlot);
             }
 
-            i16 type = gc_get_type(gc_remap_object(*stack_ptr));
+            if (*stack_ptr == NULL) {
+              DEBUG_PRINTF("Skipping null stack ptr\n");
+              continue;
+            }
+
+            i16 type;
+
+            if (preadjust) {
+              type = gc_get_type(preadjust(*stack_ptr));
+            } else {
+              type = gc_get_type(*stack_ptr);
+            }
 
             DEBUG_PRINTF("Visiting %p (type = %"PRId16")\n", *stack_ptr, type);
             gc_visit((i8*) stack_ptr, type, callback);
@@ -391,8 +409,12 @@ void gc_walk(i8* cheshire_stack_root, i1 verify_derives, GC_CALLBACK) {
         i8** lval = slot->lval;
         i16 type = slot->type;
 
-        DEBUG_PRINTF("Visiting %p (type = %"PRId16")\n", *lval, type);
-        gc_visit((i8*) lval, type, callback);
+        if (*lval != NULL) {
+          DEBUG_PRINTF("Visiting %p (type = %"PRId16")\n", *lval, type);
+          gc_visit((i8*) lval, type, callback);
+        } else {
+          DEBUG_PRINTF("Skipping null slot ptr\n");
+        }
 
         slot = slot->next;
     }
@@ -403,7 +425,7 @@ NOINLINE void gc(i8* cheshire_stack_root) {
 
     // Mark
     DEBUG_PRINTF(" -- MARK --\n");
-    gc_walk(cheshire_stack_root, true, gc_mark);
+    gc_walk(cheshire_stack_root, true, gc_mark, NULL);
 
     // Compact
     DEBUG_PRINTF(" -- COMPACT --\n");
@@ -449,7 +471,7 @@ NOINLINE void gc(i8* cheshire_stack_root) {
 
     // Remap the pointers
     DEBUG_PRINTF(" -- UNMARK-REMAP --\n");
-    gc_walk(cheshire_stack_root, false, gc_remap_and_unmark);
+    gc_walk(cheshire_stack_root, false, gc_remap_and_unmark, gc_remap_object);
     gc_remap_free();
 
     memset(GC_END, 0xCC, GC_LIMIT - GC_END);

@@ -46,3 +46,12 @@ impl<_T> Into<String> for [_T] where _T: Into<String> {
 fn to_string<_T>(t: _T) -> String where _T: Into<String> {
   <_T as Into<String>>:into(t)
 }
+
+impl<_T> Into<String> for Option<_T> where _T: Into<String> {
+  fn into(self) -> String {
+    match self {
+      Option!Some(s) => "Some(\(s))",
+      Option!None => "None",
+    }
+  }
+}

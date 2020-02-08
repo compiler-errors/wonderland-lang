@@ -1,19 +1,18 @@
 use crate::{
-    ana::represent::AnalyzedProgram,
+    ana::{analyze_modules::ModuleItem, represent::AnalyzedProgram},
     parser::{
         ast::{
-            AstExpression, AstExpressionData, AstProgram, AstTraitTypeWithAssocs, AstType,
-            BinOpKind, ModuleRef,
+            AstExpression, AstExpressionData, AstLiteral, AstProgram, AstTraitTypeWithAssocs,
+            AstType, BinOpKind, ModuleRef,
         },
         ast_visitor::AstAdapter,
     },
-    util::{FileId, FileRegistry, PResult, Visit},
+    util::{FileRegistry, PResult, Span, Visit},
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 
 pub struct AnalyzeOperators {
     analyzed_program: AnalyzedProgram,
-    operators_file: FileId,
 }
 
 impl AnalyzeOperators {
@@ -21,38 +20,111 @@ impl AnalyzeOperators {
         analyzed_program: AnalyzedProgram,
         p: AstProgram,
     ) -> PResult<(AnalyzedProgram, AstProgram)> {
-        let mut operators_file = None;
-
-        for m in &p.modules {
-            if FileRegistry::mod_path(m.id) == vec!["std", "operators"] {
-                operators_file = Some(m.id);
-                break;
-            }
-        }
-
-        if operators_file.is_none() {
-            return perror!("Cannot find `std::operations` file. This should never happen!");
-        }
-
-        let mut pass = AnalyzeOperators {
-            analyzed_program,
-            operators_file: operators_file.unwrap(),
-        };
+        let mut pass = AnalyzeOperators { analyzed_program };
 
         let p = p.visit(&mut pass)?;
 
         Ok((pass.analyzed_program, p))
     }
 
-    fn construct_ref(&self, trt_name: &str) -> PResult<ModuleRef> {
-        let r = ModuleRef::Normalized(self.operators_file, trt_name.into());
+    fn construct_trt_ref(&self, trt_path: &str) -> PResult<ModuleRef> {
+        let mut trt_path: VecDeque<&str> = trt_path.split("::").collect();
+        let trt_name = trt_path.pop_back().unwrap();
 
-        if !self.analyzed_program.analyzed_traits.contains_key(&r) {
-            perror!(
+        let mut traversed_path = vec![];
+        let mut submodule = self.analyzed_program.top_module.clone();
+
+        // All operators start with std::
+        trt_path.push_front("std");
+        for name in trt_path {
+            let submodule_ref = submodule.clone();
+            let child = (*submodule_ref)
+                .borrow_mut()
+                .get_child(name, &traversed_path)?;
+
+            if let ModuleItem::Submodule(new_submodule) = child {
+                submodule = new_submodule;
+            } else {
+                return perror!(
+                    "ICE: Error realizing operator: submodule `{}` does not exist in module `{}`",
+                    trt_name,
+                    traversed_path.join("::"),
+                );
+            }
+
+            traversed_path.push(name.to_string());
+        }
+
+        let submodule_ref = submodule.clone();
+        let r = if let ModuleItem::Symbol(file_id) = (*submodule_ref)
+            .borrow_mut()
+            .get_child(trt_name, &traversed_path)?
+        {
+            ModuleRef::Normalized(file_id, trt_name.to_string())
+        } else {
+            return perror!(
                 "ICE: Error realizing operator: trait {} does not exist in module `{}`",
                 trt_name,
-                FileRegistry::mod_path(self.operators_file).join("::")
-            )
+                traversed_path.join("::")
+            );
+        };
+
+        if !self.analyzed_program.analyzed_traits.contains_key(&r) {
+            return perror!(
+                "ICE: Error realizing operator: `{}` is not a trait",
+                r.full_name()
+            );
+        } else {
+            Ok(r)
+        }
+    }
+
+    fn construct_fn_ref(&self, fn_path: &str) -> PResult<ModuleRef> {
+        let mut fn_path: VecDeque<&str> = fn_path.split("::").collect();
+        let fn_name = fn_path.pop_back().unwrap();
+
+        let mut traversed_path = vec![];
+        let mut submodule = self.analyzed_program.top_module.clone();
+
+        fn_path.push_front("std");
+        for name in fn_path {
+            let submodule_ref = submodule.clone();
+            let child = (*submodule_ref)
+                .borrow_mut()
+                .get_child(name, &traversed_path)?;
+
+            if let ModuleItem::Submodule(new_submodule) = child {
+                submodule = new_submodule;
+            } else {
+                return perror!(
+                    "ICE: Error realizing operator: submodule `{}` does not exist in module `{}`",
+                    fn_name,
+                    traversed_path.join("::"),
+                );
+            }
+
+            traversed_path.push(name.to_string());
+        }
+
+        let submodule_ref = submodule.clone();
+        let r = if let ModuleItem::Symbol(file_id) = (*submodule_ref)
+            .borrow_mut()
+            .get_child(fn_name, &traversed_path)?
+        {
+            ModuleRef::Normalized(file_id, fn_name.to_string())
+        } else {
+            return perror!(
+                "ICE: Error realizing operator: trait {} does not exist in module `{}`",
+                fn_name,
+                traversed_path.join("::")
+            );
+        };
+
+        if !self.analyzed_program.analyzed_functions.contains_key(&r) {
+            return perror!(
+                "ICE: Error realizing operator: `{}` is not a trait",
+                r.full_name()
+            );
         } else {
             Ok(r)
         }
@@ -71,6 +143,17 @@ impl AnalyzeOperators {
         } else {
             Ok(())
         }
+    }
+
+    fn construct_where_at(&self, span: Span) -> PResult<AstExpression> {
+        let (name, row, col, _, _, line) = FileRegistry::location_info(span)?;
+        let arrow = format!("{}^", "-".repeat(col - 1));
+        let where_at_string = format!("{}:{} in module `{}`\n{}\n{}", row, col, name, line, arrow);
+
+        Ok(AstExpression::literal(
+            span,
+            AstLiteral::String(where_at_string),
+        ))
     }
 }
 
@@ -99,7 +182,7 @@ impl AnalyzeOperators {
             BinOpKind::Or => ("Or", "or"),
         };
 
-        let associated_trait = self.construct_ref(trt_name)?;
+        let associated_trait = self.construct_trt_ref(trt_name)?;
         self.verify_fn(&associated_trait, fn_name)?;
 
         Ok(AstExpressionData::StaticCall {
@@ -128,7 +211,7 @@ impl AstAdapter for AnalyzeOperators {
                 fn_generics: vec![],
                 args: vec![*expr],
                 associated_trait: Some(AstTraitTypeWithAssocs::new(
-                    self.construct_ref("Negate")?,
+                    self.construct_trt_ref("Negate")?,
                     vec![],
                     BTreeMap::new(),
                 )),
@@ -140,7 +223,7 @@ impl AstAdapter for AnalyzeOperators {
                 fn_generics: vec![],
                 args: vec![*expr],
                 associated_trait: Some(AstTraitTypeWithAssocs::new(
-                    self.construct_ref("Not")?,
+                    self.construct_trt_ref("Not")?,
                     vec![],
                     BTreeMap::new(),
                 )),
@@ -161,7 +244,7 @@ impl AstAdapter for AnalyzeOperators {
                             fn_generics: vec![],
                             args: vec![*accessible, *idx, *rhs],
                             associated_trait: Some(AstTraitTypeWithAssocs::new(
-                                self.construct_ref("DerefAssign")?,
+                                self.construct_trt_ref("DerefAssign")?,
                                 vec![],
                                 BTreeMap::new(),
                             )),
@@ -183,7 +266,7 @@ impl AstAdapter for AnalyzeOperators {
                 fn_generics: vec![],
                 args: vec![*accessible, *idx],
                 associated_trait: Some(AstTraitTypeWithAssocs::new(
-                    self.construct_ref("Deref")?,
+                    self.construct_trt_ref("Deref")?,
                     vec![],
                     BTreeMap::new(),
                 )),
@@ -200,7 +283,7 @@ impl AstAdapter for AnalyzeOperators {
                     fn_generics: vec![],
                     args: vec![*expr, args],
                     associated_trait: Some(AstTraitTypeWithAssocs::new(
-                        self.construct_ref("Call")?,
+                        self.construct_trt_ref("Call")?,
                         vec![AstType::tuple(arg_tys)],
                         BTreeMap::new(),
                     )),
@@ -213,7 +296,7 @@ impl AstAdapter for AnalyzeOperators {
                 fn_generics: vec![],
                 args: vec![*size],
                 associated_trait: Some(AstTraitTypeWithAssocs::new(
-                    self.construct_ref("AllocateArray")?,
+                    self.construct_trt_ref("AllocateArray")?,
                     vec![],
                     BTreeMap::new(),
                 )),
@@ -225,11 +308,21 @@ impl AstAdapter for AnalyzeOperators {
                 fn_generics: vec![],
                 args: vec![*expression],
                 associated_trait: Some(AstTraitTypeWithAssocs::new(
-                    self.construct_ref("Into")?,
+                    self.construct_trt_ref("Into")?,
                     vec![ty],
                     BTreeMap::new(),
                 )),
                 impl_signature: None,
+            },
+            AstExpressionData::Assert { condition } => AstExpressionData::FnCall {
+                fn_name: self.construct_fn_ref("assert_impl")?,
+                generics: vec![],
+                args: vec![*condition, self.construct_where_at(span)?],
+            },
+            AstExpressionData::Unimplemented => AstExpressionData::FnCall {
+                fn_name: self.construct_fn_ref("commalipses_impl")?,
+                generics: vec![AstType::infer()],
+                args: vec![self.construct_where_at(span)?],
             },
             e => e,
         };

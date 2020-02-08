@@ -36,9 +36,11 @@ impl AnalyzeVariables {
     fn assign_index(&mut self, a: &AstNamedVariable) -> PResult<()> {
         let AstNamedVariable { span, name, id, .. } = a;
 
-        self.scope
-            .get_top(name)
-            .as_not_expected(*span, "variable", &name)?;
+        if let Some(other_id) = self.scope.get_top(name) {
+            if *id != other_id {
+                return perror_at!(*span, "Duplicate variable with name `{}`", name);
+            }
+        }
 
         self.all_variables.add(*id, a.clone());
         self.scope.add(name.clone(), *id);
@@ -52,11 +54,12 @@ impl<'a> AstAdapter for AnalyzeVariables {
         self.global_variables.clear();
 
         let mm = self.analyzed_program.analyzed_modules[&m.id].clone();
-        let mm = (*mm).borrow();
 
-        for (name, id) in mm.top_level_symbols() {
+        for (name, id) in (*mm).borrow().top_level_symbols() {
             self.global_variables.insert(name, id);
         }
+
+        debug!("In module {}, {:?}", m.name, self.global_variables);
 
         Ok(m)
     }
@@ -130,15 +133,18 @@ impl<'a> AstAdapter for AnalyzeVariables {
             AstExpressionData::Closure {
                 params,
                 expr,
+                return_ty,
                 captured: None,
-                variables: None,
+                ..
             } => {
                 let names = self.scope.keys();
+                debug!("");
+                debug!("Candidates: {:?}", names);
                 let mut i = CaptureIdentifier::new(names);
 
-                for p in &params {
-                    i.ignore(&p.name);
-                }
+                // Visit the params with our CaptureIdentifier. Since these params are type
+                // AstMatchPattern, this will implicitly ignore() any identifiers declared here.
+                let params = params.visit(&mut i)?;
 
                 let expr = expr.visit(&mut i)?;
                 let mut captured = Vec::new();
@@ -146,9 +152,9 @@ impl<'a> AstAdapter for AnalyzeVariables {
                 self.scope.push();
                 self.all_variables.push();
 
-                for p in &params {
-                    self.assign_index(&p)?;
-                }
+                // Now visit with the Self (AnalyzeVariables). This will call assign_index on
+                // all of these parameters.
+                let params = params.visit(self)?;
 
                 for c in i.captured {
                     let old = self
@@ -161,9 +167,12 @@ impl<'a> AstAdapter for AnalyzeVariables {
                     captured.push((old, new));
                 }
 
+                debug!("Captured: {:?}", captured);
+
                 AstExpressionData::Closure {
                     params,
                     expr,
+                    return_ty,
                     captured: Some(captured),
                     variables: None,
                 }
@@ -191,6 +200,7 @@ impl<'a> AstAdapter for AnalyzeVariables {
         let data = match data {
             AstExpressionData::Closure {
                 params,
+                return_ty,
                 expr,
                 captured,
                 variables: None,
@@ -200,6 +210,7 @@ impl<'a> AstAdapter for AnalyzeVariables {
 
                 AstExpressionData::Closure {
                     params,
+                    return_ty,
                     expr,
                     captured,
                     variables,
@@ -287,24 +298,26 @@ impl CaptureIdentifier {
 
     fn try_capture(&mut self, candidate: &str) {
         if self.candidates.contains(candidate) {
+            debug!("Captured {}: {:?}", candidate, self.candidates);
             self.captured.insert(candidate.into());
+        } else {
+            debug!("Capture of {} failed: {:?}", candidate, self.candidates);
         }
     }
 }
 
 impl AstAdapter for CaptureIdentifier {
-    fn enter_ast_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
-        match &e.data {
+    fn enter_ast_expression(&mut self, mut e: AstExpression) -> PResult<AstExpression> {
+        match &mut e.data {
             AstExpressionData::Identifier {
                 name,
                 variable_id: None,
             } => {
                 self.try_capture(&name);
             },
-            AstExpressionData::Closure { params, .. } =>
-                for p in params {
-                    self.ignore(&p.name);
-                },
+            AstExpressionData::Closure { params, .. } => {
+                *params = std::mem::take(params).visit(self)?;
+            },
             _ => {},
         }
 
@@ -327,6 +340,7 @@ impl AstAdapter for CaptureIdentifier {
     fn enter_ast_match_pattern(&mut self, p: AstMatchPattern) -> PResult<AstMatchPattern> {
         match &p.data {
             AstMatchPatternData::Identifier(name) => {
+                debug!("Ignoring variable {:?}", name);
                 self.ignore(&name.name);
             },
             _ => {},

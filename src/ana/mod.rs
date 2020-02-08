@@ -61,24 +61,28 @@ pub fn analyze(p: AstProgram) -> PResult<(AnalyzedProgram, AstProgram)> {
         p = p.visit(&mut analyze_pub_uses)?;
 
         if !analyze_pub_uses.modified {
-            // We only really propagate errors up if they're not influenced by evolution of
-            // the imports. This is so we can suppress temporary errors.
-            if analyze_pub_uses.err.is_some() {
-                return Err(analyze_pub_uses.err.unwrap());
-            }
+            p = p.visit(&mut analyze_pub_uses)?;
 
-            break;
+            if !analyze_pub_uses.modified {
+                // We only really propagate errors up if they're not influenced by evolution of
+                // the imports. This is so we can suppress temporary errors.
+                if analyze_pub_uses.err.is_some() {
+                    return Err(analyze_pub_uses.err.unwrap());
+                }
+
+                break;
+            }
         }
     }
 
     let mut analyze_uses = AnalyzeUses::new(&mm);
     let p = p.visit(&mut analyze_uses)?;
+    let analyzed_uses_modules = analyze_uses.modules;
 
-    let mut analyze_info = AnalyzeInfo::new();
+    let mut analyze_info = AnalyzeInfo::new(mm, analyzed_uses_modules);
 
     let mut p = p.visit(&mut analyze_info)?;
     let mut a = analyze_info.analyzed_program;
-    a.analyzed_modules = analyze_uses.modules;
 
     let passes: Vec<(&str, AnalysisPassFn)> = vec![
         ("analyze_names", Box::new(AnalyzeNames::analyze)),

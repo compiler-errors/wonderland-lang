@@ -181,16 +181,11 @@ impl InstantiationAdapter {
     fn instantiate_enum(&mut self, name: &ModuleRef, generics: &[AstType]) -> PResult<()> {
         let sig = InstEnumSignature(name.clone(), generics.to_vec());
 
-        if let Some(x) = self.instantiated_enums.get(&sig) {
-            if x.is_some() {
-                return Ok(());
-            } else {
-                return perror!(
-                    "Enum `{}` cannot be sized, recursively contains itself",
-                    name.full_name()
-                );
-            }
+        if self.instantiated_enums.contains_key(&sig) {
+            return Ok(());
         }
+
+        // TODO: please check that enums are not infinitely recursive
 
         // Insert so we don't recurse infinitely.
         self.instantiated_enums.insert(sig.clone(), None);

@@ -4,17 +4,24 @@ enum Option<_T> {
 }
 
 impl<_T> for Option<_T> {
-  fn unwrap_or_else<_F>(self, otherwise: _F) -> _T where _F: Fn() -> _T {
-      match self {
-          Option!Some(v) => v,
-          _ => otherwise(),
-      }
-  }
-
   fn unwrap(self) -> _T {
       match self {
           Option!Some(v) => v,
           _ => panic("No value for Option"),
+      }
+  }
+
+  fn unwrap_or(self, other: _T) -> _T {
+      match self {
+          Option!Some(v) => v,
+          _ => other,
+      }
+  }
+
+  fn unwrap_or_else<_F>(self, otherwise: _F) -> _T where _F: Fn() -> _T {
+      match self {
+          Option!Some(v) => v,
+          _ => otherwise(),
       }
   }
 
@@ -32,4 +39,20 @@ impl<_T> for Option<_T> {
 
 trait Default {
   fn default() -> Self.
+}
+
+impl Default for Int {
+  fn default() -> Int = 0.
+}
+
+impl Default for Char {
+  fn default() -> Char = ' '.
+}
+
+impl Default for Bool {
+  fn default() -> Bool = false.
+}
+
+impl Default for String {
+  fn default() -> String = "".
 }

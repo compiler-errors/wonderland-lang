@@ -10,6 +10,7 @@ pub struct Span {
 
 impl Span {
     pub fn new(file: FileId, start: usize, end: usize) -> Span {
+        assert!(start <= end);
         Span { file, start, end }
     }
 

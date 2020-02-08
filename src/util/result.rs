@@ -1,4 +1,4 @@
-use crate::util::Span;
+use crate::util::{FileRegistry, Span};
 use std::process::exit;
 
 macro_rules! perror {
@@ -158,32 +158,22 @@ impl<T> Expect<T> for Option<T> {
     }
 }
 
-pub fn get_row_col(file_contents: &str, pos: usize) -> (usize, usize) {
-    let mut row = 0;
-    let mut col = 0;
-
-    for c in file_contents[0..pos].chars() {
-        if c == '\n' {
-            row += 1;
-            col = 0;
-        } else {
-            col += 1;
-        }
-    }
-
-    (row, col)
-}
-
-pub fn get_line_from_pos(file_contents: &str, pos: usize) -> &str {
-    if pos > file_contents.len() {
-        return "<EOF>";
-    }
-
-    let (line, _) = get_row_col(file_contents, pos);
-    file_contents.lines().nth(line).unwrap_or_else(|| "<EOF>")
-}
-
 pub fn report_err(err: PError) -> ! {
+    print!("{}", err.main_message.string);
+
+    if let Some(span) = err.main_message.span {
+        let (path, start_row, start_col, end_row, end_col, line) =
+            FileRegistry::location_info(span).unwrap();
+
+        let arrow = format!("{}^", "-".repeat(start_col - 1));
+        println!(
+            "... at {}, {}:{} to {}:{}.\n{}\n{}",
+            path, start_row, start_col, end_row, end_col, line, arrow
+        );
+    } else {
+        println!();
+    }
+
     /*
 
     let PError {

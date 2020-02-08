@@ -1,5 +1,6 @@
 #![deny(unused_must_use)]
 #![feature(result_cloned)]
+#![feature(option_expect_none)]
 
 #[macro_use]
 extern crate lazy_static;

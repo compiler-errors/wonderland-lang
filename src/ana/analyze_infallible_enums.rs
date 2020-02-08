@@ -1,7 +1,9 @@
 use crate::{
     ana::{represent::AnalyzedProgram, represent_visitor::PureAnalysisPass},
     parser::{
-        ast::{AstMatchPattern, AstMatchPatternData, AstStatement},
+        ast::{
+            AstExpression, AstExpressionData, AstMatchPattern, AstMatchPatternData, AstStatement,
+        },
         ast_visitor::AstAdapter,
     },
     util::PResult,
@@ -56,5 +58,22 @@ impl AstAdapter for AnalyzeInfallibleEnums {
         }
 
         Ok(s)
+    }
+
+    fn enter_ast_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
+        if let AstExpressionData::Closure { params, .. } = &e.data {
+            for param in params {
+                if !self.is_infallible(param) {
+                    // FIXME: This should be a spanned error, once the statement is turned into an
+                    // expr.
+                    return perror!(
+                        "The match pattern is not infallible. Closures must receive infallible \
+                         patterns as arguments!"
+                    );
+                }
+            }
+        }
+
+        Ok(e)
     }
 }

@@ -11,6 +11,8 @@ NOINLINE struct string* gc_alloc_string(i8* string, i64 length) {
 }
 
 NOINLINE i8* gc_alloc_array(i64 element_size, i64 elements, i16 type) {
+  // TODO: I should not allocate any array if the # of elements is 0.
+
   i64 bytes = (i64) (sizeof(struct array) + sizeof(i8) * element_size * elements);
   struct array* array_ptr = gc_alloc_block(bytes, type, __builtin_frame_address(0));
 
@@ -27,6 +29,10 @@ NOINLINE i8* gc_alloc_object(i64 size, i16 type) {
 }
 
 i1 string_eq_literal(struct string* string, i8* literal, i64 literal_length) {
+    if (string == NULL) {
+        return false;
+    }
+
     if (string->length != literal_length) {
         return false;
     }

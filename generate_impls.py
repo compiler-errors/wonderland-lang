@@ -29,6 +29,13 @@ impl{angled_generic_tys} Into<String> for {tuple_ty} {where_into_string} {{
         {string_constructor}
     }}
 }}
+
+impl{angled_generic_tys} Hash for {tuple_ty} {where_hash} {{
+    fn hash(self) -> Int {{
+        let h = 7.{hashes}
+        h
+    }}
+}}
 """
 
 for i in range(0,8):
@@ -42,7 +49,9 @@ for i in range(0,8):
     fn_type_with_env = "fn(" + ", ".join(["CursedEmptyStruct"] + generics) + ") -> _Ret"
     comma_unpacked_args = "" if len(generics) == 0 else (", " + ", ".join("args:" + str(i) for i in range(i)))
     where_into_string = "" if len(generics) == 0 else ("where " + ", ".join(g + ": Into<String>" for g in generics))
-    string_constructor = "\"()\"" if len(generics) == 0 else ("\"(\(self:0),)\"" if len(generics) == 1 else ("\"(\(" + "), \(".join("self:" + str(i) for i in range(i)) + "))\""))
+    string_constructor = "\"()\"" if len(generics) == 0 else ("\"(\(self:0),)\"" if len(generics) == 1 else ("\"(\(" + "), \(".join(f"self:{i}" for i in range(i)) + "))\""))
+    where_hash = "" if len(generics) == 0 else ("where " + ", ".join(g + ": Hash" for g in generics))
+    hashes = "\n" + "\n".join(f"        h = 31 * h + self:{i}:hash()." for i in range(i))
 
     print(ARGFMT.format(tuple_ty=tuple_ty,
                         generic_tys=generic_tys,
@@ -53,4 +62,6 @@ for i in range(0,8):
                         fn_type_with_env=fn_type_with_env,
                         comma_unpacked_args=comma_unpacked_args,
                         where_into_string=where_into_string,
-                        string_constructor=string_constructor))
+                        string_constructor=string_constructor,
+                        where_hash=where_hash,
+                        hashes=hashes,))

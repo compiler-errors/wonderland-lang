@@ -463,7 +463,8 @@ pub enum AstExpressionData {
         elements: Vec<AstExpression>,
     },
     Closure {
-        params: Vec<AstNamedVariable>,
+        params: Vec<AstMatchPattern>,
+        return_ty: AstType,
         expr: SubExpression,
 
         captured: Option<Vec<(AstNamedVariable, AstNamedVariable)>>,
@@ -830,13 +831,15 @@ impl AstExpression {
 
     pub fn closure(
         span: Span,
-        params: Vec<AstNamedVariable>,
+        params: Vec<AstMatchPattern>,
+        return_ty: AstType,
         expr: AstExpression,
     ) -> AstExpression {
         AstExpression {
             span,
             data: AstExpressionData::Closure {
                 params,
+                return_ty,
                 expr: Box::new(expr),
                 captured: None,
                 variables: None,
