@@ -8,6 +8,18 @@ impl PartialCompare<Int> for Int {
   }
 }
 
+impl PartialCompare<Float> for Float {
+  fn compare(self, other: Float) -> Int {
+      if instruction "fcmp eq" (self, other) -> Bool {
+        0
+      } else if instruction "fcmp gt" (self, other) -> Bool {
+        1
+      } else {
+        -1
+      }
+  }
+}
+
 impl PartialCompare<Char> for Char {
   fn compare(self, other: Char) -> Int {
       self - other

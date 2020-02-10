@@ -34,6 +34,10 @@ impl<_T> Into<_T> for _T {
   fn into(self) -> _T = self.
 }
 
+impl Into<Float> for Int {
+  fn into(self) -> Float = instruction "sitofp" (self) -> Float.
+}
+
 fn commalipses_impl<_T>(where_at: String) -> _T {
     panic("TODO implement commalipses at \(where_at)")
 }

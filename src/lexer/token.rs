@@ -71,6 +71,7 @@ pub enum Token {
 
     // Privileged Types
     Int,
+    Float,
     Bool,
     StringType,
     Char,
@@ -81,6 +82,7 @@ pub enum Token {
     // Literals
     String(String),
     IntLiteral(String),
+    FloatLiteral(String),
     InstructionLiteral(String),
     CharLiteral(char),
 
@@ -163,6 +165,7 @@ impl Display for Token {
             Token::Match => write!(f, "match"),
             Token::Instruction => write!(f, "instruction"),
             Token::Int => write!(f, "Type (Int)"),
+            Token::Float => write!(f, "Type (Float)"),
             Token::Bool => write!(f, "Type (Bool)"),
             Token::Char => write!(f, "Type (Char)"),
             Token::StringType => write!(f, "Type (String)"),
@@ -173,7 +176,8 @@ impl Display for Token {
             Token::InterpolateBegin(_) => write!(f, "InterpolateBegin"),
             Token::InterpolateContinue(_) => write!(f, "InterpolateContinue"),
             Token::InterpolateEnd(_) => write!(f, "InterpolateEnd"),
-            Token::IntLiteral(_) => write!(f, "Number"),
+            Token::IntLiteral(_) => write!(f, "IntLiteral"),
+            Token::FloatLiteral(_) => write!(f, "FloatLiteral"),
             Token::CharLiteral(_) => write!(f, "CharLiteral"),
             Token::InstructionLiteral(_) => write!(f, "InstructionLiteral"),
             Token::Identifier(_) => write!(f, "Identifier"),

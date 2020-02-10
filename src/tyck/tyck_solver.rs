@@ -171,6 +171,7 @@ impl TyckSolver {
             },
 
             (AstType::Int, AstType::Int)
+            | (AstType::Float, AstType::Float)
             | (AstType::Char, AstType::Char)
             | (AstType::Bool, AstType::Bool)
             | (AstType::String, AstType::String)
@@ -251,11 +252,6 @@ impl TyckSolver {
             },
 
             (a, b) => {
-                if &format!("Type non-union, {} and {}", a, b) == "Type non-union, () and _T101(dg)"
-                {
-                    panic!("Right here, baby!");
-                }
-
                 return perror!("Type non-union, {} and {}", a, b);
             },
         }
@@ -287,6 +283,7 @@ impl TyckSolver {
                 AstLiteral::True | AstLiteral::False =>
                     self.unify(true, &AstType::Bool, other_ty)?,
                 AstLiteral::Int(..) => self.unify(true, &AstType::Int, other_ty)?,
+                AstLiteral::Float(..) => self.unify(true, &AstType::Float, other_ty)?,
                 AstLiteral::Char(..) => self.unify(true, &AstType::Char, other_ty)?,
                 AstLiteral::String { .. } => self.unify(true, &AstType::String, other_ty)?,
             },
@@ -1186,6 +1183,8 @@ impl AstAdapter for TyckSolver {
             | AstExpressionData::NamedEnum { .. }
             | AstExpressionData::PlainEnum { .. }
             | AstExpressionData::BinOp { .. }
+            | AstExpressionData::Negate { .. }
+            | AstExpressionData::Not { .. }
             | AstExpressionData::As { .. }
             | AstExpressionData::For { .. } => unreachable!(),
 
@@ -1237,6 +1236,9 @@ impl AstAdapter for TyckSolver {
                 AstLiteral::String { .. } => self.unify(true, &ty, &AstType::String)?,
                 AstLiteral::Int(..) => {
                     self.unify(true, &ty, &AstType::Int)?;
+                },
+                AstLiteral::Float(..) => {
+                    self.unify(true, &ty, &AstType::Float)?;
                 },
                 AstLiteral::Char(..) => {
                     self.unify(true, &ty, &AstType::Char)?;
@@ -1510,17 +1512,6 @@ impl AstAdapter for TyckSolver {
                     &AstType::Object(object.clone(), generics.clone()),
                     &ty,
                 )?;
-            },
-
-            AstExpressionData::Not(subexpression) => {
-                let sub_ty = &subexpression.ty;
-                self.unify(true, sub_ty, &AstType::Bool)?;
-                self.unify(true, &ty, &AstType::Bool)?;
-            },
-            AstExpressionData::Negate(subexpression) => {
-                let sub_ty = &subexpression.ty;
-                self.unify(true, sub_ty, &AstType::Int)?;
-                self.unify(true, &ty, &AstType::Int)?;
             },
 
             AstExpressionData::Assign { lhs, rhs } => {

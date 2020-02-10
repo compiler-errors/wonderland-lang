@@ -250,6 +250,7 @@ pub enum AstType {
     Infer(InferId),
 
     Int,
+    Float,
     Char,
     Bool,
     String,
@@ -1266,6 +1267,7 @@ pub enum AstLiteral {
     False,
     String(String),
     Int(String),
+    Float(String),
     Char(char),
 }
 

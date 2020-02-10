@@ -7,6 +7,7 @@
 #include <stdbool.h>
 #include <string.h>
 
+#define f64 double
 #define i64 uint64_t
 #define i32 uint32_t
 #define i16 uint16_t

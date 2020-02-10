@@ -107,7 +107,7 @@ impl<_T> for List<_T> {
 
   fn remove(self, idx: Int) -> _T {
     if idx < 0 | idx >= self:size {
-      return panic:<_T>("Invalid index to insert at: \(idx)").
+      panic:<()>("Invalid index to insert at: \(idx)").
     }
 
     if idx == 0 {

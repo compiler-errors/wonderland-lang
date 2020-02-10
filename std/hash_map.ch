@@ -1,4 +1,5 @@
 let default_bucket_size: Int = 8.
+let threshold: Float = 0.75.
 
 object HashMap<_K, _V> {
   size: Int.
@@ -18,7 +19,7 @@ impl<_K, _V> for HashMap<_K, _V> {
   }
 
   fn bucket_from_hash(self, hash: Int) -> Bucket<_K, _V> {
-    self:buckets[abs(hash % self:buckets:len())]
+    self:buckets[abs(hash % self:num_buckets)]
   }
 }
 
@@ -93,7 +94,25 @@ impl<_K, _V> for HashMap<_K, _V> where _K: Equals<_K> + Hash {
 
     self:size = self:size + 1.
     bucket:entries:push_back((hash, key, value)).
+
+    self:try_grow().
     Option!None
+  }
+
+  fn try_grow(self) {
+    // TODO: Let's integrate this into some type of ensure_size or resize or smth.
+
+    if (self:size as Float) > (self:num_buckets as Float) * threshold {
+      let old_buckets = self:buckets.
+      self:num_buckets = self:num_buckets * 2.
+      self:buckets = allocate [Bucket; self:num_buckets].
+
+      for bucket in old_buckets {
+        for (hash, key, value) in bucket:entries {
+          self:bucket_from_hash(hash):entries:push_back((hash, key, value)).
+        }
+      }
+    }
   }
 }
 

@@ -8,6 +8,7 @@ impl fmt::Display for AstType {
         match self {
             AstType::Infer(id) => write!(f, "_{}(i)", id.0),
             AstType::Int => write!(f, "Int"),
+            AstType::Float => write!(f, "Float"),
             AstType::Char => write!(f, "Char"),
             AstType::Bool => write!(f, "Bool"),
             AstType::String => write!(f, "String"),

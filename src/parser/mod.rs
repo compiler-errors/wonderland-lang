@@ -495,6 +495,10 @@ impl Parser {
                 self.bump()?;
                 (AstType::Int, span)
             },
+            Token::Float => {
+                self.bump()?;
+                (AstType::Float, span)
+            },
             Token::Bool => {
                 self.bump()?;
                 (AstType::Bool, span)
@@ -1261,6 +1265,7 @@ impl Parser {
             | Token::False
             | Token::String(..)
             | Token::IntLiteral(..)
+            | Token::FloatLiteral(..)
             | Token::CharLiteral(..) => {
                 let lit = self.parse_literal_expression()?;
                 Ok(AstExpression::literal(span, lit))
@@ -1434,6 +1439,11 @@ impl Parser {
                 let num = num.clone();
                 self.bump()?;
                 Ok(AstLiteral::Int(num))
+            },
+            Token::FloatLiteral(num) => {
+                let num = num.clone();
+                self.bump()?;
+                Ok(AstLiteral::Float(num))
             },
             Token::CharLiteral(ch) => {
                 let ch = *ch;

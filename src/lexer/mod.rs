@@ -402,32 +402,50 @@ impl Lexer {
             self.bump(1);
         }
 
-        /*if self.current_char() == '.' && is_numeric(self.next_char()) {
+        if self.current_char() == '.' && is_numeric(self.next_char()) {
             string += ".";
             self.bump(1);
 
-            loop {
-                // EOF
-                match self.current_char() {
-                    c @ '0'..='9' => {
-                        self.bump(1);
-                        string.push(c);
-                    }
-                    _ => {
-                        break;
-                    }
+            while let c @ '0'..='9' = self.current_char() {
+                self.bump(1);
+                string.push(c);
+            }
+
+            if self.current_char() == 'e' || self.current_char() == 'E' {
+                self.bump(1);
+                string.push('e');
+
+                if self.current_char() == '+' || self.current_char() == '-' {
+                    let c = self.current_char();
+                    self.bump(1);
+                    string.push(c);
+                }
+
+                let mut expect_number = false;
+
+                while let c @ '0'..='9' = self.current_char() {
+                    expect_number = true;
+                    self.bump(1);
+                    string.push(c);
+                }
+
+                if !expect_number {
+                    return perror!(
+                        "Expected a numerical value following the exponential: {}",
+                        string
+                    );
                 }
             }
 
             Ok(Token::FloatLiteral(string))
-        } else if self.current_char() == 'u' {
+        }
+        /* else if self.current_char() == 'u' {
             self.bump(1);
             Ok(Token::UIntLiteral(string))
-        } else {
+        } */
+        else {
             Ok(Token::IntLiteral(string))
-        }*/
-
-        Ok(Token::IntLiteral(string))
+        }
     }
 
     // Scans an identifier, unless it matches a keyword.
@@ -481,6 +499,7 @@ impl Lexer {
             "instruction" => Token::Instruction,
 
             "Int" => Token::Int,
+            "Float" => Token::Float,
             "Bool" => Token::Bool,
             "String" => Token::StringType,
             "Char" => Token::Char,

@@ -11,6 +11,14 @@ impl Add<Int> for Int {
   }
 }
 
+impl Add<Float> for Float {
+  type Result = Float.
+
+  fn add(self, other: Float) -> Float {
+      instruction "fadd" (self, other) -> Float
+  }
+}
+
 impl Add<String> for String {
   type Result = String.
 
@@ -28,6 +36,14 @@ impl Subtract<Int> for Int {
   type Result = Int.
 
   fn sub(self, other: Int) -> Int {
+      self + (-other)
+  }
+}
+
+impl Subtract<Float> for Float {
+  type Result = Float.
+
+  fn sub(self, other: Float) -> Float {
       self + (-other)
   }
 }
@@ -54,6 +70,14 @@ impl Multiply<Int> for Int {
   }
 }
 
+impl Multiply<Float> for Float {
+  type Result = Float.
+
+  fn mul(self, other: Float) -> Float {
+      instruction "fmul" (self, other) -> Float
+  }
+}
+
 trait Divide<_T> {
   type Result.
   fn div(self, other: _T) -> <Self as Divide<_T>>::Result.
@@ -64,6 +88,14 @@ impl Divide<Int> for Int {
 
   fn div(self, other: Int) -> Int {
       instruction "sdiv" (self, other) -> Int
+  }
+}
+
+impl Divide<Float> for Float {
+  type Result = Float.
+
+  fn div(self, other: Float) -> Float {
+      instruction "fdiv" (self, other) -> Float
   }
 }
 
@@ -93,6 +125,14 @@ impl Negate for Int {
   }
 }
 
+impl Negate for Float {
+  type Result = Float.
+
+  fn negate(self) -> Float {
+      instruction "fneg" (self) -> Float
+  }
+}
+
 fn min<_T>(a: _T, b: _T) -> _T where _T: Compare<_T> {
   if a < b {
       a
@@ -109,8 +149,8 @@ fn max<_T>(a: _T, b: _T) -> _T where _T: Compare<_T> {
   }
 }
 
-fn abs(i: Int) -> Int {
-  if i >= 0 {
+fn abs<_T>(i: _T) -> _T where _T: Negate<::Result=_T> + Compare<_T>, Int: Into<_T> {
+  if i >= (0 as _T) {
     i
   } else {
     -i

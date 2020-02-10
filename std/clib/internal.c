@@ -21,6 +21,18 @@ NOINLINE struct string* fpP8internalP16transmute_string15int_into_string(i64 i) 
   return string_ptr;
 }
 
+NOINLINE struct string* fpP8internalP16transmute_string17float_into_string(f64 f) {
+  i64 length = snprintf(NULL, 0, "%f", f);
+
+  i64 block_size = (i64) (sizeof(struct string) + (length + 1) * sizeof(i8));
+  struct string* string_ptr = gc_alloc_block(block_size, 0 /* string type */, __builtin_frame_address(0));
+
+  string_ptr->length = length;
+  snprintf((char*) string_ptr->payload, length + 1, "%f", f);
+
+  return string_ptr;
+}
+
 NOINLINE struct string* fpP8internalP16transmute_string16char_into_string(i8 c) {
   i64 block_size = (i64) (sizeof(struct string) + 2 * sizeof(i8));
   struct string* string_ptr = gc_alloc_block(block_size, 0 /* string type */, __builtin_frame_address(0));

@@ -12,7 +12,7 @@ use inkwell::{
     module::Module,
     types::*,
     values::*,
-    IntPredicate,
+    FloatPredicate, IntPredicate,
 };
 use std::{
     collections::{HashMap, HashSet},
@@ -1127,12 +1127,6 @@ impl Translator {
         output: &InstructionOutput,
     ) -> PResult<Vec<BasicValueEnum>> {
         let output_value: BasicValueEnum = match (instruction, arguments) {
-            ("neg", [a]) => {
-                let a = self
-                    .translate_instruction_argument(builder, a)?
-                    .into_int_value();
-                builder.build_int_neg(a, &temp_name()).into()
-            },
             ("sext", [a, InstructionArgument::Type(ty)]) => {
                 let a = self
                     .translate_instruction_argument(builder, a)?
@@ -1182,6 +1176,12 @@ impl Translator {
                     .translate_instruction_argument(builder, b)?
                     .into_int_value();
                 builder.build_right_shift(a, b, false, &temp_name()).into()
+            },
+            ("neg", [a]) => {
+                let a = self
+                    .translate_instruction_argument(builder, a)?
+                    .into_int_value();
+                builder.build_int_neg(a, &temp_name()).into()
             },
             ("add", [a, b]) => {
                 let a = self
@@ -1248,6 +1248,78 @@ impl Translator {
                     .into_int_value();
                 builder
                     .build_int_compare(IntPredicate::SGT, a, b, &temp_name())
+                    .into()
+            },
+            ("fneg", [a]) => {
+                let a = self
+                    .translate_instruction_argument(builder, a)?
+                    .into_float_value();
+                builder.build_float_neg(a, &temp_name()).into()
+            },
+            ("fadd", [a, b]) => {
+                let a = self
+                    .translate_instruction_argument(builder, a)?
+                    .into_float_value();
+                let b = self
+                    .translate_instruction_argument(builder, b)?
+                    .into_float_value();
+                builder.build_float_add(a, b, &temp_name()).into()
+            },
+            ("fsub", [a, b]) => {
+                let a = self
+                    .translate_instruction_argument(builder, a)?
+                    .into_float_value();
+                let b = self
+                    .translate_instruction_argument(builder, b)?
+                    .into_float_value();
+                builder.build_float_add(a, b, &temp_name()).into()
+            },
+            ("fmul", [a, b]) => {
+                let a = self
+                    .translate_instruction_argument(builder, a)?
+                    .into_float_value();
+                let b = self
+                    .translate_instruction_argument(builder, b)?
+                    .into_float_value();
+                builder.build_float_mul(a, b, &temp_name()).into()
+            },
+            ("fdiv", [a, b]) => {
+                let a = self
+                    .translate_instruction_argument(builder, a)?
+                    .into_float_value();
+                let b = self
+                    .translate_instruction_argument(builder, b)?
+                    .into_float_value();
+                builder.build_float_div(a, b, &temp_name()).into()
+            },
+            ("fcmp eq", [a, b]) => {
+                let a = self
+                    .translate_instruction_argument(builder, a)?
+                    .into_float_value();
+                let b = self
+                    .translate_instruction_argument(builder, b)?
+                    .into_float_value();
+                builder
+                    .build_float_compare(FloatPredicate::OEQ, a, b, &temp_name())
+                    .into()
+            },
+            ("fcmp gt", [a, b]) => {
+                let a = self
+                    .translate_instruction_argument(builder, a)?
+                    .into_float_value();
+                let b = self
+                    .translate_instruction_argument(builder, b)?
+                    .into_float_value();
+                builder
+                    .build_float_compare(FloatPredicate::OGT, a, b, &temp_name())
+                    .into()
+            },
+            ("sitofp", [a]) => {
+                let a = self
+                    .translate_instruction_argument(builder, a)?
+                    .into_int_value();
+                builder
+                    .build_signed_int_to_float(a, self.context.f64_type(), &temp_name())
                     .into()
             },
             ("load", [a]) => {
@@ -1463,6 +1535,8 @@ impl Translator {
                 .const_int_from_string(&i, StringRadix::Decimal)
                 .unwrap()
                 .into()],
+            AstLiteral::Float(i) =>
+                vec![self.context.f64_type().const_float_from_string(&i).into()],
             AstLiteral::Char(c) => {
                 let mut k = [0u8];
                 c.encode_utf8(&mut k);
@@ -1574,6 +1648,12 @@ impl Translator {
                             .i64_type()
                             .const_int_from_string(&i, StringRadix::Decimal)
                             .unwrap(),
+                        &temp_name(),
+                    ),
+                    AstLiteral::Float(f) => builder.build_float_compare(
+                        FloatPredicate::OEQ,
+                        value.into_float_value(),
+                        self.context.f64_type().const_float_from_string(&f),
                         &temp_name(),
                     ),
                     AstLiteral::Char(c) => {
@@ -1906,6 +1986,7 @@ impl Translator {
 
             match t {
                 AstType::Int
+                | AstType::Float
                 | AstType::Char
                 | AstType::Bool
                 | AstType::FnPointerType { .. }
@@ -2162,6 +2243,7 @@ impl Translator {
     fn get_llvm_ty(&self, t: &AstType) -> PResult<BasicTypeEnum> {
         let ty = match t {
             AstType::Int => self.context.i64_type().into(),
+            AstType::Float => self.context.f64_type().into(),
             AstType::Char => self.context.i8_type().into(),
             AstType::Bool => self.context.bool_type().into(),
 
