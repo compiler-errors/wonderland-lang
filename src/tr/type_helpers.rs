@@ -24,10 +24,8 @@ pub struct TrClosureCaptureEnvironment {
 }
 
 impl TrClosureCaptureEnvironment {
-    pub fn into_struct_type(&self, context: &Context) -> PointerType {
-        let mut field_types = vec![opaque_fn_type(context).into()];
-        field_types.extend(self.captured.iter().map(|id| self.tys[id]));
-
+    pub fn as_struct_pointer_type(&self, context: &Context) -> PointerType {
+        let field_types: Vec<_> = self.captured.iter().map(|id| self.tys[id]).collect();
         context.struct_type(&field_types, false).ptr_type(GC)
     }
 }
@@ -40,7 +38,7 @@ pub fn opaque_fn_type(context: &Context) -> PointerType {
 }
 
 pub fn opaque_env_type(context: &Context) -> PointerType {
-    context.struct_type(&[], false).ptr_type(GLOBAL)
+    context.struct_type(&[], false).ptr_type(GC)
 }
 
 pub fn fun_type(t: BasicTypeEnum, p: &[BasicTypeEnum]) -> FunctionType {

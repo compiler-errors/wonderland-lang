@@ -20,6 +20,7 @@ use std::{
     io::Write,
     path::{Path, PathBuf},
     process::{Command, Stdio},
+    str::FromStr,
     sync::RwLock,
 };
 use tempfile::TempDir;
@@ -615,15 +616,27 @@ impl Translator {
             c @ AstExpressionData::Closure { .. } => {
                 let env = self.translate_closure_capture_environment(c)?;
                 let fun = self.translate_closure_body(&env, c)?;
-                let c = self.translate_closure_construction(builder, fun, &env, c)?;
+                let env_ptr = self.translate_closure_construction(builder, &env, c)?;
 
-                // Cast this to the expected |...| type.
-                let opaque_closure = builder.build_pointer_cast(
-                    c,
-                    self.get_llvm_ty(&expression.ty)?.into_pointer_type(),
+                let opaque_fun_ptr = builder.build_pointer_cast(
+                    fun.as_global_value().as_pointer_value(),
+                    opaque_fn_type(&self.context),
                     &temp_name(),
                 );
-                vec![opaque_closure.into()]
+                let opaque_env_ptr = builder.build_pointer_cast(
+                    env_ptr,
+                    opaque_env_type(&self.context),
+                    &temp_name(),
+                );
+
+                vec![
+                    opaque_fun_ptr.into(),
+                    self.context
+                        .i64_type()
+                        .const_int(env.id as u64, false)
+                        .into(),
+                    opaque_env_ptr.into(),
+                ]
             },
 
             AstExpressionData::Match {
@@ -1298,6 +1311,18 @@ impl Translator {
             ("ch_undefined", [InstructionArgument::Type(ty)]) =>
                 type_undefined(self.get_llvm_ty(ty)?)?,
             ("ch_zeroed", [InstructionArgument::Type(ty)]) => type_zero(self.get_llvm_ty(ty)?)?,
+            (
+                "ch_bundleget",
+                [InstructionArgument::Expression(values), InstructionArgument::Expression(AstExpression {
+                    data: AstExpressionData::Literal(AstLiteral::Int(idx)),
+                    ..
+                })],
+            ) => {
+                let values = self.translate_expression(builder, values)?;
+                let idx = <usize>::from_str(idx).unwrap();
+
+                values[idx]
+            },
             _ => {
                 return perror!(
                     "Unknown instruction `{}`, {:?} -> {:?}",
@@ -1646,16 +1671,20 @@ impl Translator {
         &mut self,
         c: &AstExpressionData,
     ) -> PResult<TrClosureCaptureEnvironment> {
-        if let AstExpressionData::Closure { captured, .. } = c {
+        if let AstExpressionData::Closure {
+            captured: Some(captured),
+            ..
+        } = c
+        {
             let id = new_type_id();
             let mut captured_ids = Vec::new();
             let mut indices = HashMap::new();
             let mut ast_tys = HashMap::new();
             let mut tys = HashMap::new();
 
-            for (idx, (_, c)) in captured.as_ref().unwrap().iter().enumerate() {
+            for (idx, (_, c)) in captured.iter().enumerate() {
                 captured_ids.push(c.id);
-                indices.insert(c.id, idx + 1); // First argument is saved for the fn itself.
+                indices.insert(c.id, idx);
                 ast_tys.insert(c.id, c.ty.clone());
                 tys.insert(c.id, self.get_llvm_ty(&c.ty)?);
             }
@@ -1685,7 +1714,7 @@ impl Translator {
             expr,
             variables,
             return_ty,
-            ..
+            captured: Some(captured),
         } = c
         {
             let variables = variables.as_ref().unwrap();
@@ -1706,17 +1735,22 @@ impl Translator {
             let first_builder = Builder::create();
             first_builder.position_at_end(&block);
 
-            // Cast that 0th parameter to the right, actual capture struct type.
-            let opaque_env_ptr = llvm_fun.get_params()[0].into_pointer_value();
-            let env_ptr = first_builder.build_pointer_cast(
-                opaque_env_ptr,
-                env.into_struct_type(&self.context),
-                &temp_name(),
-            );
-            let env_struct = first_builder
-                .build_load(env_ptr, &temp_name())
-                .into_struct_value();
-            let capture_values = unpack_capture_values(env, &first_builder, env_struct)?;
+            let capture_values = if captured.is_empty() {
+                HashMap::new()
+            } else {
+                // Cast that 0th parameter to the actual capture struct type.
+                let opaque_env_ptr = llvm_fun.get_params()[0].into_pointer_value();
+                let env_ptr = first_builder.build_pointer_cast(
+                    opaque_env_ptr,
+                    env.as_struct_pointer_type(&self.context),
+                    &temp_name(),
+                );
+                let env_struct = first_builder
+                    .build_load(env_ptr, &temp_name())
+                    .into_struct_value();
+
+                unpack_capture_values(env, &first_builder, env_struct)?
+            };
 
             for (id, var) in variables {
                 let ty = self.get_llvm_ty(&var.ty)?;
@@ -1759,7 +1793,6 @@ impl Translator {
     fn translate_closure_construction(
         &self,
         builder: &Builder,
-        fun: FunctionValue,
         env: &TrClosureCaptureEnvironment,
         c: &AstExpressionData,
     ) -> PResult<PointerValue> {
@@ -1768,7 +1801,12 @@ impl Translator {
             ..
         } = c
         {
-            let env_ty = env.into_struct_type(&self.context);
+            let env_ty = env.as_struct_pointer_type(&self.context);
+
+            if captured.is_empty() {
+                return Ok(env_ty.const_null());
+            }
+
             let size = env_ty
                 .get_element_type()
                 .into_struct_type()
@@ -1792,15 +1830,6 @@ impl Translator {
             .into_pointer_value();
 
             let env_ptr = builder.build_pointer_cast(ptr, env_ty, &temp_name());
-
-            // Store the fn (casted to the opaque fn type) in the 0th member.
-            let fn_dest = unsafe { builder.build_struct_gep(env_ptr, 0, &temp_name()) };
-            let opaque_fn = builder.build_pointer_cast(
-                fun.as_global_value().as_pointer_value(),
-                opaque_fn_type(&self.context),
-                &temp_name(),
-            );
-            builder.build_store(fn_dest, opaque_fn);
 
             // Then, for each capture, bundle, then store where it needs to go.
             for (c, new) in captured {
@@ -1876,7 +1905,11 @@ impl Translator {
             let (block, builder) = self.get_new_block(&builder)?;
 
             match t {
-                AstType::Int | AstType::Char | AstType::Bool | AstType::FnPointerType { .. } => {
+                AstType::Int
+                | AstType::Char
+                | AstType::Bool
+                | AstType::FnPointerType { .. }
+                | AstType::ClosureEnvType => {
                     // Do nothing.
                 },
 
@@ -2071,7 +2104,8 @@ impl Translator {
             // callback! Change the i8* into an object addrspace(1)**
             let object_ptr = builder.build_pointer_cast(
                 ptr_param,
-                ptr_type(env.into_struct_type(&self.context).into(), GLOBAL).into_pointer_type(),
+                ptr_type(env.as_struct_pointer_type(&self.context).into(), GLOBAL)
+                    .into_pointer_type(),
                 &temp_name(),
             );
             let object = builder.build_load(object_ptr, &temp_name());
@@ -2185,9 +2219,17 @@ impl Translator {
 
             AstType::ClosureType { .. } => self
                 .context
-                .struct_type(&[opaque_fn_type(&self.context).into()], false)
-                .ptr_type(GC)
+                .struct_type(
+                    &[
+                        opaque_fn_type(&self.context).into(),
+                        self.context.i64_type().into(),
+                        opaque_env_type(&self.context).into(),
+                    ],
+                    false,
+                )
                 .into(),
+
+            AstType::ClosureEnvType => opaque_env_type(&self.context).into(),
 
             _ => unreachable!(),
         };
@@ -2201,40 +2243,56 @@ impl Translator {
         vals: &[BasicValueEnum],
         t: &AstType,
     ) -> PResult<BasicValueEnum> {
-        if let AstType::Tuple { types } = t {
-            let mut consumed = 0;
-            let mut bundled_value: AggregateValueEnum =
-                self.get_llvm_ty(t)?.into_struct_type().get_undef().into();
+        match t {
+            AstType::Tuple { types } => {
+                let mut consumed = 0;
+                let mut bundled_value: AggregateValueEnum =
+                    self.get_llvm_ty(t)?.into_struct_type().get_undef().into();
 
-            for (i, subty) in types.iter().enumerate() {
-                let num_subvals = self.num_subvals(subty);
-                let subvals = &vals[consumed..consumed + num_subvals];
+                for (i, subty) in types.iter().enumerate() {
+                    let num_subvals = self.num_subvals(subty);
+                    let subvals = &vals[consumed..consumed + num_subvals];
 
-                // Insert the bundled set of values...
-                let bundled_subval = self.bundle_vals(builder, subvals, subty)?;
-                bundled_value = builder
-                    .build_insert_value(bundled_value, bundled_subval, i as u32, &temp_name())
-                    .unwrap();
+                    // Insert the bundled set of values...
+                    let bundled_subval = self.bundle_vals(builder, subvals, subty)?;
+                    bundled_value = builder
+                        .build_insert_value(bundled_value, bundled_subval, i as u32, &temp_name())
+                        .unwrap();
 
-                consumed += num_subvals;
-            }
+                    consumed += num_subvals;
+                }
 
-            Ok(bundled_value.into_struct_value().into())
-        } else if let AstType::Enum(..) = t {
-            let mut bundled_value: AggregateValueEnum =
-                self.get_llvm_ty(t)?.into_struct_type().get_undef().into();
+                Ok(bundled_value.into_struct_value().into())
+            },
+            AstType::Enum(..) => {
+                let mut bundled_value: AggregateValueEnum =
+                    self.get_llvm_ty(t)?.into_struct_type().get_undef().into();
 
-            for (i, val) in vals.iter().enumerate() {
-                bundled_value = builder
-                    .build_insert_value(bundled_value, *val, i as u32, &temp_name())
-                    .unwrap();
-            }
+                for (i, val) in vals.iter().enumerate() {
+                    bundled_value = builder
+                        .build_insert_value(bundled_value, *val, i as u32, &temp_name())
+                        .unwrap();
+                }
 
-            Ok(bundled_value.into_struct_value().into())
-        } else {
-            assert_eq!(vals.len(), 1);
+                Ok(bundled_value.into_struct_value().into())
+            },
+            AstType::ClosureType { .. } => {
+                let mut bundled_value: AggregateValueEnum =
+                    self.get_llvm_ty(t)?.into_struct_type().get_undef().into();
 
-            Ok(vals[0].clone())
+                for (i, val) in vals.iter().enumerate() {
+                    bundled_value = builder
+                        .build_insert_value(bundled_value, *val, i as u32, &temp_name())
+                        .unwrap();
+                }
+
+                Ok(bundled_value.into_struct_value().into())
+            },
+            _ => {
+                assert_eq!(vals.len(), 1);
+
+                Ok(vals[0].clone())
+            },
         }
     }
 
@@ -2244,33 +2302,47 @@ impl Translator {
         v: BasicValueEnum,
         t: &AstType,
     ) -> PResult<Vec<BasicValueEnum>> {
-        if let AstType::Tuple { types } = t {
-            let mut ret = Vec::new();
+        match t {
+            AstType::Tuple { types } => {
+                let mut ret = Vec::new();
 
-            for (i, subty) in types.into_iter().enumerate() {
-                let subval = builder
-                    .build_extract_value(v.into_struct_value(), i as u32, &temp_name())
-                    .unwrap();
-                ret.extend(self.flatten_val(builder, subval, subty)?);
-            }
+                for (i, subty) in types.into_iter().enumerate() {
+                    let subval = builder
+                        .build_extract_value(v.into_struct_value(), i as u32, &temp_name())
+                        .unwrap();
+                    ret.extend(self.flatten_val(builder, subval, subty)?);
+                }
 
-            Ok(ret)
-        } else if let AstType::Enum(name, generics) = t {
-            let en = InstEnumSignature(name.clone(), generics.clone());
-            let mut ret = Vec::new();
+                Ok(ret)
+            },
+            AstType::Enum(name, generics) => {
+                let en = InstEnumSignature(name.clone(), generics.clone());
+                let mut ret = Vec::new();
 
-            for (i, subty) in self.enums[&en].fields.iter().enumerate() {
-                let subval = builder
-                    .build_extract_value(v.into_struct_value(), i as u32, &temp_name())
-                    .unwrap();
-                let subvals = self.flatten_val(builder, subval, subty)?;
-                assert_eq!(subvals.len(), 1);
-                ret.push(subvals[0]);
-            }
+                for (i, subty) in self.enums[&en].fields.iter().enumerate() {
+                    let subval = builder
+                        .build_extract_value(v.into_struct_value(), i as u32, &temp_name())
+                        .unwrap();
+                    let subvals = self.flatten_val(builder, subval, subty)?;
+                    assert_eq!(subvals.len(), 1);
+                    ret.push(subvals[0]);
+                }
 
-            Ok(ret)
-        } else {
-            Ok(vec![v])
+                Ok(ret)
+            },
+            AstType::ClosureType { .. } => {
+                let mut ret = vec![];
+
+                for i in 0..3u32 {
+                    let subval = builder
+                        .build_extract_value(v.into_struct_value(), i, &temp_name())
+                        .unwrap();
+                    ret.push(subval);
+                }
+
+                Ok(ret)
+            },
+            _ => Ok(vec![v]),
         }
     }
 
@@ -2280,29 +2352,41 @@ impl Translator {
         v: PointerValue,
         t: &AstType,
     ) -> PResult<Vec<PointerValue>> {
-        if let AstType::Tuple { types } = t {
-            let mut ret = Vec::new();
+        match t {
+            AstType::Tuple { types } => {
+                let mut ret = Vec::new();
 
-            for (i, subty) in types.into_iter().enumerate() {
-                let subval = unsafe { builder.build_struct_gep(v, i as u32, &temp_name()) };
-                ret.extend(self.flatten_ptr(builder, subval, subty)?);
-            }
+                for (i, subty) in types.into_iter().enumerate() {
+                    let subval = unsafe { builder.build_struct_gep(v, i as u32, &temp_name()) };
+                    ret.extend(self.flatten_ptr(builder, subval, subty)?);
+                }
 
-            Ok(ret)
-        } else if let AstType::Enum(name, generics) = t {
-            let en = InstEnumSignature(name.clone(), generics.clone());
-            let mut ret = Vec::new();
+                Ok(ret)
+            },
+            AstType::Enum(name, generics) => {
+                let en = InstEnumSignature(name.clone(), generics.clone());
+                let mut ret = Vec::new();
 
-            for (i, subty) in self.enums[&en].fields.iter().enumerate() {
-                let subval = unsafe { builder.build_struct_gep(v, i as u32, &temp_name()) };
-                let subvals = self.flatten_ptr(builder, subval, subty)?;
-                assert_eq!(subvals.len(), 1);
-                ret.push(subvals[0]);
-            }
+                for (i, subty) in self.enums[&en].fields.iter().enumerate() {
+                    let subval = unsafe { builder.build_struct_gep(v, i as u32, &temp_name()) };
+                    let subvals = self.flatten_ptr(builder, subval, subty)?;
+                    assert_eq!(subvals.len(), 1);
+                    ret.push(subvals[0]);
+                }
 
-            Ok(ret)
-        } else {
-            Ok(vec![v])
+                Ok(ret)
+            },
+            AstType::ClosureType { .. } => {
+                let mut ret = vec![];
+
+                for i in 0..3u32 {
+                    let subval = unsafe { builder.build_struct_gep(v, i, &temp_name()) };
+                    ret.push(subval);
+                }
+
+                Ok(ret)
+            },
+            _ => Ok(vec![v]),
         }
     }
 
@@ -2312,64 +2396,110 @@ impl Translator {
         v: BasicValueEnum,
         t: &AstType,
     ) -> PResult<Vec<PointerValue>> {
-        if let AstType::Tuple { types } = t {
-            let mut ret = Vec::new();
+        match t {
+            AstType::Tuple { types } => {
+                let mut ret = Vec::new();
 
-            for (i, subty) in types.into_iter().enumerate() {
-                let subval = builder
-                    .build_extract_value(v.into_struct_value(), i as u32, &temp_name())
-                    .unwrap();
-                ret.extend(self.flatten_alloca(builder, subval, subty)?);
-            }
+                for (i, subty) in types.into_iter().enumerate() {
+                    let subval = builder
+                        .build_extract_value(v.into_struct_value(), i as u32, &temp_name())
+                        .unwrap();
+                    ret.extend(self.flatten_alloca(builder, subval, subty)?);
+                }
 
-            Ok(ret)
-        } else if let AstType::Enum(name, generics) = t {
-            let en = InstEnumSignature(name.clone(), generics.clone());
-            let mut ret = Vec::new();
+                Ok(ret)
+            },
+            AstType::Enum(name, generics) => {
+                let en = InstEnumSignature(name.clone(), generics.clone());
+                let mut ret = Vec::new();
 
-            for (i, subty) in self.enums[&en].fields.iter().enumerate() {
-                let subval = builder
-                    .build_extract_value(v.into_struct_value(), i as u32, &temp_name())
-                    .unwrap();
-                let subvals = self.flatten_alloca(builder, subval, subty)?;
-                assert_eq!(subvals.len(), 1);
-                ret.push(subvals[0]);
-            }
+                for (i, subty) in self.enums[&en].fields.iter().enumerate() {
+                    let subval = builder
+                        .build_extract_value(v.into_struct_value(), i as u32, &temp_name())
+                        .unwrap();
+                    let subvals = self.flatten_alloca(builder, subval, subty)?;
+                    assert_eq!(subvals.len(), 1);
+                    ret.push(subvals[0]);
+                }
 
-            Ok(ret)
-        } else {
-            let ptr = builder.build_alloca(self.get_llvm_ty(t)?, &temp_name());
-            builder.build_store(ptr, v);
+                Ok(ret)
+            },
+            AstType::ClosureType { .. } => {
+                let mut ret = vec![];
 
-            Ok(vec![ptr])
+                for e in vec![
+                    opaque_fn_type(&self.context).into(),
+                    self.context.i64_type().into(),
+                    opaque_env_type(&self.context).into(),
+                ]
+                .iter()
+                .enumerate()
+                {
+                    let (i, ty): (usize, &BasicTypeEnum) = e;
+
+                    let subval = builder
+                        .build_extract_value(v.into_struct_value(), i as u32, &temp_name())
+                        .unwrap();
+                    let ptr = builder.build_alloca(*ty, &temp_name());
+                    builder.build_store(ptr, subval);
+                    ret.push(ptr);
+                }
+
+                Ok(ret)
+            },
+            _ => {
+                let ptr = builder.build_alloca(self.get_llvm_ty(t)?, &temp_name());
+                builder.build_store(ptr, v);
+
+                Ok(vec![ptr])
+            },
         }
     }
 
     fn flatten_globals(&self, t: &AstType) -> PResult<Vec<GlobalValue>> {
-        if let AstType::Tuple { types } = t {
-            let mut ret = Vec::new();
+        match t {
+            AstType::Tuple { types } => {
+                let mut ret = Vec::new();
 
-            for subty in types.into_iter() {
-                ret.extend(self.flatten_globals(subty)?);
-            }
+                for subty in types.into_iter() {
+                    ret.extend(self.flatten_globals(subty)?);
+                }
 
-            Ok(ret)
-        } else if let AstType::Enum(name, generics) = t {
-            let en = InstEnumSignature(name.clone(), generics.clone());
-            let mut ret = Vec::new();
+                Ok(ret)
+            },
+            AstType::Enum(name, generics) => {
+                let en = InstEnumSignature(name.clone(), generics.clone());
+                let mut ret = Vec::new();
 
-            for subty in &self.enums[&en].fields {
-                let subtys = self.flatten_globals(subty)?;
-                assert_eq!(subtys.len(), 1);
-                ret.push(subtys[0]);
-            }
+                for subty in &self.enums[&en].fields {
+                    let subtys = self.flatten_globals(subty)?;
+                    assert_eq!(subtys.len(), 1);
+                    ret.push(subtys[0]);
+                }
 
-            Ok(ret)
-        } else {
-            let ty = self.get_llvm_ty(t)?;
-            let ptr = self.module.add_global(ty, None, &temp_name());
-            ptr.set_initializer(&type_undefined(ty)?);
-            Ok(vec![ptr])
+                Ok(ret)
+            },
+            AstType::ClosureType { .. } => {
+                let mut ret = vec![];
+
+                for ty in vec![
+                    opaque_fn_type(&self.context).into(),
+                    self.context.i64_type().into(),
+                    opaque_env_type(&self.context).into(),
+                ] {
+                    let ptr = self.module.add_global(ty, None, &temp_name());
+                    ptr.set_initializer(&type_undefined(ty)?);
+                    ret.push(ptr);
+                }
+
+                Ok(ret)
+            },
+            _ => {
+                let ty = self.get_llvm_ty(t)?;
+                let ptr = self.module.add_global(ty, None, &temp_name());
+                ptr.set_initializer(&type_undefined(ty)?);
+                Ok(vec![ptr])
+            },
         }
     }
 
@@ -2380,18 +2510,24 @@ impl Translator {
                 let sig = InstEnumSignature(name.clone(), generics.clone());
                 self.enums[&sig].fields.clone()
             },
+            AstType::ClosureType { .. } => vec![
+                AstType::fn_ptr_type(vec![], AstType::none()),
+                AstType::Int,
+                AstType::ClosureEnvType,
+            ],
             t => vec![t.clone()],
         }
     }
 
     pub fn num_subvals(&self, t: &AstType) -> usize {
-        if let AstType::Tuple { types } = t {
-            types.iter().map(|t| self.num_subvals(t)).sum()
-        } else if let AstType::Enum(name, generics) = t {
-            let en = InstEnumSignature(name.clone(), generics.clone());
-            self.enums[&en].fields.len()
-        } else {
-            1usize
+        match t {
+            AstType::Tuple { types } => types.iter().map(|t| self.num_subvals(t)).sum(),
+            AstType::Enum(name, generics) => {
+                let en = InstEnumSignature(name.clone(), generics.clone());
+                self.enums[&en].fields.len()
+            },
+            AstType::ClosureType { .. } => 3,
+            _ => 1usize,
         }
     }
 }

@@ -487,32 +487,37 @@ impl Parser {
     /// Try to parse an AstType.
     fn parse_type(&mut self) -> PResult<(AstType, Span)> {
         let has_lt = self.check_consume(Token::Lt)?;
+        let span = self.next_span;
 
         let (mut ty, mut span) = match &self.next_token {
             Token::Lt => self.parse_type()?,
             Token::Int => {
                 self.bump()?;
-                (AstType::Int, self.next_span)
+                (AstType::Int, span)
             },
             Token::Bool => {
                 self.bump()?;
-                (AstType::Bool, self.next_span)
+                (AstType::Bool, span)
             },
             Token::Char => {
                 self.bump()?;
-                (AstType::Char, self.next_span)
+                (AstType::Char, span)
             },
             Token::StringType => {
                 self.bump()?;
-                (AstType::String, self.next_span)
+                (AstType::String, span)
             },
             Token::Underscore => {
                 self.bump()?;
-                (AstType::infer(), self.next_span)
+                (AstType::infer(), span)
             },
             Token::SelfType => {
                 self.bump()?;
-                (AstType::SelfType, self.next_span)
+                (AstType::SelfType, span)
+            },
+            Token::ClosureEnvType => {
+                self.bump()?;
+                (AstType::ClosureEnvType, span)
             },
             Token::Pipe => {
                 let mut span = self.next_span;

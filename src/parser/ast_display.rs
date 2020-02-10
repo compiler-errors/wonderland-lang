@@ -29,6 +29,7 @@ impl fmt::Display for AstType {
                 DisplayAstTypeList(args, None, false),
                 *ret_ty
             ),
+            AstType::ClosureEnvType => write!(f, "ClosureEnvType"),
             AstType::FnPointerType { args, ret_ty } => write!(
                 f,
                 "fn({}) -> {}",

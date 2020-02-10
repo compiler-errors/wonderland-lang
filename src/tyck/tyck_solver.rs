@@ -4,11 +4,14 @@ use crate::{
         represent_visitor::AnAdapter,
     },
     parser::{ast::*, ast_visitor::AstAdapter},
-    tyck::{tyck_instantiation::*, TyckAdapter, TyckInstantiatedObjectFunction, TYCK_MAX_DEPTH},
+    tyck::{
+        tyck_instantiation::*, TyckAdapter, TyckInstantiatedImpl, TyckInstantiatedObjectFunction,
+        TYCK_MAX_DEPTH,
+    },
     util::{PError, PResult, Visit, ZipExact},
 };
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     fmt::Debug,
     rc::Rc,
 };
@@ -170,7 +173,8 @@ impl TyckSolver {
             (AstType::Int, AstType::Int)
             | (AstType::Char, AstType::Char)
             | (AstType::Bool, AstType::Bool)
-            | (AstType::String, AstType::String) => {},
+            | (AstType::String, AstType::String)
+            | (AstType::ClosureEnvType, AstType::ClosureEnvType) => {},
 
             (AstType::DummyGeneric(a, ..), AstType::DummyGeneric(b, ..)) if a == b => {},
             (AstType::Dummy(a), AstType::Dummy(b)) if a == b => {},
@@ -848,8 +852,9 @@ impl TyckSolver {
                 Ok(None)
             },
             Err(_) => perror!(
-                "No suitable trait for method `<{}>:{}(...)`",
+                "No suitable solution for method `<{} as {}>:{}(...)`",
                 self.normalize_ty(ty.clone())?,
+                self.normalize_trt(trt.clone())?,
                 name
             ),
         }
@@ -1695,6 +1700,24 @@ impl TyckAdapter for TyckSolver {
         }
 
         Ok(i)
+    }
+
+    fn exit_tyck_instantiated_impl(
+        &mut self,
+        i: TyckInstantiatedImpl,
+    ) -> PResult<TyckInstantiatedImpl> {
+        let TyckInstantiatedImpl { impl_ty, trait_ty } = i;
+        let trait_ty = AstTraitTypeWithAssocs {
+            trt: trait_ty,
+            assoc_bindings: BTreeMap::new(),
+        };
+
+        self.satisfy_impl(&impl_ty, &trait_ty)?;
+
+        Ok(TyckInstantiatedImpl {
+            impl_ty,
+            trait_ty: trait_ty.trt,
+        })
     }
 }
 

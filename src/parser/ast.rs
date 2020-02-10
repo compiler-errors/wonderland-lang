@@ -272,6 +272,10 @@ pub enum AstType {
         args: Vec<AstType>,
         ret_ty: Box<AstType>,
     },
+
+    // Only used in tr for representing `{}*` in globals. Eurgh.
+    ClosureEnvType,
+
     FnPointerType {
         args: Vec<AstType>,
         ret_ty: Box<AstType>,

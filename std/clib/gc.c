@@ -160,15 +160,23 @@ void gc_visit_array(struct array** array_ptr, i16 element_ty, GC_CALLBACK) {
   }
 }
 
-void gc_visit_closure(i8** callback_ptr, GC_CALLBACK) {
-    DEBUG_PRINTF("Visiting closure %p at %p\n", *callback_ptr, callback_ptr);
+void gc_visit_closure(struct closure* closure_ptr, GC_CALLBACK) {
+    DEBUG_PRINTF("Visiting closure %p\n", closure_ptr);
 
-    if (*callback_ptr == NULL) {
-        return;
+    if (closure_ptr == NULL) {
+      return;
     }
 
-    i8* moved_callback = gc_remap_object(*callback_ptr);
-    gc_visit((i8*) callback_ptr, gc_get_type(moved_callback), callback);
+    // The closure pointer itself points to either somewhere on the stack, or within an
+    // object. It is NOT a block of itself. Therefore we don't call callback() on the
+    // closure_ptr.
+
+    // Instead, let's just bounce forward and call the callback on the env_ptr (if it's
+    // not NULL.)
+
+    if (closure_ptr->closure_env_ptr) {
+      gc_visit(closure_ptr->closure_env_ptr, (i16) closure_ptr->closure_env_ty, callback);
+    }
 }
 
 // ----- ----- ----- ----- ----- ----- GC allocation shit ----- ----- ----- ----- ----- ----- //

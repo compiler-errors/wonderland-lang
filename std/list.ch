@@ -6,25 +6,30 @@ object List<_T> {
 
 object Link<_T> {
   item: _T.
+  last: Option<Link<_T>>.
   next: Option<Link<_T>>.
 }
 
 impl<_T> for List<_T> {
   fn new() -> List<_T> =
     allocate List { size: 0, root: Option!None, end: Option!None }.
-}
 
-impl<_T> for Link<_T> {
-  fn new(item: _T) -> Link<_T> = allocate Link { item, next: Option!None }.
+  fn push_front(self, item: _T) {
+    self:size = self:size + 1.
 
-  fn get(self) -> _T = self:item.
-  fn set(self, t: _T) {
-    self:item = t.
+    match self:root {
+      Option!None => {
+        self:root = self:end = Option!Some(Link:new(item)).
+      },
+      Option!Some(old_root) => {
+        let new_root = Link:new(item).
+        new_root:link_before(old_root).
+        self:root = Option!Some(new_root).
+      }
+    }
   }
-}
 
-impl<_T> for List<_T> {
-  fn push(self, item: _T) {
+  fn push_back(self, item: _T) {
     self:size = self:size + 1.
 
     match self:end {
@@ -32,17 +37,43 @@ impl<_T> for List<_T> {
         self:root = self:end = Option!Some(Link:new(item)).
       },
       Option!Some(old_end) => {
-        self:end = old_end:next = Option!Some(Link:new(item)).
+        let new_end = Link:new(item).
+        new_end:link_after(old_end).
+        self:end = Option!Some(new_end).
       }
     }
   }
 
-  fn pop(self) -> Option<_T> {
+  fn pop_front(self) -> Option<_T> {
     match self:root {
       Option!None => Option!None,
       Option!Some(old_root) => {
-        self:root = old_root:next.
+        let next_root = old_root:next.
+        old_root:unlink().
+
+        if next_root:is_none() {
+          self:root = self:end = Option!None.
+        }
+
+        self:size = self:size - 1.
         Option!Some(old_root:item)
+      }
+    }
+  }
+
+  fn pop_back(self) -> Option<_T> {
+    match self:end {
+      Option!None => Option!None,
+      Option!Some(old_end) => {
+        let next_end = old_end:last.
+        old_end:unlink().
+
+        if next_end:is_none() {
+          self:root = self:end = Option!None.
+        }
+
+        self:size = self:size - 1.
+        Option!Some(old_end:item)
       }
     }
   }
@@ -54,12 +85,111 @@ impl<_T> for List<_T> {
     }
   }
 
+  fn put(self, idx: Int, item: _T) {
+    if idx == 0 {
+      self:push_front(item).
+    } else if idx == self:size {
+      self:push_back(item).
+    } else if idx < 0 {
+      panic:<()>("Invalid index to insert at: \(idx)").
+    } else {
+      match Self:get_node_internal(self:root, idx - 1) {
+        Option!Some(node) => {
+          let new_link = Link:new(item).
+          node:link_after(new_link).
+        },
+        Option!None => {
+          panic:<()>("Invalid index to insert at: \(idx)").
+        },
+      }
+    }
+  }
+
+  fn remove(self, idx: Int) -> _T {
+    if idx < 0 | idx >= self:size {
+      return panic:<_T>("Invalid index to insert at: \(idx)").
+    }
+
+    if idx == 0 {
+      self:pop_front():unwrap()
+    } else if idx == self:size - 1 {
+      self:pop_back():unwrap()
+    } else {
+      match Self:get_node_internal(self:root, idx - 1) {
+        Option!Some(node) => {
+          node:unlink().
+          node:item
+        },
+        Option!None => {
+          panic("Invalid index to insert at: \(idx)")
+        },
+      }
+    }
+  }
+
   fn get_node_internal(node: Option<Link<_T>>, idx: Int) -> Option<Link<_T>> {
     match (node, idx) {
       (node, 0) => node,
       (Option!Some(node), idx) => Self:get_node_internal(node:next, idx - 1),
       (Option!None, _) => Option!None,
     }
+  }
+}
+
+impl<_T> for Link<_T> {
+  fn new(item: _T) -> Link<_T> =
+    allocate Link { item, last: Option!None, next: Option!None }.
+
+  fn link_after(self, new_next: Link<_T>) {
+    let old_next = self:next.
+    self:next = Option!Some(new_next).
+    new_next:last = Option!Some(self).
+    new_next:next = old_next.
+
+    match old_next {
+      Option!Some(old_next) => {
+        old_next:last = Option!Some(new_next).
+      },
+      Option!None => {}
+    }
+  }
+
+  fn link_before(self, new_last: Link<_T>) {
+    let old_last = self:last.
+    self:last = Option!Some(new_last).
+    new_last:next = Option!Some(self).
+    new_last:last = old_last.
+
+    match old_last {
+      Option!Some(old_last) => {
+        old_last:next = Option!Some(new_last).
+      },
+      Option!None => {}
+    }
+  }
+
+  fn unlink(self) {
+    match self:last {
+      Option!Some(last) => {
+        last:next = self:next.
+      },
+      Option!None => {},
+    }
+
+    match self:next {
+      Option!Some(next) => {
+        next:last = self:last.
+      },
+      Option!None => {},
+    }
+
+    self:next = self:last = Option!None.
+  }
+
+  fn get(self) -> _T = self:item.
+
+  fn set(self, t: _T) {
+    self:item = t.
   }
 }
 

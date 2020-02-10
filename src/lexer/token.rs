@@ -76,6 +76,7 @@ pub enum Token {
     Char,
     SelfType,
     FnTrait,
+    ClosureEnvType,
 
     // Literals
     String(String),
@@ -166,6 +167,7 @@ impl Display for Token {
             Token::Char => write!(f, "Type (Char)"),
             Token::StringType => write!(f, "Type (String)"),
             Token::SelfType => write!(f, "Type (Self)"),
+            Token::ClosureEnvType => write!(f, "Type (ClosureEnvType)"),
             Token::FnTrait => write!(f, "Fn"),
             Token::String(_) => write!(f, "String"),
             Token::InterpolateBegin(_) => write!(f, "InterpolateBegin"),

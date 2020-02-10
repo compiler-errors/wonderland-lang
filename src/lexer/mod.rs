@@ -486,6 +486,7 @@ impl Lexer {
             "Char" => Token::Char,
             "Self" => Token::SelfType,
             "Fn" => Token::FnTrait,
+            "ClosureEnvironment" => Token::ClosureEnvType,
 
             _ => match string.chars().nth(0).unwrap() {
                 '_' => Token::GenericName(string[1..].into()),

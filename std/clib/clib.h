@@ -30,7 +30,11 @@ struct string {
   i8 payload[];
 };
 
-struct callback {};
+struct closure {
+  void(*closure_fn_ptr)();
+  i64 closure_env_ty;
+  i8* closure_env_ptr;
+};
 
 inline void _ensure_bounds_or_panic(const char* type, i64 size, i64 idx) {
   if (idx < 0 || idx >= size) {

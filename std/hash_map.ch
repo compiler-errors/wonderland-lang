@@ -37,6 +37,35 @@ impl<_K, _V> for HashMap<_K, _V> where _K: Equals<_K> + Hash {
     Option!None
   }
 
+  fn remove(self, key: _K) -> Option<_V> {
+    let hash = key:hash().
+    let bucket = self:bucket_from_hash(hash).
+
+    let next_link = bucket:entries:root.
+    while true {
+      match next_link {
+        Option!Some(link) => {
+          let (old_hash, old_key, old_value) = link:get().
+
+          if hash == old_hash {
+            if key == old_key {
+              link:unlink().
+              self:size = self:size - 1.
+              return Option!Some(old_value).
+            }
+          }
+
+          next_link = link:next.
+        },
+        Option!None => {
+          break.
+        },
+      }
+    }
+
+    Option!None
+  }
+
   fn put(self, key: _K, value: _V) -> Option<_V> {
     let hash = key:hash().
     let bucket = self:bucket_from_hash(hash).
@@ -63,7 +92,7 @@ impl<_K, _V> for HashMap<_K, _V> where _K: Equals<_K> + Hash {
     }
 
     self:size = self:size + 1.
-    bucket:entries:push((hash, key, value)).
+    bucket:entries:push_back((hash, key, value)).
     Option!None
   }
 }
