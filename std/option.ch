@@ -4,10 +4,17 @@ enum Option<_T> {
 }
 
 impl<_T> for Option<_T> {
+  fn map<_F, _O>(self, f: _F) -> Option<_O> where _F: Fn(_T) -> _O {
+    match self {
+      Option!Some(t) => Option!Some(f(t)),
+      Option!None => Option!None,
+    }
+  }
+
   fn unwrap(self) -> _T {
       match self {
           Option!Some(v) => v,
-          _ => panic("No value for Option"),
+          _ => panic("No value for \(type_string:<Self>())"),
       }
   }
 

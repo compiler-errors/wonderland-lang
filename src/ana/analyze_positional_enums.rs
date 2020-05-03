@@ -50,7 +50,7 @@ impl AstAdapter for AnalyzePositionalEnums {
                     enumerable,
                     generics,
                     variant,
-                    children: arrange(ordering, children, None),
+                    children: arrange(ordering, children, || None),
                 }
             },
             e => e,
@@ -89,7 +89,7 @@ impl AstAdapter for AnalyzePositionalEnums {
                     enumerable,
                     generics,
                     variant,
-                    children: augment(children, expected, AstMatchPattern::underscore()),
+                    children: augment(children, expected, || AstMatchPattern::underscore()),
                     ignore_rest: false,
                 }
             },
@@ -109,7 +109,7 @@ impl AstAdapter for AnalyzePositionalEnums {
                     enumerable,
                     generics,
                     variant,
-                    children: arrange(ordering, children, Some(AstMatchPattern::underscore())),
+                    children: arrange(ordering, children, || Some(AstMatchPattern::underscore())),
                     ignore_rest: false,
                 }
             },
@@ -120,11 +120,14 @@ impl AstAdapter for AnalyzePositionalEnums {
     }
 }
 
-fn arrange<T: Clone>(
+fn arrange<T, F>(
     ordering: &HashMap<String, usize>,
     items: HashMap<String, T>,
-    fill_none: Option<T>,
-) -> Vec<T> {
+    fill_none: F,
+) -> Vec<T>
+where
+    F: Copy + Fn() -> Option<T>,
+{
     let mut out: Vec<Option<T>> = (0..ordering.len()).map(|_| None).collect();
 
     for (name, item) in items {
@@ -132,13 +135,16 @@ fn arrange<T: Clone>(
     }
 
     out.into_iter()
-        .map(|x| x.or_else(|| fill_none.clone()).unwrap())
+        .map(|x| x.or_else(fill_none).unwrap())
         .collect()
 }
 
-fn augment<T: Clone>(mut given: Vec<T>, expected: usize, augment: T) -> Vec<T> {
+fn augment<T, F>(mut given: Vec<T>, expected: usize, fill: F) -> Vec<T>
+where
+    F: Fn() -> T,
+{
     for _ in given.len()..expected {
-        given.push(augment.clone());
+        given.push(fill());
     }
 
     given

@@ -147,72 +147,66 @@ impl<_K, _V> Iterable for HashMap<_K, _V> {
   type Item = (_K, _V).
 
   fn iterator(self) -> HashMapIterator<_K, _V> {
-    let it = allocate HashMapIterator {
-      size_hint: self:len(),
-      next_bucket_idx: 0,
-      buckets: self:buckets,
-      next_link: Option!None
-    }.
+    let (next_bucket, buckets) = self:buckets:iterator():next().
 
-    it:bump().
-
-    it
+    HashMapIterator!Iterator {
+      size_hint: self:size,
+      buckets,
+      links: next_bucket:unwrap():entries:iterator()
+    }
   }
 }
 
-object HashMapIterator<_K, _V> {
-  size_hint: Int.
-  buckets: [Bucket<_K, _V>].
-
-  next_bucket_idx: Int.
-  next_link: Option<Link<(Int, _K, _V)>>.
-}
-
-impl<_K, _V> for HashMapIterator<_K, _V> {
-  fn bump(self) {
-    match self:next_link {
-      Option!Some(next_link) => {
-        // Just bump up the linked list.
-        if next_link:next:is_some() {
-          self:next_link = next_link:next.
-          return.
-        }
-      },
-      Option!None => {}
-    }
-
-    while self:next_bucket_idx < self:buckets:len() {
-      let bucket = self:buckets[self:next_bucket_idx].
-      self:next_bucket_idx = self:next_bucket_idx + 1.
-
-      if bucket:entries:len() > 0 {
-        self:next_link = bucket:entries:root.
-        return.
-      }
-    }
-
-    self:next_link = Option!None.
-  }
+enum HashMapIterator<_K, _V> {
+  Iterator {
+    size_hint: Int,
+    buckets: ArrayIterator<Bucket<_K, _V>>,
+    links: ListIterator<(Int, _K, _V)>
+  }.
 }
 
 impl<_K, _V> Iterator for HashMapIterator<_K, _V> {
   type Item = (_K, _V).
 
-  fn next(self) -> (_K, _V) {
-    match self:next_link {
-      Option!Some(next_link) => {
-        let (_, k, v) = next_link:get().
-        self:bump().
-        self:size_hint = self:size_hint - 1.
-        (k, v)
-      },
-      Option!None =>
-        panic("Calling HashMapIterator:next() after it has been exhausted"),
+  fn next(self) -> (Option<(_K, _V)>, HashMapIterator<_K, _V>) {
+    let HashMapIterator!Iterator { size_hint, buckets, links } = self.
+
+    if links:has_next() {
+      let (next_link, links) = links:next().
+      let (_, k, v) = next_link:unwrap().
+      return (Option!Some((k, v)), HashMapIterator!Iterator { size_hint: size_hint - 1, buckets, links }).
     }
+
+    let ArrayIterator!Iterator { idx: buckets_idx, ... } = buckets.
+    println("hm:buckets:idx = \(buckets_idx). My size hint is \(size_hint)").
+
+    while buckets:has_next() {
+      let (next_bucket, next_buckets) = buckets:next().
+      buckets = next_buckets. // We can't overwrite in a destructure.
+
+      let next_bucket = next_bucket:unwrap().
+
+      if next_bucket:entries:len() > 0 {
+        let (next_link, links) = next_bucket:entries:iterator():next().
+        let (_, k, v) = next_link:unwrap().
+
+        return (Option!Some((k, v)), HashMapIterator!Iterator { size_hint: size_hint - 1, buckets, links }).
+      }
+    }
+
+    assert size_hint == 0.
+    (Option!None, HashMapIterator!Iterator { size_hint, buckets, links })
   }
 
-  fn has_next(self) -> Bool = self:next_link:is_some().
-  fn size_hint(self) -> Int = self:size_hint.
+  fn has_next(self) -> Bool {
+    let HashMapIterator!Iterator { size_hint, ... } = self.
+    size_hint > 0
+  }
+
+  fn size_hint(self) -> Int {
+    let HashMapIterator!Iterator { size_hint, ... } = self.
+    size_hint
+  }
 }
 
 impl<_K, _V> Into<String> for HashMap<_K, _V> where _K: Into<String>, _V: Into<String> {
@@ -241,4 +235,8 @@ object Bucket<_K, _V> {
 impl<_K, _V> Default for Bucket<_K, _V> {
   fn default() -> Bucket<_K, _V> =
     allocate Bucket { entries: List:new() }.
+}
+
+impl<_K, _V> Into<String> for Bucket<_K, _V> where _K: Into<String>, _V: Into<String> {
+  fn into(self) -> String = "Bucket { \(self:entries) }".
 }

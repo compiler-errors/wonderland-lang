@@ -175,8 +175,21 @@ void gc_visit_closure(struct closure* closure_ptr, GC_CALLBACK) {
     // not NULL.)
 
     if (closure_ptr->closure_env_ptr) {
-      gc_visit(closure_ptr->closure_env_ptr, (i16) closure_ptr->closure_env_ty, callback);
+      DEBUG_PRINTF("Going into closure environment %p in %p\n", closure_ptr->closure_env_ptr, &closure_ptr->closure_env_ptr);
+      gc_visit((i8*) &closure_ptr->closure_env_ptr, (i16) closure_ptr->closure_env_ty, callback);
     }
+}
+
+void gc_visit_closure_env(i8** closure_env_ptr, GC_CALLBACK) {
+    DEBUG_PRINTF("Visiting closure environment %p in %p\n", *closure_env_ptr, closure_env_ptr);
+
+    if (closure_env_ptr == NULL || *closure_env_ptr == NULL) {
+      return;
+    }
+
+    i16 type = gc_get_type(*closure_env_ptr);
+
+    gc_visit((i8*) closure_env_ptr, type, callback);
 }
 
 // ----- ----- ----- ----- ----- ----- GC allocation shit ----- ----- ----- ----- ----- ----- //
@@ -189,7 +202,7 @@ i8* GC_BEGIN = NULL;
 i8* GC_END = NULL;
 i8* GC_LIMIT = NULL;
 
-const i64 GC_BEGIN_SIZE = 800; /* 800 bytes. Why? Idfk. */
+const i64 GC_BEGIN_SIZE = 8000; /* 800 bytes. Why? Idfk. */
 const i64 GC_OOM_LIMIT = 100 * 1024 * 1024; /* 100 MB. */
 const i64 GC_BLOCK_LIMIT = 0xFFFFFFFF;
 

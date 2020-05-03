@@ -1,9 +1,10 @@
-use self::{decorate::*, type_helpers::*};
+use self::decorate::*;
 use crate::{
     inst::{InstEnumRepresentation, InstEnumSignature, InstObjectSignature, InstantiatedProgram},
     parser::ast::*,
     util::{Context as CheshireContext, PError, PResult, ZipExact},
 };
+use either::Either;
 use inkwell::{
     attributes::{Attribute, AttributeLoc},
     basic_block::BasicBlock,
@@ -12,7 +13,7 @@ use inkwell::{
     module::Module,
     types::*,
     values::*,
-    FloatPredicate, IntPredicate,
+    AddressSpace, FloatPredicate, IntPredicate,
 };
 use std::{
     collections::{HashMap, HashSet},
@@ -26,7 +27,6 @@ use std::{
 use tempfile::TempDir;
 
 mod decorate;
-mod type_helpers;
 
 lazy_static! {
     static ref STDLIB_PATH: &'static OsStr = OsStr::new("std/clib/clib.c");
@@ -39,25 +39,28 @@ lazy_static! {
     };
 }
 
-struct Translator {
-    context: Context,
-    module: Module,
-    builtin_functions: HashMap<String, FunctionValue>,
+pub const GLOBAL: AddressSpace = AddressSpace::Generic; /* Wot. */
+pub const GC: AddressSpace = AddressSpace::Global; /* addrspace(1) is Managed, i swear */
 
-    break_continue: HashMap<LoopId, TrLoopInfo>,
+struct Translator<'ctx> {
+    context: &'ctx Context,
+    module: Module<'ctx>,
+    builtin_functions: HashMap<String, FunctionValue<'ctx>>,
 
-    variables: HashMap<VariableId, Vec<PointerValue>>,
-    globals: HashMap<ModuleRef, Vec<GlobalValue>>,
-    instruction_values: HashMap<String, BasicValueEnum>,
+    break_continue: HashMap<LoopId, TrLoopInfo<'ctx>>,
+
+    variables: HashMap<VariableId, Vec<PointerValue<'ctx>>>,
+    globals: HashMap<ModuleRef, Vec<GlobalValue<'ctx>>>,
+    instruction_values: HashMap<String, BasicValueEnum<'ctx>>,
 
     type_ids: HashMap<AstType, usize>,
-    closure_object_ids: HashMap<usize, TrClosureCaptureEnvironment>,
+    closure_object_ids: HashMap<usize, TrClosureCaptureEnvironment<'ctx>>,
 
     enums: HashMap<InstEnumSignature, InstEnumRepresentation>,
 }
 
-struct TrLoopInfo {
-    loop_ptrs: Vec<PointerValue>,
+struct TrLoopInfo<'ctx> {
+    loop_ptrs: Vec<PointerValue<'ctx>>,
     break_block: BasicBlock,
     continue_block: BasicBlock,
 }
@@ -69,14 +72,13 @@ pub fn translate(
     included_files: Vec<OsString>,
     permanent_temp_dir: Option<&str>,
 ) -> PResult<()> {
-    let mut tr = Translator::new();
+    let context = Context::create();
+    let mut tr = Translator::new(&context);
     tr.translate(file)?;
 
-    let module = tr.module;
-
-    if let Result::Err(why) = module.verify() {
+    if let Result::Err(why) = tr.module.verify() {
         if output_file != "-" {
-            error!("{}", module.print_to_string().to_string());
+            error!("{}", tr.module.print_to_string().to_string());
             std::io::stdout().flush().unwrap();
         }
 
@@ -85,14 +87,14 @@ pub fn translate(
 
     if output_file != "-" {
         emit_module(
-            module,
+            tr.module,
             llvm_ir,
             output_file,
             included_files,
             permanent_temp_dir,
         )?;
     } else {
-        println!("{}", module.print_to_string().to_string());
+        println!("{}", tr.module.print_to_string().to_string());
     }
 
     Ok(())
@@ -147,7 +149,7 @@ fn emit_module(
             // Optimize quite aggresively. I'm afraid this will fuck up the
             // statepoint shit later, but let's hope
             // not...
-            OsStr::new("-O3"),
+            //OsStr::new("-O3"),
             OsStr::new("-o"),
             &ll_opt,
         ]);
@@ -157,6 +159,7 @@ fn emit_module(
             &ll_opt,
             // Emit a bunch of statepoint bullshit so we can walk the stack later.
             OsStr::new("--rewrite-statepoints-for-gc"),
+            //OsStr::new("-O3"),
             OsStr::new("-o"),
             &ll_opt_gc,
         ]);
@@ -167,7 +170,6 @@ fn emit_module(
             OsStr::new("-o"),
             &ll_o,
             OsStr::new("-relocation-model=pic"),
-            OsStr::new("-O3"),
             OsStr::new("-filetype=obj"),
         ]);
 
@@ -222,9 +224,8 @@ fn execute_command(mut command: Command) -> PResult<()> {
     }
 }
 
-impl Translator {
-    fn new() -> Translator {
-        let context = Context::create();
+impl<'ctx> Translator<'ctx> {
+    fn new(context: &Context) -> Translator {
         let module = context.create_module("main");
 
         // Declare string type
@@ -307,10 +308,10 @@ impl Translator {
     fn add_function(
         &mut self,
         name: &str,
-        return_value: BasicTypeEnum,
-        parameters: &[BasicTypeEnum],
+        return_value: BasicTypeEnum<'ctx>,
+        parameters: &[BasicTypeEnum<'ctx>],
         apply_attributes: bool,
-    ) -> FunctionValue {
+    ) -> FunctionValue<'ctx> {
         let f = self
             .module
             .add_function(name, fun_type(return_value, parameters), None);
@@ -326,9 +327,9 @@ impl Translator {
     fn add_void_function(
         &mut self,
         name: &str,
-        parameters: &[BasicTypeEnum],
+        parameters: &[BasicTypeEnum<'ctx>],
         apply_attributes: bool,
-    ) -> FunctionValue {
+    ) -> FunctionValue<'ctx> {
         let f = self.module.add_function(
             name,
             self.context.void_type().fn_type(parameters, false),
@@ -343,7 +344,7 @@ impl Translator {
         f
     }
 
-    fn get_function(&self, name: &str) -> FunctionValue {
+    fn get_function(&self, name: &str) -> FunctionValue<'ctx> {
         self.builtin_functions[name]
     }
 
@@ -351,6 +352,7 @@ impl Translator {
         // Forward declare the type ids. Explicitly declare string as 0.
         file.instantiated_types.remove(&AstType::String);
         self.type_ids.insert(AstType::String, 0);
+
         for ty in file.instantiated_types.iter() {
             self.type_ids.insert(ty.clone(), new_type_id());
         }
@@ -434,8 +436,9 @@ impl Translator {
 
         let real_main_fn = self.forward_declare_function("main", &[], &AstType::Int, false)?;
         set_cheshire_fn_attributes(&self.context, real_main_fn);
-        let block = real_main_fn.append_basic_block("pre");
-        let first_builder = Builder::create();
+
+        let block = self.context.append_basic_block(real_main_fn, "pre");
+        let first_builder = self.context.create_builder();
         first_builder.position_at_end(&block);
 
         // Initialize all of our globals here.
@@ -488,11 +491,13 @@ impl Translator {
         parameter_list: &[AstNamedVariable],
         return_type: &AstType,
         _exported: bool,
-    ) -> PResult<FunctionValue> {
-        let param_tys = parameter_list
-            .iter()
-            .map(|p| self.get_llvm_ty(&p.ty))
-            .collect::<PResult<Vec<_>>>()?;
+    ) -> PResult<FunctionValue<'ctx>> {
+        let mut param_tys = Vec::new();
+
+        for param in parameter_list {
+            param_tys.push(self.get_llvm_ty(&param.ty)?);
+        }
+
         let ret = self.get_llvm_ty(return_type)?;
         let fun_ty = fun_type(ret, &param_tys);
 
@@ -540,8 +545,8 @@ impl Translator {
                     .map(|(p, v)| (p.id, v.clone()))
                     .collect();
 
-            let block = llvm_fun.append_basic_block("pre");
-            let first_builder = Builder::create();
+            let block = self.context.append_basic_block(llvm_fun, "pre");
+            let first_builder = self.context.create_builder();
             first_builder.position_at_end(&block);
 
             for (id, var) in variables {
@@ -555,10 +560,10 @@ impl Translator {
                 self.variables.insert(*id, ptrs);
             }
 
-            let start_block = llvm_fun.append_basic_block("start");
+            let start_block = self.context.append_basic_block(llvm_fun, "start");
             first_builder.build_unconditional_branch(&start_block);
 
-            let start_builder = Builder::create();
+            let start_builder = self.context.create_builder();
             start_builder.position_at_end(&start_block);
 
             let ret = self.translate_block(&start_builder, &definition)?;
@@ -572,9 +577,9 @@ impl Translator {
 
     fn translate_block(
         &mut self,
-        builder: &Builder,
+        builder: &Builder<'ctx>,
         block: &AstBlock,
-    ) -> PResult<Vec<BasicValueEnum>> {
+    ) -> PResult<Vec<BasicValueEnum<'ctx>>> {
         for s in &block.statements {
             self.translate_statement(&builder, s)?;
         }
@@ -582,7 +587,11 @@ impl Translator {
         self.translate_expression(&builder, &block.expression)
     }
 
-    fn translate_statement(&mut self, builder: &Builder, statement: &AstStatement) -> PResult<()> {
+    fn translate_statement(
+        &mut self,
+        builder: &Builder<'ctx>,
+        statement: &AstStatement,
+    ) -> PResult<()> {
         match statement {
             AstStatement::Let { pattern, value } => {
                 let values = &self.translate_expression(builder, value)?;
@@ -599,10 +608,10 @@ impl Translator {
 
     fn translate_expression(
         &mut self,
-        builder: &Builder,
+        builder: &Builder<'ctx>,
         expression: &AstExpression,
-    ) -> PResult<Vec<BasicValueEnum>> {
-        let value: Vec<BasicValueEnum> = match &expression.data {
+    ) -> PResult<Vec<BasicValueEnum<'ctx>>> {
+        let value: Vec<BasicValueEnum<'ctx>> = match &expression.data {
             AstExpressionData::SelfRef
             | AstExpressionData::Unimplemented
             | AstExpressionData::ExprCall { .. }
@@ -620,14 +629,11 @@ impl Translator {
 
                 let opaque_fun_ptr = builder.build_pointer_cast(
                     fun.as_global_value().as_pointer_value(),
-                    opaque_fn_type(&self.context),
+                    self.opaque_fn_type(),
                     &temp_name(),
                 );
-                let opaque_env_ptr = builder.build_pointer_cast(
-                    env_ptr,
-                    opaque_env_type(&self.context),
-                    &temp_name(),
-                );
+                let opaque_env_ptr =
+                    builder.build_pointer_cast(env_ptr, self.opaque_env_type(), &temp_name());
 
                 vec![
                     opaque_fun_ptr.into(),
@@ -767,13 +773,16 @@ impl Translator {
                 tup
             },
 
-            AstExpressionData::ArrayLiteral { elements } => {
+            AstExpressionData::ArrayLiteral {
+                elements: element_exprs,
+            } => {
                 let element_ast_ty =
                     AstType::get_element(&expression.ty).with_context(expression.span)?;
-                let elements: Vec<Vec<BasicValueEnum>> = elements
-                    .iter()
-                    .map(|e| self.translate_expression(builder, e))
-                    .collect::<PResult<_>>()?;
+
+                let mut elements = Vec::new();
+                for expr in element_exprs {
+                    elements.push(self.translate_expression(builder, expr)?);
+                }
 
                 // Allocating the array.
                 let element_ty = self.get_llvm_ty(&element_ast_ty)?;
@@ -822,16 +831,17 @@ impl Translator {
             AstExpressionData::FnCall {
                 fn_name,
                 generics,
-                args,
+                args: args_exprs,
             } => {
                 let name = decorate_fn(fn_name, generics)?;
                 let fun = self.module.get_function(&name).unwrap();
 
-                let arg_tys: Vec<_> = args.iter().map(|e| e.ty.clone()).collect();
-                let args: Vec<Vec<BasicValueEnum>> = args
-                    .iter()
-                    .map(|e| self.translate_expression(builder, e))
-                    .collect::<PResult<_>>()?;
+                let mut arg_tys = Vec::new();
+                let mut args = Vec::new();
+                for expr in args_exprs {
+                    args.push(self.translate_expression(builder, expr)?);
+                    arg_tys.push(expr.ty.clone());
+                }
 
                 // I need to bundle AFTER all of the expressions have been evaluated.
                 // We never want to be holding a bundled value through a possibly GC'able call.
@@ -850,7 +860,7 @@ impl Translator {
                 call_type,
                 fn_name,
                 fn_generics,
-                args,
+                args: args_exprs,
                 associated_trait,
                 ..
             } => {
@@ -862,11 +872,12 @@ impl Translator {
                 )?;
                 let fun = self.module.get_function(&name).unwrap();
 
-                let arg_tys: Vec<_> = args.iter().map(|e| e.ty.clone()).collect();
-                let args: Vec<Vec<BasicValueEnum>> = args
-                    .iter()
-                    .map(|e| self.translate_expression(builder, e))
-                    .collect::<PResult<_>>()?;
+                let mut arg_tys = Vec::new();
+                let mut args = Vec::new();
+                for expr in args_exprs {
+                    args.push(self.translate_expression(builder, expr)?);
+                    arg_tys.push(expr.ty.clone());
+                }
 
                 // I need to bundle AFTER all of the expressions have been evaluated.
                 // We never want to be holding a bundled value through a possibly GC'able call.
@@ -1121,12 +1132,12 @@ impl Translator {
 
     fn translate_instruction(
         &mut self,
-        builder: &Builder,
+        builder: &Builder<'ctx>,
         instruction: &str,
         arguments: &[InstructionArgument],
         output: &InstructionOutput,
-    ) -> PResult<Vec<BasicValueEnum>> {
-        let output_value: BasicValueEnum = match (instruction, arguments) {
+    ) -> PResult<Vec<BasicValueEnum<'ctx>>> {
+        let output_value: BasicValueEnum<'ctx> = match (instruction, arguments) {
             ("sext", [a, InstructionArgument::Type(ty)]) => {
                 let a = self
                     .translate_instruction_argument(builder, a)?
@@ -1380,6 +1391,12 @@ impl Translator {
                 let id = self.type_ids[&ty];
                 self.context.i16_type().const_int(id as u64, false).into()
             },
+            ("ch_typestring", [InstructionArgument::Type(ty)]) => {
+                let string = format!("{}", ty);
+                let vals = self.translate_literal(builder, &AstLiteral::String(string))?;
+                assert_eq!(vals.len(), 1);
+                vals[0]
+            },
             ("ch_undefined", [InstructionArgument::Type(ty)]) =>
                 type_undefined(self.get_llvm_ty(ty)?)?,
             ("ch_zeroed", [InstructionArgument::Type(ty)]) => type_zero(self.get_llvm_ty(ty)?)?,
@@ -1420,9 +1437,9 @@ impl Translator {
 
     fn translate_instruction_argument(
         &mut self,
-        builder: &Builder,
+        builder: &Builder<'ctx>,
         arg: &InstructionArgument,
-    ) -> PResult<BasicValueEnum> {
+    ) -> PResult<BasicValueEnum<'ctx>> {
         match arg {
             InstructionArgument::Anonymous(input_name) => Ok(self.instruction_values[input_name]),
             InstructionArgument::Expression(e) => {
@@ -1436,19 +1453,23 @@ impl Translator {
 
     fn translate_instruction_arguments(
         &mut self,
-        builder: &Builder,
-        arg: &[InstructionArgument],
-    ) -> PResult<Vec<BasicValueEnum>> {
-        arg.iter()
-            .map(|arg| self.translate_instruction_argument(builder, arg))
-            .collect::<PResult<Vec<_>>>()
+        builder: &Builder<'ctx>,
+        args: &[InstructionArgument],
+    ) -> PResult<Vec<BasicValueEnum<'ctx>>> {
+        let mut values = Vec::new();
+
+        for arg in args {
+            values.push(self.translate_instruction_argument(builder, arg)?);
+        }
+
+        Ok(values)
     }
 
     fn translate_instruction_arguments_to_ints(
         &mut self,
-        builder: &Builder,
+        builder: &Builder<'ctx>,
         args: &[InstructionArgument],
-    ) -> PResult<Vec<IntValue>> {
+    ) -> PResult<Vec<IntValue<'ctx>>> {
         let mut output = Vec::new();
 
         for arg in args {
@@ -1481,8 +1502,8 @@ impl Translator {
     fn translate_instruction_callsite(
         &self,
         output: &InstructionOutput,
-        callsite: CallSiteValue,
-    ) -> PResult<BasicValueEnum> {
+        callsite: CallSiteValue<'ctx>,
+    ) -> PResult<BasicValueEnum<'ctx>> {
         match output {
             InstructionOutput::Type(AstType::Tuple { types }) if types.is_empty() =>
                 type_undefined(self.context.struct_type(&[], false).into()),
@@ -1492,15 +1513,15 @@ impl Translator {
 
     fn translate_literal(
         &mut self,
-        builder: &Builder,
+        builder: &Builder<'ctx>,
         lit: &AstLiteral,
-    ) -> PResult<Vec<BasicValueEnum>> {
+    ) -> PResult<Vec<BasicValueEnum<'ctx>>> {
         let vals = match lit {
             AstLiteral::True => vec![self.context.bool_type().const_int(1, false).into()],
             AstLiteral::False => vec![self.context.bool_type().const_int(0, false).into()],
 
             AstLiteral::String(string) => {
-                let string_const = self.context.const_string(&string, false);
+                let string_const = self.context.const_string(string.as_bytes(), false);
                 let string_global =
                     self.module
                         .add_global(string_const.get_type(), None, &temp_name());
@@ -1549,9 +1570,9 @@ impl Translator {
 
     fn translate_pattern(
         &mut self,
-        builder: &Builder,
+        builder: &Builder<'ctx>,
         pattern: &AstMatchPattern,
-        values: &[BasicValueEnum],
+        values: &[BasicValueEnum<'ctx>],
         bail_block: Option<&BasicBlock>,
     ) -> PResult<()> {
         match &pattern.data {
@@ -1667,7 +1688,7 @@ impl Translator {
                         )
                     },
                     AstLiteral::String(string) => {
-                        let string_const = self.context.const_string(&string, false);
+                        let string_const = self.context.const_string(string.as_bytes(), false);
                         let string_global =
                             self.module
                                 .add_global(string_const.get_type(), None, &temp_name());
@@ -1706,9 +1727,9 @@ impl Translator {
 
     fn translate_expression_lval(
         &mut self,
-        builder: &Builder,
+        builder: &Builder<'ctx>,
         expression: &AstExpression,
-    ) -> PResult<Vec<PointerValue>> {
+    ) -> PResult<Vec<PointerValue<'ctx>>> {
         match &expression.data {
             AstExpressionData::Identifier { variable_id, .. } => {
                 let variable_id = &variable_id.unwrap();
@@ -1750,7 +1771,7 @@ impl Translator {
     fn translate_closure_capture_environment(
         &mut self,
         c: &AstExpressionData,
-    ) -> PResult<TrClosureCaptureEnvironment> {
+    ) -> PResult<TrClosureCaptureEnvironment<'ctx>> {
         if let AstExpressionData::Closure {
             captured: Some(captured),
             ..
@@ -1786,9 +1807,9 @@ impl Translator {
 
     fn translate_closure_body(
         &mut self,
-        env: &TrClosureCaptureEnvironment,
+        env: &TrClosureCaptureEnvironment<'ctx>,
         c: &AstExpressionData,
-    ) -> PResult<FunctionValue> {
+    ) -> PResult<FunctionValue<'ctx>> {
         if let AstExpressionData::Closure {
             params,
             expr,
@@ -1804,15 +1825,15 @@ impl Translator {
                 .iter()
                 .map(|p| self.get_llvm_ty(&p.ty))
                 .collect::<PResult<_>>()?;
-            param_tys.insert(0, opaque_env_type(&self.context).into());
+            param_tys.insert(0, self.opaque_env_type().into());
 
             let llvm_fun =
                 self.module
                     .add_function(&temp_name(), fun_type(return_ty, &param_tys), None);
             set_cheshire_fn_attributes(&self.context, llvm_fun);
 
-            let block = llvm_fun.append_basic_block("pre");
-            let first_builder = Builder::create();
+            let block = self.context.append_basic_block(llvm_fun, "pre");
+            let first_builder = self.context.create_builder();
             first_builder.position_at_end(&block);
 
             let capture_values = if captured.is_empty() {
@@ -1853,10 +1874,10 @@ impl Translator {
                 self.translate_pattern(&first_builder, pattern, &vals, None)?;
             }
 
-            let start_block = llvm_fun.append_basic_block("start");
+            let start_block = self.context.append_basic_block(llvm_fun, "start");
             first_builder.build_unconditional_branch(&start_block);
 
-            let start_builder = Builder::create();
+            let start_builder = self.context.create_builder();
             start_builder.position_at_end(&start_block);
 
             let ret = self.translate_expression(&start_builder, &expr)?;
@@ -1872,10 +1893,10 @@ impl Translator {
 
     fn translate_closure_construction(
         &self,
-        builder: &Builder,
-        env: &TrClosureCaptureEnvironment,
+        builder: &Builder<'ctx>,
+        env: &TrClosureCaptureEnvironment<'ctx>,
         c: &AstExpressionData,
-    ) -> PResult<PointerValue> {
+    ) -> PResult<PointerValue<'ctx>> {
         if let AstExpressionData::Closure {
             captured: Some(captured),
             ..
@@ -1968,12 +1989,18 @@ impl Translator {
             false,
         );
 
+        let gc_visit_closure_env = self.add_void_function(
+            "gc_visit_closure_env",
+            &[callback_value_type.into(), gc_callback_type.into()],
+            false,
+        );
+
         let ptr_param = gc_visit.get_params()[0].into_pointer_value();
         let id_param = gc_visit.get_params()[1].into_int_value();
         let callback_param = gc_visit.get_params()[2].into_pointer_value();
 
-        let block = gc_visit.append_basic_block("first");
-        let builder = Builder::create();
+        let block = self.context.append_basic_block(gc_visit, "first");
+        let builder = self.context.create_builder();
         builder.position_at_end(&block);
 
         let (end_block, end_builder) = self.get_new_block(&builder)?;
@@ -1989,9 +2016,20 @@ impl Translator {
                 | AstType::Float
                 | AstType::Char
                 | AstType::Bool
-                | AstType::FnPointerType { .. }
-                | AstType::ClosureEnvType => {
+                | AstType::FnPointerType { .. } => {
                     // Do nothing.
+                },
+
+                AstType::ClosureEnvType => {
+                    // Change the i8* into an array addrspace(1)**
+                    let closure_env_ptr =
+                        builder.build_pointer_cast(ptr_param, callback_value_type, &temp_name());
+
+                    builder.build_call(
+                        gc_visit_closure_env,
+                        &[closure_env_ptr.into(), callback_param.into()],
+                        &temp_name(),
+                    );
                 },
 
                 AstType::String => {
@@ -2230,17 +2268,17 @@ impl Translator {
         Ok(())
     }
 
-    fn get_new_block(&self, builder: &Builder) -> PResult<(BasicBlock, Builder)> {
+    fn get_new_block(&self, builder: &Builder<'ctx>) -> PResult<(BasicBlock, Builder<'ctx>)> {
         let b = builder.get_insert_block().unwrap();
         let p = b.get_parent().unwrap();
 
-        let block = p.append_basic_block(&temp_name());
-        let builder = Builder::create();
+        let block = self.context.append_basic_block(p, &temp_name());
+        let builder = self.context.create_builder();
         builder.position_at_end(&block);
         Ok((block, builder))
     }
 
-    fn get_llvm_ty(&self, t: &AstType) -> PResult<BasicTypeEnum> {
+    fn get_llvm_ty(&self, t: &AstType) -> PResult<BasicTypeEnum<'ctx>> {
         let ty = match t {
             AstType::Int => self.context.i64_type().into(),
             AstType::Float => self.context.f64_type().into(),
@@ -2303,15 +2341,15 @@ impl Translator {
                 .context
                 .struct_type(
                     &[
-                        opaque_fn_type(&self.context).into(),
+                        self.opaque_fn_type().into(),
                         self.context.i64_type().into(),
-                        opaque_env_type(&self.context).into(),
+                        self.opaque_env_type().into(),
                     ],
                     false,
                 )
                 .into(),
 
-            AstType::ClosureEnvType => opaque_env_type(&self.context).into(),
+            AstType::ClosureEnvType => self.opaque_env_type().into(),
 
             _ => unreachable!(),
         };
@@ -2321,10 +2359,10 @@ impl Translator {
 
     fn bundle_vals(
         &self,
-        builder: &Builder,
-        vals: &[BasicValueEnum],
+        builder: &Builder<'ctx>,
+        vals: &[BasicValueEnum<'ctx>],
         t: &AstType,
-    ) -> PResult<BasicValueEnum> {
+    ) -> PResult<BasicValueEnum<'ctx>> {
         match t {
             AstType::Tuple { types } => {
                 let mut consumed = 0;
@@ -2380,10 +2418,10 @@ impl Translator {
 
     fn flatten_val(
         &self,
-        builder: &Builder,
-        v: BasicValueEnum,
+        builder: &Builder<'ctx>,
+        v: BasicValueEnum<'ctx>,
         t: &AstType,
-    ) -> PResult<Vec<BasicValueEnum>> {
+    ) -> PResult<Vec<BasicValueEnum<'ctx>>> {
         match t {
             AstType::Tuple { types } => {
                 let mut ret = Vec::new();
@@ -2430,10 +2468,10 @@ impl Translator {
 
     fn flatten_ptr(
         &self,
-        builder: &Builder,
-        v: PointerValue,
+        builder: &Builder<'ctx>,
+        v: PointerValue<'ctx>,
         t: &AstType,
-    ) -> PResult<Vec<PointerValue>> {
+    ) -> PResult<Vec<PointerValue<'ctx>>> {
         match t {
             AstType::Tuple { types } => {
                 let mut ret = Vec::new();
@@ -2474,10 +2512,10 @@ impl Translator {
 
     fn flatten_alloca(
         &self,
-        builder: &Builder,
-        v: BasicValueEnum,
+        builder: &Builder<'ctx>,
+        v: BasicValueEnum<'ctx>,
         t: &AstType,
-    ) -> PResult<Vec<PointerValue>> {
+    ) -> PResult<Vec<PointerValue<'ctx>>> {
         match t {
             AstType::Tuple { types } => {
                 let mut ret = Vec::new();
@@ -2510,9 +2548,9 @@ impl Translator {
                 let mut ret = vec![];
 
                 for e in vec![
-                    opaque_fn_type(&self.context).into(),
+                    self.opaque_fn_type().into(),
                     self.context.i64_type().into(),
-                    opaque_env_type(&self.context).into(),
+                    self.opaque_env_type().into(),
                 ]
                 .iter()
                 .enumerate()
@@ -2538,7 +2576,7 @@ impl Translator {
         }
     }
 
-    fn flatten_globals(&self, t: &AstType) -> PResult<Vec<GlobalValue>> {
+    fn flatten_globals(&self, t: &AstType) -> PResult<Vec<GlobalValue<'ctx>>> {
         match t {
             AstType::Tuple { types } => {
                 let mut ret = Vec::new();
@@ -2565,9 +2603,9 @@ impl Translator {
                 let mut ret = vec![];
 
                 for ty in vec![
-                    opaque_fn_type(&self.context).into(),
+                    self.opaque_fn_type().into(),
                     self.context.i64_type().into(),
-                    opaque_env_type(&self.context).into(),
+                    self.opaque_env_type().into(),
                 ] {
                     let ptr = self.module.add_global(ty, None, &temp_name());
                     ptr.set_initializer(&type_undefined(ty)?);
@@ -2612,6 +2650,34 @@ impl Translator {
             _ => 1usize,
         }
     }
+
+    pub fn opaque_fn_type(&self) -> PointerType<'ctx> {
+        self.context
+            .struct_type(&[], false)
+            .fn_type(&[], false)
+            .ptr_type(GLOBAL)
+    }
+
+    pub fn opaque_env_type(&self) -> PointerType<'ctx> {
+        self.context.struct_type(&[], false).ptr_type(GC)
+    }
+}
+
+pub fn unpack_capture_values<'ctx>(
+    env: &TrClosureCaptureEnvironment<'ctx>,
+    builder: &Builder<'ctx>,
+    env_struct: StructValue<'ctx>,
+) -> PResult<HashMap<VariableId, BasicValueEnum<'ctx>>> {
+    let mut values = HashMap::new();
+
+    for (id, idx) in &env.indices {
+        let v = builder
+            .build_extract_value(env_struct, *idx as u32, &temp_name())
+            .unwrap();
+        values.insert(*id, v);
+    }
+
+    Ok(values)
 }
 
 fn set_all_fn_attributes(context: &Context, fun: FunctionValue) {
@@ -2633,25 +2699,105 @@ fn set_cheshire_fn_attributes(context: &Context, fun: FunctionValue) {
     );
 }
 
-pub fn unpack_capture_values(
-    env: &TrClosureCaptureEnvironment,
-    builder: &Builder,
-    env_struct: StructValue,
-) -> PResult<HashMap<VariableId, BasicValueEnum>> {
-    let mut values = HashMap::new();
-
-    for (id, idx) in &env.indices {
-        let v = builder
-            .build_extract_value(env_struct, *idx as u32, &temp_name())
-            .unwrap();
-        values.insert(*id, v);
+pub fn fun_type<'ctx>(t: BasicTypeEnum<'ctx>, p: &[BasicTypeEnum<'ctx>]) -> FunctionType<'ctx> {
+    match t {
+        BasicTypeEnum::StructType(t) => t.fn_type(p, false),
+        BasicTypeEnum::ArrayType(t) => t.fn_type(p, false),
+        BasicTypeEnum::IntType(t) => t.fn_type(p, false),
+        BasicTypeEnum::FloatType(t) => t.fn_type(p, false),
+        BasicTypeEnum::PointerType(t) => t.fn_type(p, false),
+        BasicTypeEnum::VectorType(t) => t.fn_type(p, false),
     }
+}
 
-    Ok(values)
+pub fn array_type(t: BasicTypeEnum) -> BasicTypeEnum {
+    match t {
+        BasicTypeEnum::StructType(t) => t.array_type(0),
+        BasicTypeEnum::ArrayType(t) => t.array_type(0),
+        BasicTypeEnum::IntType(t) => t.array_type(0),
+        BasicTypeEnum::FloatType(t) => t.array_type(0),
+        BasicTypeEnum::PointerType(t) => t.array_type(0),
+        BasicTypeEnum::VectorType(t) => t.array_type(0),
+    }
+    .into()
+}
+
+pub fn ptr_type(t: BasicTypeEnum, a: AddressSpace) -> BasicTypeEnum {
+    match t {
+        BasicTypeEnum::StructType(t) => t.ptr_type(a),
+        BasicTypeEnum::ArrayType(t) => t.ptr_type(a),
+        BasicTypeEnum::IntType(t) => t.ptr_type(a),
+        BasicTypeEnum::FloatType(t) => t.ptr_type(a),
+        BasicTypeEnum::PointerType(t) => t.ptr_type(a),
+        BasicTypeEnum::VectorType(t) => t.ptr_type(a),
+    }
+    .into()
+}
+
+pub fn type_zero(t: BasicTypeEnum) -> PResult<BasicValueEnum> {
+    let ty: BasicValueEnum = match t {
+        BasicTypeEnum::StructType(t) => t.const_zero().into(),
+        BasicTypeEnum::ArrayType(t) => t.const_zero().into(),
+        BasicTypeEnum::IntType(t) => t.const_zero().into(),
+        BasicTypeEnum::FloatType(t) => t.const_zero().into(),
+        BasicTypeEnum::PointerType(t) => t.const_zero().into(),
+        BasicTypeEnum::VectorType(t) => t.const_zero().into(),
+    };
+
+    Ok(ty)
+}
+
+pub fn type_undefined(t: BasicTypeEnum) -> PResult<BasicValueEnum> {
+    let ty: BasicValueEnum = match t {
+        BasicTypeEnum::StructType(t) => t.get_undef().into(),
+        BasicTypeEnum::ArrayType(t) => t.get_undef().into(),
+        BasicTypeEnum::IntType(t) => t.get_undef().into(),
+        BasicTypeEnum::FloatType(t) => t.get_undef().into(),
+        BasicTypeEnum::PointerType(t) => t.get_undef().into(),
+        BasicTypeEnum::VectorType(t) => t.get_undef().into(),
+    };
+
+    Ok(ty)
+}
+
+pub fn type_size(t: BasicTypeEnum) -> PResult<IntValue> {
+    let ty = match t {
+        BasicTypeEnum::StructType(t) => t.size_of().unwrap(),
+        BasicTypeEnum::ArrayType(t) => t.size_of().unwrap(),
+        BasicTypeEnum::IntType(t) => t.size_of(),
+        BasicTypeEnum::FloatType(t) => t.size_of(),
+        BasicTypeEnum::PointerType(t) => t.size_of(),
+        BasicTypeEnum::VectorType(t) => t.size_of().unwrap(),
+    };
+
+    Ok(ty)
+}
+
+pub fn unwrap_callsite(callsite: CallSiteValue) -> BasicValueEnum {
+    match callsite.try_as_basic_value() {
+        Either::Left(x) => x,
+        Either::Right(_) => unreachable!(),
+    }
+}
+
+#[derive(PartialEq, Eq, Clone)]
+pub struct TrClosureCaptureEnvironment<'ctx> {
+    pub id: usize,
+    pub captured: Vec<VariableId>,
+    pub indices: HashMap<VariableId, usize>,
+    pub ast_tys: HashMap<VariableId, AstType>,
+    pub tys: HashMap<VariableId, BasicTypeEnum<'ctx>>,
+}
+
+impl<'ctx> TrClosureCaptureEnvironment<'ctx> {
+    pub fn as_struct_pointer_type(&self, context: &'ctx Context) -> PointerType<'ctx> {
+        let field_types: Vec<_> = self.captured.iter().map(|id| self.tys[id]).collect();
+        context.struct_type(&field_types, false).ptr_type(GC)
+    }
 }
 
 lazy_static! {
-    static ref TEMP_NAME_COUNTER: RwLock<usize> = RwLock::new(1);
+    static ref TEMP_NAME_COUNTER: RwLock<usize> = RwLock::new(2); // String = 0, ClosureEnv = 1
     static ref TYPE_ID_COUNTER: RwLock<usize> = RwLock::new(0);
 }
 

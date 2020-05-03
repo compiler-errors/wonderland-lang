@@ -1595,11 +1595,16 @@ impl Parser {
                     self.expect_consume(Token::Comma)?;
                 }
 
+                let name_span = self.next_span;
                 let name = self.expect_consume_identifier()?;
 
-                self.expect_consume_colon()?;
-                let child = self.parse_expression()?;
-                children.insert(name, child);
+                if self.check_consume_colon()? {
+                    let child = self.parse_expression()?;
+                    children.insert(name, child);
+                } else {
+                    children.insert(name.clone(), AstExpression::identifier(name_span, name));
+                }
+
                 span = span.unite(self.next_span);
             }
 

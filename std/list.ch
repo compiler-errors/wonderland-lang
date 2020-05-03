@@ -228,29 +228,37 @@ impl<_T> Iterable for List<_T> {
   type Iterator = ListIterator<_T>.
   type Item = _T.
 
-  fn iterator(self) -> ListIterator<_T> =
-    allocate ListIterator { current: self:root, size: self:size }.
+  fn iterator(self) -> ListIterator<_T> = ListIterator!Iterator { link: self:root, size: self:size }.
 }
 
-object ListIterator<_T> {
-  current: Option<Link<_T>>.
-  size: Int.
+enum ListIterator<_T> {
+  Iterator {
+    link: Option<Link<_T>>,
+    size: Int
+  }.
 }
 
 impl<_T> Iterator for ListIterator<_T> {
   type Item = _T.
 
-  fn next(self) -> _T {
-    let current = self:current:unwrap().
-    let e = current:item.
+  fn next(self) -> (Option<_T>, ListIterator<_T>) {
+    let ListIterator!Iterator { link, size } = self.
 
-    self:current = current:next.
-    self:size = self:size - 1.
-    e
+    match link {
+      Option!Some(link) => (Option!Some(link:item), ListIterator!Iterator { link: link:next, size: size - 1 }),
+      Option!None => (Option!None, self),
+    }
   }
 
-  fn has_next(self) -> Bool = self:current:is_some().
-  fn size_hint(self) -> Int = self:size.
+  fn has_next(self) -> Bool {
+      let ListIterator!Iterator { link, ... } = self.
+      link:is_some()
+  }
+
+  fn size_hint(self) -> Int {
+      let ListIterator!Iterator { size, ... } = self.
+      size
+  }
 }
 
 impl<_T> Into<String> for List<_T> where _T: Into<String> {

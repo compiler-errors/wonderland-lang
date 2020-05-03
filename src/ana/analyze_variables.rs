@@ -34,13 +34,7 @@ impl AnalyzeVariables {
      ** scope and into the `variables` map.
      **/
     fn assign_index(&mut self, a: &AstNamedVariable) -> PResult<()> {
-        let AstNamedVariable { span, name, id, .. } = a;
-
-        if let Some(other_id) = self.scope.get_top(name) {
-            if *id != other_id {
-                return perror_at!(*span, "Duplicate variable with name `{}`", name);
-            }
-        }
+        let AstNamedVariable { name, id, .. } = a;
 
         self.all_variables.add(*id, a.clone());
         self.scope.add(name.clone(), *id);

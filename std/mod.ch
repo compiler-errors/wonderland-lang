@@ -23,6 +23,10 @@ fn panic<_T>(s: String) -> _T {
   exit:<_T>(-1)
 }
 
+fn type_string<_T>() -> String {
+  instruction "ch_typestring"(:_T) -> String
+}
+
 fn exit<_T>(i: Int) -> _T {
     instruction "call" ("exit", i) -> ().
     instruction "ch_undefined" (:_T) -> _T

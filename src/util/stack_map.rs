@@ -37,14 +37,6 @@ impl<K: Eq + Hash + Debug + Clone, V: Clone + Debug> StackMap<K, V> {
         None
     }
 
-    pub fn get_top<Q: ?Sized + Hash>(&self, key: &Q) -> Option<V>
-    where
-        K: Borrow<Q>,
-        Q: Hash + Eq,
-    {
-        self.stack.last().unwrap().get(key).cloned()
-    }
-
     pub fn add(&mut self, key: K, value: V) {
         let map = self.stack.last_mut().unwrap();
         map.insert(key, value);

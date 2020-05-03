@@ -194,7 +194,9 @@ impl InstantiationAdapter {
         let o = self
             .process_simple(self.enums[name].clone(), ids, generics)
             .with_comment(|| format!("In enum `{}`", name.full_name()))?;
-        let r = self.solve_enum_representation(o);
+
+        let mut r = self.solve_enum_representation(o);
+        r.fields = r.fields.visit(self)?;
 
         self.instantiated_enums.insert(sig, Some(r));
 
@@ -306,7 +308,7 @@ impl InstantiationAdapter {
         let mut instantiate = GenericsAdapter::new(ids, tys);
         let t = t.visit(&mut instantiate)?;
 
-        Ok(typecheck_simple(&self.base_solver, t)?.visit(self)?)
+        typecheck_simple(&self.base_solver, t)?.visit(self)
     }
 
     fn solve_enum_representation(&self, e: AstEnum) -> InstEnumRepresentation {
@@ -381,6 +383,11 @@ impl InstantiationAdapter {
                     .fields
                     .clone()
             },
+            AstType::ClosureType { .. } => vec![
+                AstType::fn_ptr_type(vec![], AstType::none()),
+                AstType::Int,
+                AstType::ClosureEnvType,
+            ],
             t => vec![t],
         }
     }

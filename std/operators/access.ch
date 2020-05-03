@@ -11,7 +11,7 @@ impl<_T> Deref for [_T] {
 
   fn deref(self, idx: Int) -> _T {
       if idx >= self:len() {
-          panic:<()>("Index out of bounds!").
+          panic:<()>("Index out of bounds for \(type_string:<Self>())... length = \(self:len()), index = \(idx).").
       }
 
       instruction "getelementptr" (self, 0, 2, idx) -> $ptr.
@@ -45,7 +45,7 @@ impl<_T> DerefAssign for [_T] {
 
   fn deref_assign(self, idx: Int, value: _T) -> _T {
       if idx >= self:len() {
-          panic:<()>("Index out of bounds!").
+          panic:<()>("Index out of bounds for String... length = \(self:len()), index = \(idx).").
       }
 
       instruction "getelementptr" (self, 0, 2, idx) -> $ptr.

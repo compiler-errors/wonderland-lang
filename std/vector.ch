@@ -71,34 +71,40 @@ impl<_T> Iterable for Vector<_T> {
   type Item = _T.
 
   fn iterator(self) -> VectorIterator<_T> {
-      allocate VectorIterator<_T> { array: self, idx: 0 }
+      VectorIterator!Iterator { vector: self, idx: 0 }
   }
 }
 
-object VectorIterator<_T> {
-  array: Vector<_T>.
-  idx: Int.
+enum VectorIterator<_T> {
+  Iterator {
+    vector: Vector<_T>,
+    idx: Int
+  }.
 }
 
 impl<_T> Iterator for VectorIterator<_T> {
   type Item = _T.
 
-  fn next(self) -> _T {
-      let e = self:array[self:idx].
+  fn next(self) -> (Option<_T>, VectorIterator<_T>) {
+      let VectorIterator!Iterator { vector, idx } = self.
 
-      if self:idx < self:array:len() {
-          self:idx = self:idx + 1.
+      if idx >= vector:size {
+        (Option!None, VectorIterator!Iterator { vector, idx })
+      } else {
+        (Option!Some(vector:array[idx]), VectorIterator!Iterator { vector, idx: idx + 1 })
       }
-
-      e
   }
 
   fn has_next(self) -> Bool {
-      self:idx < self:array:len()
+    let VectorIterator!Iterator { vector, idx } = self.
+
+    idx < vector:size
   }
 
   fn size_hint(self) -> Int {
-      self:array:len() - self:idx
+    let VectorIterator!Iterator { vector, idx } = self.
+
+    vector:size - idx
   }
 }
 

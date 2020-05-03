@@ -14,7 +14,13 @@
 #define i8 uint8_t
 #define i1 bool
 
-#define DEBUG_PRINTF(...) if (false) { fprintf(stderr, " > " __VA_ARGS__); }
+#define DEBUG
+
+#ifdef DEBUG
+#define DEBUG_PRINTF(...) if (true) { fprintf(stderr, " > " __VA_ARGS__); }
+#else
+#define DEBUG_PRINTF(...) {}
+#endif
 
 #define PANIC(...) { printf(" PANIC: " __VA_ARGS__); exit(-1); }
 #define NOINLINE __attribute__((noinline))
