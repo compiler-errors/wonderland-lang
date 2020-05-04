@@ -5,9 +5,25 @@ use pub mod::vector::*.
 use pub mod::list::*.
 use pub mod::hash_map::*.
 
-export fn gc().
+export fn gc_llvm().
 
-export fn print(s: String).
+export fn print_llvm(s: String).
+
+fn gc() {
+  impl "llvm" {
+    gc_llvm().
+  } else impl "looking_glass" {
+    instruction "gc" () -> ().
+  }
+}
+
+fn print(s: String) {
+  impl "llvm" {
+    print_llvm(s).
+  } else impl "looking_glass" {
+    instruction "print" (s) -> ().
+  }
+}
 
 fn println(s: String) {
   print(s + "\n").
@@ -28,6 +44,10 @@ fn type_string<_T>() -> String {
 }
 
 fn exit<_T>(i: Int) -> _T {
-    instruction "call" ("exit", i) -> ().
-    instruction "ch_undefined" (:_T) -> _T
+    impl "llvm" {
+      instruction "call" ("exit", i) -> ().
+      instruction "ch_undefined" (:_T) -> _T
+    } else impl "looking_glass" {
+      instruction "exit" (i) -> _T
+    }
 }

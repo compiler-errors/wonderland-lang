@@ -23,7 +23,11 @@ impl Add<String> for String {
   type Result = String.
 
   fn add(self, other: String) -> String {
-      add_string_internal(self, other)
+      impl "llvm" {
+        add_string_internal(self, other)
+      } else impl "looking_glass" {
+        instruction "add_string" (self, other) -> String
+      }
   }
 }
 
@@ -52,8 +56,12 @@ impl Subtract<Char> for Char {
   type Result = Int.
 
   fn sub(self, other: Char) -> Int {
-      instruction "sub" (self, other) -> $tmp.
-      instruction "sext" ($tmp, :Int) -> Int
+      impl "llvm" {
+        instruction "sub" (self, other) -> $tmp.
+        instruction "sext" ($tmp, :Int) -> Int
+      } else impl "looking_glass" {
+        instruction "csub" (self, other) -> Int
+      }
   }
 }
 

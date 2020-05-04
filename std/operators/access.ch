@@ -14,8 +14,12 @@ impl<_T> Deref for [_T] {
           panic:<()>("Index out of bounds for \(type_string:<Self>())... length = \(self:len()), index = \(idx).").
       }
 
-      instruction "getelementptr" (self, 0, 2, idx) -> $ptr.
-      instruction "load" ($ptr) -> _T
+      impl "llvm" {
+        instruction "getelementptr" (self, 0, 2, idx) -> $ptr.
+        instruction "load" ($ptr) -> _T
+      } else impl "looking_glass" {
+        instruction "array_deref" (self, idx) -> _T
+      }
   }
 }
 
@@ -24,8 +28,12 @@ impl Deref for String {
   type Result = Char.
 
   fn deref(self, idx: Int) -> Char {
+    impl "llvm" {
       instruction "getelementptr" (self, 0, 1, idx) -> $ptr.
       instruction "load" ($ptr) -> Char
+    } else impl "looking_glass" {
+      instruction "string_deref" (self, idx) -> Char
+    }
   }
 }
 
@@ -48,8 +56,13 @@ impl<_T> DerefAssign for [_T] {
           panic:<()>("Index out of bounds for String... length = \(self:len()), index = \(idx).").
       }
 
-      instruction "getelementptr" (self, 0, 2, idx) -> $ptr.
-      instruction "store" ($ptr, value) -> ().
+      impl "llvm" {
+        instruction "getelementptr" (self, 0, 2, idx) -> $ptr.
+        instruction "store" ($ptr, value) -> ().
+      } else impl "looking_glass" {
+        instruction "array_store" (self, value) -> ().
+      }
+
       value
   }
 }

@@ -31,7 +31,12 @@ impl Hash for String {
     let h = 525201411107845655.
 
     for c in self {
-      let c_as_i = instruction "zext" (c, :Int) -> Int.
+      let c_as_i = impl "llvm" {
+        instruction "zext" (c, :Int) -> Int
+      } else impl "looking_glass" {
+        instruction "reinterpret" (c, :Int) -> Int
+      }.
+
       h = instruction "xor" (h, c_as_i) -> Int.
       h = h * 6616326155283851669.
       h = instruction "xor" (h, instruction "lshr" (c_as_i, 47) -> Int) -> Int.
@@ -43,7 +48,13 @@ impl Hash for String {
 
 impl Hash for Char {
   fn hash(self) -> Int {
-    (instruction "zext" (self, :Int) -> Int):hash()
+    let c_as_i = impl "llvm" {
+      instruction "zext" (self, :Int) -> Int
+    } else impl "looking_glass" {
+      instruction "reinterpret" (self, :Int) -> Int
+    }.
+    
+    c_as_i:hash()
   }
 }
 

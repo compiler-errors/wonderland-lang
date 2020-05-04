@@ -35,7 +35,11 @@ impl<_T> for Vector<_T> {
     if self:size > 0 {
       self:size = self:size - 1.
       let elem = self:array[self:size].
-      self:array[self:size] = instruction "ch_zeroed" (:_T) -> _T.
+      self:array[self:size] = impl "llvm" {
+        instruction "ch_zeroed" (:_T) -> _T
+      } else impl "looking_glass" {
+        instruction "undefined" () -> _T
+      }.
       //self:try_downsize().
       Option!Some(elem)
     } else {

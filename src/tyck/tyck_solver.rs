@@ -1608,6 +1608,11 @@ impl AstAdapter for TyckSolver {
                 self.unify(true, &ty, &AstType::none())?;
                 self.unify(true, &condition.ty, &AstType::Bool)?;
             },
+
+            AstExpressionData::ConditionalCompilation { branches } =>
+                for (_, branch) in branches {
+                    self.unify(true, &ty, &branch.expression.ty)?;
+                },
         }
 
         Ok(AstExpression { data, ty, span })

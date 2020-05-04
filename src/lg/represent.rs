@@ -80,6 +80,27 @@ impl CheshireValue {
             _ => perror!("Cannot access member (`{}`) of the type {:?}", idx, self),
         }
     }
+
+    pub fn unwrap_int(&self) -> PResult<i64> {
+        match self {
+            CheshireValue::Int(i) => Ok(*i),
+            _ => perror!("Cannot unwrap value `{:?}` as Int", self),
+        }
+    }
+
+    pub fn unwrap_float(&self) -> PResult<f64> {
+        match self {
+            CheshireValue::Float(f) => Ok(*f),
+            _ => perror!("Cannot unwrap value `{:?}` as Float", self),
+        }
+    }
+
+    pub fn unwrap_string(&self) -> PResult<String> {
+        match self {
+            CheshireValue::String(s) => Ok(s.clone()),
+            _ => perror!("Cannot unwrap value `{:?}` as String", self),
+        }
+    }
 }
 
 pub type LResult<T> = Result<T, LError>;

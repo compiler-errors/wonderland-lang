@@ -1,23 +1,35 @@
 // Transmute all basic types to string
-export fn int_into_string(i: Int) -> String.
-export fn float_into_string(f: Float) -> String.
-export fn char_into_string(c: Char) -> String.
+export fn int_into_string_llvm(i: Int) -> String.
+export fn float_into_string_llvm(f: Float) -> String.
+export fn char_into_string_llvm(c: Char) -> String.
 
 impl Into<String> for Int {
   fn into(self) -> String {
-      int_into_string(self)
+    impl "llvm" {
+      int_into_string_llvm(self)
+    } else impl "looking_glass" {
+      instruction "int_to_string" (self) -> String
+    }
   }
 }
 
 impl Into<String> for Float {
   fn into(self) -> String {
-      float_into_string(self)
+    impl "llvm" {
+      float_into_string_llvm(self)
+    } else impl "looking_glass" {
+      instruction "float_to_string" (self) -> String
+    }
   }
 }
 
 impl Into<String> for Char {
   fn into(self) -> String {
-      char_into_string(self)
+    impl "llvm" {
+      char_into_string_llvm(self)
+    } else impl "looking_glass" {
+      instruction "char_to_string" (self) -> String
+    }
   }
 }
 

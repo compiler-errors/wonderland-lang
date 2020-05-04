@@ -206,6 +206,16 @@ impl Parser {
         }
     }
 
+    fn expect_consume_string(&mut self) -> PResult<String> {
+        let tok = self.next_token.clone();
+        if let Token::String(s) = tok {
+            self.bump()?;
+            Ok(s)
+        } else {
+            perror_at!(self.next_span, "Expected token `String`, found `{}`.", tok)
+        }
+    }
+
     /// Parse a top level file.
     fn parse_module(mut self) -> PResult<AstModule> {
         self.expect_consume(Token::BOF).unwrap();
@@ -1063,6 +1073,21 @@ impl Parser {
         Ok(AstExpression::assert_statement(span, condition))
     }
 
+    fn parse_conditional_compilation(&mut self) -> PResult<AstExpression> {
+        let mut span = self.next_span;
+        let mut branches = HashMap::new();
+
+        while branches.is_empty() || self.check_consume(Token::Else)? {
+            self.expect_consume(Token::Impl)?;
+            let name = self.expect_consume_string()?;
+            let (block, block_span) = self.parse_block()?;
+            span = span.unite(block_span);
+            branches.insert(name, block);
+        }
+
+        Ok(AstExpression::conditional_compilation(span, branches))
+    }
+
     fn parse_expression(&mut self) -> PResult<AstExpression> {
         self.parse_expr(0)
     }
@@ -1306,8 +1331,10 @@ impl Parser {
             },
             Token::Return => self.parse_return_statement(),
             Token::Assert => self.parse_assert_statement(),
+            Token::Impl => self.parse_conditional_compilation(),
             _ => perror_at!(
                 self.next_span,
+                // TODO: Need to fix this to match real expectations
                 "Expected literal, identifier, `new` or `(`, found `{}`",
                 self.next_token
             ),
@@ -1985,6 +2012,13 @@ impl Parser {
                 expression:
                     AstExpression {
                         data: AstExpressionData::For { .. },
+                        ..
+                    },
+            }
+            | AstStatement::Expression {
+                expression:
+                    AstExpression {
+                        data: AstExpressionData::ConditionalCompilation { .. },
                         ..
                     },
             } => Ok(()),

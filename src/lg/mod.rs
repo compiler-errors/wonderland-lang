@@ -7,7 +7,8 @@ use crate::{
     parser::ast::{
         AstBlock, AstExpression, AstExpressionData, AstFunction, AstGlobalVariable, AstLiteral,
         AstMatchBranch, AstMatchPattern, AstMatchPatternData, AstNamedVariable, AstObject,
-        AstObjectFunction, AstStatement, ModuleRef, VariableId,
+        AstObjectFunction, AstStatement, InstructionArgument, InstructionOutput, ModuleRef,
+        VariableId,
     },
     util::{Expect, PResult, StackMap, ZipExact},
 };
@@ -375,14 +376,86 @@ impl LookingGlass {
                 return Err(LError::Return(value));
             },
 
+            AstExpressionData::ConditionalCompilation { branches } => {
+                let branch = &branches["looking_glass"];
+                self.evaluate_block(branch, scope)?
+            },
+
             AstExpressionData::Instruction {
-                instruction: _,
-                arguments: _,
-                output: _,
-            } => todo!(),
+                instruction,
+                arguments,
+                output,
+            } => self.evaluate_instruction(instruction, arguments, output, scope)?,
         };
 
         Ok(value)
+    }
+
+    fn evaluate_instruction(
+        &self,
+        instruction: &str,
+        arguments: &[InstructionArgument],
+        output: &InstructionOutput,
+        scope: &mut StackMap<VariableId, CheshireValue>,
+    ) -> LResult<CheshireValue> {
+        if let InstructionOutput::Type(_) = output {
+            let value = match (instruction, arguments) {
+                ("add", [a, b]) => CheshireValue::Int(
+                    self.evaluate_instruction_argument(a, scope)?.unwrap_int()?
+                        + self.evaluate_instruction_argument(b, scope)?.unwrap_int()?,
+                ),
+                ("add_string", [a, b]) => {
+                    let a = self
+                        .evaluate_instruction_argument(a, scope)?
+                        .unwrap_string()?;
+                    let b = self
+                        .evaluate_instruction_argument(b, scope)?
+                        .unwrap_string()?;
+
+                    CheshireValue::String(a + &b)
+                },
+                ("print", [a]) => {
+                    print!(
+                        "{}",
+                        self.evaluate_instruction_argument(a, scope)?
+                            .unwrap_string()?
+                    );
+                    CheshireValue::value_collection(vec![])
+                },
+                ("int_to_string", [a]) => CheshireValue::String(format!(
+                    "{}",
+                    self.evaluate_instruction_argument(a, scope)?.unwrap_int()?,
+                )),
+                ("char_to_string", [a]) => CheshireValue::String(format!(
+                    "{}",
+                    self.evaluate_instruction_argument(a, scope)?.unwrap_int()? as u8 as char,
+                )),
+                ("float_to_string", [a]) => CheshireValue::String(format!(
+                    "{}",
+                    self.evaluate_instruction_argument(a, scope)?
+                        .unwrap_float()?,
+                )),
+                ("ch_typestring", [InstructionArgument::Type(t)]) =>
+                    CheshireValue::String(format!("{}", t)),
+                _ => perror!("Unknown instruction `{}`", instruction)?,
+            };
+
+            Ok(value)
+        } else {
+            unreachable!("Anonymous instruction outputs not supported");
+        }
+    }
+
+    fn evaluate_instruction_argument(
+        &self,
+        arg: &InstructionArgument,
+        scope: &mut StackMap<VariableId, CheshireValue>,
+    ) -> LResult<CheshireValue> {
+        match arg {
+            InstructionArgument::Expression(expr) => self.evaluate_expression(expr, scope),
+            InstructionArgument::Type(_) => unreachable!(),
+            InstructionArgument::Anonymous(_) => unreachable!(),
+        }
     }
 
     fn assign_lval(

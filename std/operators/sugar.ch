@@ -20,10 +20,14 @@ impl<_T> AllocateArray for _T where _T: Default {
 }
 
 fn allocate_empty_array_internal<_T>(n: Int) -> [_T] {
-  let ty_size = instruction "ch_typesize" (:_T) -> Int.
-  instruction "ch_typeid" (:[_T]) -> $ty_id. // This is an i16, so let's store into an instruction value...
-  instruction "call" ("gc_alloc_array", ty_size, n, $ty_id) -> $arr.
-  instruction "pointercast" ($arr, :[_T]) -> [_T]
+  impl "llvm" {
+    let ty_size = instruction "ch_typesize" (:_T) -> Int.
+    instruction "ch_typeid" (:[_T]) -> $ty_id. // This is an i16, so let's store into an instruction value...
+    instruction "call" ("gc_alloc_array", ty_size, n, $ty_id) -> $arr.
+    instruction "pointercast" ($arr, :[_T]) -> [_T]
+  } else impl "looking_glass" {
+    instruction "allocate_array_undefined" (n) -> [_T]
+  }
 }
 
 trait Into<_T> {
@@ -35,7 +39,13 @@ impl<_T> Into<_T> for _T {
 }
 
 impl Into<Float> for Int {
-  fn into(self) -> Float = instruction "sitofp" (self) -> Float.
+  fn into(self) -> Float {
+    impl "llvm" {
+      instruction "sitofp" (self) -> Float
+    } else impl "looking_glass" {
+      instruction "int_to_float" (self) -> Float
+    }
+  }
 }
 
 fn commalipses_impl<_T>(where_at: String) -> _T {

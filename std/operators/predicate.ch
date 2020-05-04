@@ -71,11 +71,19 @@ impl<_S, _T> Equals<_T> for _S where _S: PartialCompare<_T> {
 
 impl Equals<String> for String {
   fn eq(self, other: String) -> Bool {
+    impl "llvm" {
       eq_string_internal(self, other)
+    } else impl "looking_glass" {
+      instruction "string_eq" (self, other) -> Bool
+    }
   }
 
   fn ne(self, other: String) -> Bool {
+    impl "llvm" {
       !eq_string_internal(self, other)
+    } else impl "looking_glass" {
+      !(instruction "string_eq" (self, other) -> Bool)
+    }
   }
 }
 

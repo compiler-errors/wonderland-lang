@@ -631,6 +631,9 @@ pub enum AstExpressionData {
     Assert {
         condition: SubExpression,
     },
+    ConditionalCompilation {
+        branches: HashMap<String, AstBlock>,
+    },
 }
 
 #[Adapter("crate::parser::ast_visitor::AstAdapter")]
@@ -1143,6 +1146,17 @@ impl AstExpression {
             data: AstExpressionData::Assert {
                 condition: Box::new(condition),
             },
+            ty: AstType::infer(),
+        }
+    }
+
+    pub fn conditional_compilation(
+        span: Span,
+        branches: HashMap<String, AstBlock>,
+    ) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::ConditionalCompilation { branches },
             ty: AstType::infer(),
         }
     }
