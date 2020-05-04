@@ -1,0 +1,109 @@
+use crate::{
+    parser::ast::{AstExpression, AstMatchPattern, AstNamedVariable, LoopId, ModuleRef},
+    util::{PError, PResult},
+};
+use gc::{Gc, GcCell};
+use gc_derive::*;
+
+#[derive(Clone, Debug, Trace, Finalize)]
+pub enum CheshireValue {
+    Int(i64),
+    Float(f64),
+    String(String),
+    /// Representative of tuples ("by-value" types)
+    ValueCollection {
+        // Tuples are immutable.
+        contents: Vec<CheshireValue>,
+    },
+    /// Representative of structs and arrays ("by-reference" types)
+    HeapCollection {
+        contents: Gc<GcCell<Vec<CheshireValue>>>,
+    },
+    EnumVariant {
+        variant: String,
+        contents: Vec<CheshireValue>,
+    },
+    GlobalFn(ModuleRef),
+    Closure {
+        parameters: Vec<AstMatchPattern>,
+        captured: Vec<(AstNamedVariable, AstNamedVariable)>,
+        expression: AstExpression,
+    },
+}
+
+impl CheshireValue {
+    pub fn is_true(self) -> bool {
+        match self {
+            CheshireValue::Int(0) => false,
+            CheshireValue::Int(1) => true,
+            _ => unreachable!(),
+        }
+    }
+
+    pub fn value_collection(contents: Vec<CheshireValue>) -> CheshireValue {
+        CheshireValue::ValueCollection { contents }
+    }
+
+    pub fn heap_collection(contents: Vec<CheshireValue>) -> CheshireValue {
+        CheshireValue::HeapCollection {
+            contents: Gc::new(GcCell::new(contents)),
+        }
+    }
+
+    pub fn enum_variant(variant: String, contents: Vec<CheshireValue>) -> CheshireValue {
+        CheshireValue::EnumVariant { variant, contents }
+    }
+
+    pub fn closure(
+        parameters: Vec<AstMatchPattern>,
+        captured: Vec<(AstNamedVariable, AstNamedVariable)>,
+        expression: AstExpression,
+    ) -> CheshireValue {
+        CheshireValue::Closure {
+            parameters,
+            captured,
+            expression,
+        }
+    }
+
+    pub fn get_member(&self, idx: usize) -> PResult<CheshireValue> {
+        match self {
+            CheshireValue::ValueCollection { contents } => Ok(contents[idx].clone()),
+            CheshireValue::HeapCollection { contents } => Ok(contents.borrow()[idx].clone()),
+            _ => perror!("Cannot access member (`{}`) of the type {:?}", idx, self),
+        }
+    }
+
+    pub fn get_tuple_member_mut(&mut self, idx: usize) -> PResult<&mut CheshireValue> {
+        match self {
+            CheshireValue::ValueCollection { contents } => Ok(&mut contents[idx]),
+            _ => perror!("Cannot access member (`{}`) of the type {:?}", idx, self),
+        }
+    }
+}
+
+pub type LResult<T> = Result<T, LError>;
+
+pub trait ShouldPopStack {
+    fn should_pop_stack(&self) -> bool;
+}
+
+impl<T> ShouldPopStack for LResult<T> {
+    fn should_pop_stack(&self) -> bool {
+        matches!(self, Err(LError::Return(_)) | Err(LError::Continue(_)) | Err(LError::Break(..)))
+    }
+}
+
+pub enum LError {
+    InternalException(PError),
+    Exit(i64),
+    Return(CheshireValue),
+    Break(LoopId, CheshireValue),
+    Continue(LoopId),
+}
+
+impl From<PError> for LError {
+    fn from(e: PError) -> LError {
+        LError::InternalException(e)
+    }
+}

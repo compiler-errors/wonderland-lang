@@ -1,4 +1,4 @@
-use crate::util::{FileId, FileRegistry, PResult, Span};
+use crate::util::{FileId, FileRegistry, Span};
 use std::{
     collections::{BTreeMap, HashMap},
     sync::RwLock,
@@ -16,6 +16,22 @@ pub enum ModuleRef {
     Denormalized(Vec<String>),
     Normalized(FileId, String),
 }
+
+// Ugh, I wish this were exported in the library. This is copypasta from
+// `gc::trace::..`.
+#[cfg(feature = "lg")]
+macro_rules! simple_empty_finalize_trace {
+    ($($T:ty),*) => {
+        $(
+            impl gc::Finalize for $T {}
+            unsafe impl gc::Trace for $T { gc::unsafe_empty_trace!(); }
+        )*
+    }
+}
+
+// We don't need GC on these values.
+#[cfg(feature = "lg")]
+simple_empty_finalize_trace![ModuleRef, AstMatchPattern, AstNamedVariable, AstExpression];
 
 impl ModuleRef {
     pub fn full_name(&self) -> String {
@@ -323,7 +339,8 @@ impl AstType {
         AstType::Array { ty: Box::new(ty) }
     }
 
-    pub fn get_element(ty: &AstType) -> PResult<AstType> {
+    #[cfg(feature = "tr")]
+    pub fn get_element(ty: &AstType) -> crate::util::PResult<AstType> {
         if let AstType::Array { ty } = ty {
             Ok(*ty.clone())
         } else {

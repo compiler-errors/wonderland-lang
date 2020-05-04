@@ -5,7 +5,6 @@
 #[macro_use]
 extern crate lazy_static;
 extern crate getopts;
-extern crate inkwell;
 #[macro_use]
 extern crate log;
 #[macro_use]
@@ -24,10 +23,22 @@ use crate::lexer::{Lexer, Token};
 use crate::parser::parse_program;
 
 #[cfg(feature = "tr")]
+extern crate inkwell;
+
+#[cfg(feature = "tr")]
 use crate::tr::translate;
 
 #[cfg(feature = "tyck")]
 use crate::tyck::typecheck;
+
+#[cfg(feature = "lg")]
+extern crate gc;
+
+#[cfg(feature = "lg")]
+extern crate gc_derive;
+
+#[cfg(feature = "lg")]
+use crate::lg::evaluate;
 
 use crate::util::{report_err, FileId, FileRegistry, PError, PResult};
 
@@ -64,6 +75,9 @@ mod tr;
 #[cfg(feature = "tyck")]
 mod tyck;
 
+#[cfg(feature = "lg")]
+mod lg;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Mode {
     Help,
@@ -73,6 +87,7 @@ enum Mode {
     Typecheck,
     Instantiate,
     Translate,
+    Evaluate,
 }
 
 const DEFAULT_MODE: Mode = Mode::Translate;
@@ -102,6 +117,9 @@ fn main() {
     }
     if cfg!(feature = "tr") {
         opts.optflag("c", "tr", "Compile, a.k.a. translate, file(s)");
+    }
+    if cfg!(feature = "lg") {
+        opts.optflag("e", "lgvm", "Evaluate with the Looking Glass VM");
     }
 
     opts.optflag("L", "llvm-ir", "Compile file(s) to LLVM IR");
@@ -188,6 +206,7 @@ fn select_mode(matches: &Matches) -> Result<Mode, ()> {
         ("t", Mode::Typecheck),
         ("i", Mode::Instantiate),
         ("c", Mode::Translate),
+        ("e", Mode::Evaluate),
     ];
 
     for (flag, mode) in &options {
@@ -206,10 +225,10 @@ fn select_mode(matches: &Matches) -> Result<Mode, ()> {
 fn match_mode(
     mode: Mode,
     files: Vec<FileId>,
-    llvm_ir: bool,
-    output_file: &str,
-    included_files: Vec<OsString>,
-    permanent_temp_dir: Option<&str>,
+    _llvm_ir: bool,
+    _output_file: &str,
+    _included_files: Vec<OsString>,
+    _permanent_temp_dir: Option<&str>,
 ) -> PResult<()> {
     match mode {
         #[cfg(feature = "lex")]
@@ -225,11 +244,13 @@ fn match_mode(
         #[cfg(feature = "tr")]
         Mode::Translate => try_translate(
             files,
-            llvm_ir,
-            &output_file,
-            included_files,
-            permanent_temp_dir,
+            _llvm_ir,
+            &_output_file,
+            _included_files,
+            _permanent_temp_dir,
         ),
+        #[cfg(feature = "lg")]
+        Mode::Evaluate => try_evaluate(files),
         m => help(m != Mode::Help),
     }
 }
@@ -380,6 +401,18 @@ fn try_translate(
     typecheck(&a, &p)?;
     let i = instantiate(a, p)?;
     translate(i, llvm_ir, output_file, included_files, permanent_temp_dir)?;
+
+    Ok(())
+}
+
+#[cfg(feature = "lg")]
+fn try_evaluate(files: Vec<FileId>) -> PResult<()> {
+    let program = parse_program(files)?;
+    let (a, p) = analyze(program)?;
+
+    typecheck(&a, &p)?;
+    let i = instantiate(a, p)?;
+    evaluate(i)?;
 
     Ok(())
 }

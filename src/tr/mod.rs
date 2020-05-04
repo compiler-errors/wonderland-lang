@@ -620,7 +620,12 @@ impl<'ctx> Translator<'ctx> {
             | AstExpressionData::AllocateArray { .. }
             | AstExpressionData::As { .. }
             | AstExpressionData::For { .. }
-            | AstExpressionData::Assert { .. } => unreachable!(),
+            | AstExpressionData::Assert { .. }
+            | AstExpressionData::ArrayAccess { .. }
+            | AstExpressionData::ObjectCall { .. }
+            | AstExpressionData::Not(_expr)
+            | AstExpressionData::Negate(_expr)
+            | AstExpressionData::BinOp { .. } => unreachable!(),
 
             c @ AstExpressionData::Closure { .. } => {
                 let env = self.translate_closure_capture_environment(c)?;
@@ -762,8 +767,6 @@ impl<'ctx> Translator<'ctx> {
                 .map(|e| builder.build_load(*e, &temp_name()))
                 .collect(),
 
-            AstExpressionData::ArrayAccess { .. } => unreachable!(),
-
             AstExpressionData::Tuple { values } => {
                 let mut tup = Vec::new();
                 for v in values {
@@ -853,8 +856,6 @@ impl<'ctx> Translator<'ctx> {
                 let fn_ret = builder.build_call(fun, &bundled_args, &temp_name());
                 self.flatten_val(builder, unwrap_callsite(fn_ret), &expression.ty)?
             },
-
-            AstExpressionData::ObjectCall { .. } => unreachable!(),
 
             AstExpressionData::StaticCall {
                 call_type,
@@ -957,9 +958,6 @@ impl<'ctx> Translator<'ctx> {
                 vec![object.into()]
             },
 
-            AstExpressionData::Not(_expr) => unreachable!(),
-            AstExpressionData::Negate(_expr) => unreachable!(),
-
             AstExpressionData::Assign { lhs, rhs } => {
                 let rvals = self.translate_expression(builder, &rhs)?;
                 let lvals = self.translate_expression_lval(builder, &lhs)?;
@@ -970,8 +968,6 @@ impl<'ctx> Translator<'ctx> {
 
                 rvals
             },
-
-            AstExpressionData::BinOp { .. } => unreachable!(),
 
             AstExpressionData::Block { block } => self.translate_block(builder, block)?,
 
