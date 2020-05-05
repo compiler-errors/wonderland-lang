@@ -35,6 +35,7 @@ fn unreachable<_T>() -> _T {
 
 fn panic<_T>(s: String) -> _T {
   println("PANIC: " + s).
+  instruction "breakpoint" () -> ().
 
   exit:<_T>(-1)
 }

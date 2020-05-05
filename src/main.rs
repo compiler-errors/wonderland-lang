@@ -93,7 +93,7 @@ enum Mode {
 const DEFAULT_MODE: Mode = Mode::Translate;
 
 fn main() {
-    env_logger::builder().filter_level(LevelFilter::Info).init();
+    env_logger::builder().init();
     let args: Vec<_> = std::env::args().collect();
 
     let mut opts = Options::new();

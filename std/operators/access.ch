@@ -60,7 +60,7 @@ impl<_T> DerefAssign for [_T] {
         instruction "getelementptr" (self, 0, 2, idx) -> $ptr.
         instruction "store" ($ptr, value) -> ().
       } else impl "looking_glass" {
-        instruction "array_store" (self, value) -> ().
+        instruction "array_store" (self, idx, value) -> ().
       }
 
       value

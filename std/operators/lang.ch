@@ -4,15 +4,23 @@ trait Len {
 
 impl<_T> Len for [_T] {
   fn len(self) -> Int {
-      instruction "getelementptr" (self, 0, 0) -> $len.
-      instruction "load" ($len) -> Int
+      impl "llvm" {
+        instruction "getelementptr" (self, 0, 0) -> $len.
+        instruction "load" ($len) -> Int
+      } else impl "looking_glass" {
+        instruction "array_len" (self) -> Int
+      }
   }
 }
 
 impl Len for String {
   fn len(self) -> Int {
-      instruction "getelementptr" (self, 0, 0) -> $len.
-      instruction "load" ($len) -> Int
+      impl "llvm" {
+        instruction "getelementptr" (self, 0, 0) -> $len.
+        instruction "load" ($len) -> Int
+      } else impl "looking_glass" {
+        instruction "string_len" (self) -> Int
+      }
   }
 }
 
@@ -22,7 +30,7 @@ trait Hash {
 
 impl Hash for Int {
   fn hash(self) -> Int {
-    self * 11400714819323198485
+    self * -7046029254386353131
   }
 }
 

@@ -12,7 +12,11 @@ use crate::{
     },
     util::{Expect, PResult, StackMap, ZipExact},
 };
-use std::{cell::RefCell, collections::HashMap};
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    ops::{BitXor, Shr},
+};
 
 mod represent;
 
@@ -76,6 +80,7 @@ impl LookingGlass {
 
         for (var, val) in &self.program_globals {
             let mut scope = StackMap::new();
+            debug!("Initializing `{}` as `{:?}`", val.name, val.init);
             let val = self.evaluate_expression(&val.init, &mut scope)?;
             global_variables.insert(var.clone(), val);
         }
@@ -126,6 +131,50 @@ impl LookingGlass {
         }
 
         let value_result = self.evaluate_block(definition, &mut scope);
+        let value = match value_result {
+            Ok(value) => value,
+            Err(LError::Return(value)) => value,
+            Err(LError::Continue(_)) =>
+                unreachable!("Uncaught `continue` in LookingGlass evaluation"),
+            Err(LError::Break(..)) => unreachable!("Uncaught `break` in LookingGlass evaluation"),
+            Err(other) => {
+                return Err(other);
+            },
+        };
+
+        scope.pop();
+
+        if !scope.is_empty() {
+            perror!(
+                "Scope leaked somewhere. Expected `0` stack frames, got `{}`",
+                scope.height()
+            )?;
+        }
+
+        Ok(value)
+    }
+
+    fn evaluate_closure(
+        &self,
+        parameters: &[AstMatchPattern],
+        args: Vec<CheshireValue>,
+        env: HashMap<VariableId, CheshireValue>,
+        definition: &AstExpression,
+    ) -> LResult<CheshireValue> {
+        let mut scope = StackMap::new();
+        scope.push();
+
+        for (id, val) in env {
+            scope.add(id, val);
+        }
+
+        for (param, arg) in ZipExact::zip_exact(parameters, args, "arguments")? {
+            if !self.apply_pattern(param, &arg, &mut scope)? {
+                unreachable!();
+            }
+        }
+
+        let value_result = self.evaluate_expression(definition, &mut scope);
         let value = match value_result {
             Ok(value) => value,
             Err(LError::Return(value)) => value,
@@ -306,11 +355,18 @@ impl LookingGlass {
                 {
                     scope.push();
 
+                    debug!(
+                        "Trying to apply pattern {:?} to {:?}",
+                        pattern, match_condition
+                    );
                     if self.apply_pattern(pattern, &match_condition, scope)? {
+                        debug!("Pattern succeeded");
                         let value_result = self.evaluate_expression(expression, scope);
                         scope.pop();
                         value = Some(value_result?);
+                        break;
                     } else {
+                        debug!("Pattern failed");
                         scope.pop();
                     }
                 }
@@ -341,7 +397,7 @@ impl LookingGlass {
                         },
                         Err(LError::Break(break_id, break_value)) if break_id == *id => {
                             value = Some(break_value);
-                            continue;
+                            break;
                         },
                         value_result => {
                             value = Some(value_result?);
@@ -400,9 +456,117 @@ impl LookingGlass {
     ) -> LResult<CheshireValue> {
         if let InstructionOutput::Type(_) = output {
             let value = match (instruction, arguments) {
+                ("call", fun_and_args) => {
+                    let mut args = self.evaluate_instruction_arguments(fun_and_args, scope)?;
+                    let fun_value = args.remove(0);
+
+                    match &fun_value {
+                        CheshireValue::GlobalFn(name) => {
+                            let fun_signature = InstFunctionSignature(name.clone(), vec![]);
+                            let fun = &self.program_fns[&fun_signature];
+                            self.evaluate_function(fun, args)?
+                        },
+                        CheshireValue::Closure {
+                            parameters,
+                            captured,
+                            expression,
+                        } => {
+                            let mut env = HashMap::new();
+
+                            for (old, new) in captured {
+                                env.insert(new.id, scope.get(&old.id).unwrap());
+                            }
+
+                            self.evaluate_closure(parameters, args, env, expression)?
+                        },
+                        _ => unreachable!(),
+                    }
+                },
                 ("add", [a, b]) => CheshireValue::Int(
+                    self.evaluate_instruction_argument(a, scope)?
+                        .unwrap_int()?
+                        .wrapping_add(self.evaluate_instruction_argument(b, scope)?.unwrap_int()?),
+                ),
+                ("fadd", [a, b]) => CheshireValue::Float(
+                    self.evaluate_instruction_argument(a, scope)?
+                        .unwrap_float()?
+                        + self
+                            .evaluate_instruction_argument(b, scope)?
+                            .unwrap_float()?,
+                ),
+                ("mul", [a, b]) => CheshireValue::Int(
+                    self.evaluate_instruction_argument(a, scope)?
+                        .unwrap_int()?
+                        .wrapping_mul(self.evaluate_instruction_argument(b, scope)?.unwrap_int()?),
+                ),
+                ("fmul", [a, b]) => CheshireValue::Float(
+                    self.evaluate_instruction_argument(a, scope)?
+                        .unwrap_float()?
+                        * self
+                            .evaluate_instruction_argument(b, scope)?
+                            .unwrap_float()?,
+                ),
+                ("sdiv", [a, b]) => CheshireValue::Int(
                     self.evaluate_instruction_argument(a, scope)?.unwrap_int()?
-                        + self.evaluate_instruction_argument(b, scope)?.unwrap_int()?,
+                        / self.evaluate_instruction_argument(b, scope)?.unwrap_int()?,
+                ),
+                ("fdiv", [a, b]) => CheshireValue::Float(
+                    self.evaluate_instruction_argument(a, scope)?
+                        .unwrap_float()?
+                        / self
+                            .evaluate_instruction_argument(b, scope)?
+                            .unwrap_float()?,
+                ),
+                ("srem", [a, b]) => CheshireValue::Int(
+                    self.evaluate_instruction_argument(a, scope)?.unwrap_int()?
+                        % self.evaluate_instruction_argument(b, scope)?.unwrap_int()?,
+                ),
+                ("csub", [a, b]) => CheshireValue::Int(
+                    self.evaluate_instruction_argument(a, scope)?.unwrap_int()?
+                        - self.evaluate_instruction_argument(b, scope)?.unwrap_int()?,
+                ),
+                ("neg", [a]) =>
+                    CheshireValue::Int(-self.evaluate_instruction_argument(a, scope)?.unwrap_int()?),
+                ("fneg", [a]) => CheshireValue::Float(
+                    -self
+                        .evaluate_instruction_argument(a, scope)?
+                        .unwrap_float()?,
+                ),
+                ("xor", [a, b]) => CheshireValue::Int(
+                    self.evaluate_instruction_argument(a, scope)?
+                        .unwrap_int()?
+                        .bitxor(self.evaluate_instruction_argument(b, scope)?.unwrap_int()?),
+                ),
+                ("lshr", [a, b]) => {
+                    let a = self.evaluate_instruction_argument(a, scope)?.unwrap_int()?;
+                    let b = self.evaluate_instruction_argument(b, scope)?.unwrap_int()?;
+
+                    CheshireValue::Int((a as u64).shr(b as u64) as i64)
+                },
+                ("int_to_float", [a]) => CheshireValue::Float(
+                    self.evaluate_instruction_argument(a, scope)?.unwrap_int()? as f64,
+                ),
+                ("icmp eq", [a, b]) => CheshireValue::int_from_bool(
+                    self.evaluate_instruction_argument(a, scope)?.unwrap_int()?
+                        == self.evaluate_instruction_argument(b, scope)?.unwrap_int()?,
+                ),
+                ("icmp sgt", [a, b]) => CheshireValue::int_from_bool(
+                    self.evaluate_instruction_argument(a, scope)?.unwrap_int()?
+                        > self.evaluate_instruction_argument(b, scope)?.unwrap_int()?,
+                ),
+                ("fcmp eq", [a, b]) => CheshireValue::int_from_bool(
+                    self.evaluate_instruction_argument(a, scope)?
+                        .unwrap_float()?
+                        == self
+                            .evaluate_instruction_argument(b, scope)?
+                            .unwrap_float()?,
+                ),
+                ("fcmp gt", [a, b]) => CheshireValue::int_from_bool(
+                    self.evaluate_instruction_argument(a, scope)?
+                        .unwrap_float()?
+                        > self
+                            .evaluate_instruction_argument(b, scope)?
+                            .unwrap_float()?,
                 ),
                 ("add_string", [a, b]) => {
                     let a = self
@@ -437,12 +601,93 @@ impl LookingGlass {
                 )),
                 ("ch_typestring", [InstructionArgument::Type(t)]) =>
                     CheshireValue::String(format!("{}", t)),
+                ("undefined_value", []) => CheshireValue::Undefined,
+                ("allocate_array_undefined", [len]) => {
+                    let len = self
+                        .evaluate_instruction_argument(len, scope)?
+                        .unwrap_int()? as usize;
+                    CheshireValue::heap_collection(vec![CheshireValue::Undefined; len])
+                },
+                ("exit", [code]) => {
+                    let code = self
+                        .evaluate_instruction_argument(code, scope)?
+                        .unwrap_int()?;
+                    return Err(LError::Exit(code));
+                },
+                ("array_deref", [array, idx]) => {
+                    let array = self.evaluate_instruction_argument(array, scope)?;
+                    let idx = self
+                        .evaluate_instruction_argument(idx, scope)?
+                        .unwrap_int()?;
+
+                    if idx < 0 {
+                        perror!(
+                            "Oops, cannot access an array at negative indices. Should've checked \
+                             this earlier..."
+                        )?;
+                    }
+
+                    array.get_member(idx as usize)?
+                },
+                ("string_deref", [string, idx]) => {
+                    let string = self.evaluate_instruction_argument(string, scope)?;
+                    let idx = self
+                        .evaluate_instruction_argument(idx, scope)?
+                        .unwrap_int()?;
+
+                    if idx < 0 {
+                        perror!(
+                            "Oops, cannot access an array at negative indices. Should've checked \
+                             this earlier..."
+                        )?;
+                    }
+
+                    let chr = string.unwrap_string()?.chars().nth(idx as usize).unwrap();
+                    CheshireValue::Int(chr as i64)
+                },
+                ("array_store", [array, idx, value]) => {
+                    let array = self.evaluate_instruction_argument(array, scope)?;
+                    let value = self.evaluate_instruction_argument(value, scope)?;
+                    let idx = self
+                        .evaluate_instruction_argument(idx, scope)?
+                        .unwrap_int()?;
+
+                    if idx < 0 {
+                        perror!(
+                            "Oops, cannot access an array at negative indices. Should've checked \
+                             this earlier..."
+                        )?;
+                    }
+
+                    array.set_heap_member(idx as usize, value)?;
+                    CheshireValue::value_collection(vec![])
+                },
+                ("array_len", [array]) => {
+                    let array = self.evaluate_instruction_argument(array, scope)?;
+                    CheshireValue::Int(array.array_len()? as i64)
+                },
+                ("string_len", [string]) => {
+                    let string = self.evaluate_instruction_argument(string, scope)?;
+                    CheshireValue::Int(string.string_len()? as i64)
+                },
+                ("reinterpret", [arg]) => self.evaluate_instruction_argument(arg, scope)?,
+                ("breakpoint", []) => {
+                    self.breakpoint();
+                    CheshireValue::value_collection(vec![])
+                },
+                ("gc", []) => {
+                    gc::force_collect();
+                    CheshireValue::value_collection(vec![])
+                },
                 _ => perror!("Unknown instruction `{}`", instruction)?,
             };
 
             Ok(value)
         } else {
-            unreachable!("Anonymous instruction outputs not supported");
+            unreachable!(
+                "Anonymous instruction outputs not supported in instruction `{}`",
+                instruction
+            );
         }
     }
 
@@ -456,6 +701,26 @@ impl LookingGlass {
             InstructionArgument::Type(_) => unreachable!(),
             InstructionArgument::Anonymous(_) => unreachable!(),
         }
+    }
+
+    fn evaluate_instruction_arguments(
+        &self,
+        args: &[InstructionArgument],
+        scope: &mut StackMap<VariableId, CheshireValue>,
+    ) -> LResult<Vec<CheshireValue>> {
+        let mut ret = Vec::new();
+
+        for arg in args {
+            match arg {
+                InstructionArgument::Expression(expr) => {
+                    ret.push(self.evaluate_expression(expr, scope)?);
+                },
+                InstructionArgument::Type(_) => unreachable!(),
+                InstructionArgument::Anonymous(_) => unreachable!(),
+            }
+        }
+
+        Ok(ret)
     }
 
     fn assign_lval(
@@ -633,6 +898,7 @@ impl LookingGlass {
                 {
                     if !self.apply_pattern(pat_child, val_child, scope)? {
                         matches = false;
+                        break;
                     }
                 }
 
@@ -656,6 +922,7 @@ impl LookingGlass {
                 {
                     if !self.apply_pattern(pat_child, tup_child, scope)? {
                         matches = false;
+                        break;
                     }
                 }
 
@@ -680,4 +947,7 @@ impl LookingGlass {
             _ => false,
         }
     }
+
+    #[cfg_attr(build = "debug", inline(never))]
+    fn breakpoint(&self) {}
 }

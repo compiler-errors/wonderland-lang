@@ -178,7 +178,6 @@ impl<_K, _V> Iterator for HashMapIterator<_K, _V> {
     }
 
     let ArrayIterator!Iterator { idx: buckets_idx, ... } = buckets.
-    println("hm:buckets:idx = \(buckets_idx). My size hint is \(size_hint)").
 
     while buckets:has_next() {
       let (next_bucket, next_buckets) = buckets:next().

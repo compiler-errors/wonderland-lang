@@ -29,9 +29,18 @@ pub enum CheshireValue {
         captured: Vec<(AstNamedVariable, AstNamedVariable)>,
         expression: AstExpression,
     },
+    Undefined,
 }
 
 impl CheshireValue {
+    pub fn int_from_bool(condition: bool) -> CheshireValue {
+        if condition {
+            CheshireValue::Int(1)
+        } else {
+            CheshireValue::Int(0)
+        }
+    }
+
     pub fn is_true(self) -> bool {
         match self {
             CheshireValue::Int(0) => false,
@@ -74,6 +83,16 @@ impl CheshireValue {
         }
     }
 
+    pub fn set_heap_member(&self, idx: usize, value: CheshireValue) -> PResult<()> {
+        match self {
+            CheshireValue::HeapCollection { contents } => {
+                contents.borrow_mut()[idx] = value;
+                Ok(())
+            },
+            _ => perror!("Cannot access member (`{}`) of the type {:?}", idx, self),
+        }
+    }
+
     pub fn get_tuple_member_mut(&mut self, idx: usize) -> PResult<&mut CheshireValue> {
         match self {
             CheshireValue::ValueCollection { contents } => Ok(&mut contents[idx]),
@@ -98,6 +117,20 @@ impl CheshireValue {
     pub fn unwrap_string(&self) -> PResult<String> {
         match self {
             CheshireValue::String(s) => Ok(s.clone()),
+            _ => perror!("Cannot unwrap value `{:?}` as String", self),
+        }
+    }
+
+    pub fn array_len(&self) -> PResult<usize> {
+        match self {
+            CheshireValue::HeapCollection { contents } => Ok(contents.borrow().len()),
+            _ => perror!("Cannot unwrap value `{:?}` as String", self),
+        }
+    }
+
+    pub fn string_len(&self) -> PResult<usize> {
+        match self {
+            CheshireValue::String(s) => Ok(s.len()),
             _ => perror!("Cannot unwrap value `{:?}` as String", self),
         }
     }

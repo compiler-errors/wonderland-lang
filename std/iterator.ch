@@ -223,15 +223,11 @@ impl<_T> Iterator for ArrayIterator<_T> {
 
   fn next(self) -> (Option<_T>, ArrayIterator<_T>) {
       let ArrayIterator!Iterator { array, idx } = self.
-      println("Idx is \(idx)").
       let len = array:len().
 
-      println("Size is \(len)").
       if idx >= len {
-        println("Yielded none").
         (Option!None, ArrayIterator!Iterator { array, idx })
       } else {
-        println("Yielded some").
         (Option!Some(array[idx]), ArrayIterator!Iterator { array, idx: idx + 1 })
       }
   }
@@ -258,7 +254,6 @@ impl<_I> FromIterator<_I> for [_I] {
 
       for (i, x) in it:enumerate() {
           if i >= a:len() {
-              // println("Re-alloc is " + (a:len() * 2):into()).
               a = resize_array_internal(a, a:len() * 2).
           }
 
@@ -269,7 +264,6 @@ impl<_I> FromIterator<_I> for [_I] {
       if a:len() == last + 1 {
           a
       } else {
-          // println("Final alloc is " + (last + 1):into()).
           resize_array_internal(a, last + 1)
       }
   }
