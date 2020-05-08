@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::parser::ast::{AstTraitType, AstTraitTypeWithAssocs, AstType};
+use crate::ast::{AstTraitType, AstTraitTypeWithAssocs, AstType};
 use std::collections::BTreeMap;
 
 impl fmt::Display for AstType {

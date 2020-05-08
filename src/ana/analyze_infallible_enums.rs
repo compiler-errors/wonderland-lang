@@ -1,10 +1,8 @@
 use crate::{
     ana::{represent::AnalyzedProgram, represent_visitor::PureAnalysisPass},
-    parser::{
-        ast::{
-            AstExpression, AstExpressionData, AstMatchPattern, AstMatchPatternData, AstStatement,
-        },
-        ast_visitor::AstAdapter,
+    ast::{
+        ast_visitor::AstAdapter, AstExpression, AstExpressionData, AstMatchPattern,
+        AstMatchPatternData, AstStatement,
     },
     util::PResult,
 };

@@ -1,8 +1,5 @@
 use crate::{
-    parser::{
-        ast::{AstObjectFunction, AstTraitType, AstType},
-        ast_visitor::AstAdapter,
-    },
+    ast::{ast_visitor::AstAdapter, AstObjectFunction, AstTraitType, AstType},
     util::PResult,
 };
 

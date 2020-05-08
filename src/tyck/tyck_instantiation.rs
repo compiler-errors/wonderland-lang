@@ -1,11 +1,8 @@
 use crate::{
     ana::represent::AnalyzedProgram,
-    parser::{
-        ast::{
-            AstGeneric, AstTraitType, AstTraitTypeWithAssocs, AstType, AstTypeRestriction,
-            GenericId, ImplId, ModuleRef,
-        },
-        ast_visitor::AstAdapter,
+    ast::{
+        ast_visitor::AstAdapter, AstGeneric, AstTraitType, AstTraitTypeWithAssocs, AstType,
+        AstTypeRestriction, GenericId, ImplId, ModuleRef,
     },
     util::{PResult, Visit},
 };

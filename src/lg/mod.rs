@@ -1,15 +1,15 @@
 use crate::{
-    inst::{
-        InstEnumRepresentation, InstEnumSignature, InstFunctionSignature,
-        InstObjectFunctionSignature, InstObjectSignature, InstantiatedProgram,
-    },
-    lg::represent::{CheshireValue, LError, LResult, ShouldPopStack},
-    parser::ast::{
+    ast::{
         AstBlock, AstExpression, AstExpressionData, AstFunction, AstGlobalVariable, AstLiteral,
         AstMatchBranch, AstMatchPattern, AstMatchPatternData, AstNamedVariable, AstObject,
         AstObjectFunction, AstStatement, InstructionArgument, InstructionOutput, ModuleRef,
         VariableId,
     },
+    inst::{
+        InstEnumRepresentation, InstEnumSignature, InstFunctionSignature,
+        InstObjectFunctionSignature, InstObjectSignature, InstantiatedProgram,
+    },
+    lg::represent::{CheshireValue, LError, LResult, ShouldPopStack},
     util::{Expect, PResult, StackMap, ZipExact},
 };
 use std::{
@@ -684,10 +684,10 @@ impl LookingGlass {
 
             Ok(value)
         } else {
-            unreachable!(
+            perror!(
                 "Anonymous instruction outputs not supported in instruction `{}`",
                 instruction
-            );
+            )?
         }
     }
 

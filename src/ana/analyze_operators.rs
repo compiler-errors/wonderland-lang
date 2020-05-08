@@ -1,11 +1,8 @@
 use crate::{
     ana::{analyze_modules::ModuleItem, represent::AnalyzedProgram},
-    parser::{
-        ast::{
-            AstExpression, AstExpressionData, AstLiteral, AstProgram, AstTraitTypeWithAssocs,
-            AstType, BinOpKind, ModuleRef,
-        },
-        ast_visitor::AstAdapter,
+    ast::{
+        ast_visitor::AstAdapter, AstExpression, AstExpressionData, AstLiteral, AstProgram,
+        AstTraitTypeWithAssocs, AstType, BinOpKind, ModuleRef,
     },
     util::{FileRegistry, PResult, Span, Visit},
 };

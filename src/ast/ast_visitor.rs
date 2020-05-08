@@ -1,4 +1,4 @@
-use crate::{parser::ast::*, util::PResult};
+use crate::{ast::*, util::PResult};
 
 pub trait AstAdapter {
     fn enter_ast_program(&mut self, p: AstProgram) -> PResult<AstProgram> {

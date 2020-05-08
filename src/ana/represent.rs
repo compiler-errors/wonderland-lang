@@ -1,4 +1,4 @@
-use crate::{ana::analyze_modules::SharedModule, parser::ast::*, util::FileId};
+use crate::{ana::analyze_modules::SharedModule, ast::*, util::FileId};
 use std::collections::HashMap;
 
 #[Adapter("crate::ana::represent_visitor::AnAdapter")]

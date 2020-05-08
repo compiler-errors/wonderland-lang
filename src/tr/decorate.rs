@@ -1,5 +1,5 @@
 use crate::{
-    parser::ast::*,
+    ast::*,
     util::{FileRegistry, PResult},
 };
 

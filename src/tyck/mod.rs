@@ -5,7 +5,7 @@ pub use crate::tyck::{
 };
 use crate::{
     ana::represent::AnalyzedProgram,
-    parser::ast::*,
+    ast::*,
     tyck::tyck_constraints::{Dummifier, TyckConstraintAssumptionAdapter},
     util::{Context, FileRegistry, PResult, Visit},
 };

@@ -19,7 +19,7 @@ use crate::{
         analyze_positional_enums::AnalyzePositionalEnums, analyze_returns::AnalyzeReturns,
         analyze_self::AnalyzeSelf, analyze_variables::AnalyzeVariables,
     },
-    parser::ast::AstProgram,
+    ast::AstProgram,
     util::{Context, PResult, Visit},
 };
 

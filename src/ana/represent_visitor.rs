@@ -1,6 +1,6 @@
 use crate::{
     ana::represent::*,
-    parser::{ast::AstProgram, ast_visitor::AstAdapter},
+    ast::{ast_visitor::AstAdapter, AstProgram},
     util::{PResult, Visit},
 };
 

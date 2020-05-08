@@ -3,7 +3,7 @@ use crate::{
         represent::{AnImplData, AnalyzedProgram},
         represent_visitor::AnAdapter,
     },
-    parser::{ast::*, ast_visitor::AstAdapter},
+    ast::{ast_visitor::AstAdapter, *},
     tyck::{
         tyck_instantiation::*, TyckAdapter, TyckInstantiatedImpl, TyckInstantiatedObjectFunction,
         TYCK_MAX_DEPTH,

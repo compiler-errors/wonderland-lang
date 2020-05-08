@@ -3,7 +3,7 @@ use crate::{
         represent::*,
         represent_visitor::{AnAdapter, DirtyAnalysisPass},
     },
-    parser::{ast::*, ast_visitor::AstAdapter},
+    ast::{ast_visitor::AstAdapter, *},
     util::{PResult, StackMap},
 };
 

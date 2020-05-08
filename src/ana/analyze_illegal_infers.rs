@@ -1,11 +1,8 @@
 use crate::{
     ana::represent_visitor::AstAnalysisPass,
-    parser::{
-        ast::{
-            AstEnum, AstFunction, AstGlobalVariable, AstImpl, AstObject, AstObjectFunction,
-            AstTrait, AstType,
-        },
-        ast_visitor::AstAdapter,
+    ast::{
+        ast_visitor::AstAdapter, AstEnum, AstFunction, AstGlobalVariable, AstImpl, AstObject,
+        AstObjectFunction, AstTrait, AstType,
     },
     util::{PResult, Visit},
 };

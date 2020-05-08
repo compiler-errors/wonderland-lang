@@ -4,13 +4,16 @@ use std::{
     sync::RwLock,
 };
 
-#[Adapter("crate::parser::ast_visitor::AstAdapter")]
+pub mod ast_display;
+pub mod ast_visitor;
+
+#[Adapter("crate::ast::ast_visitor::AstAdapter")]
 #[derive(Debug, Clone, Visit)]
 pub struct AstProgram {
     pub modules: Vec<AstModule>,
 }
 
-#[Adapter("crate::parser::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::ast_visitor::AstAdapter")]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Visit)]
 pub enum ModuleRef {
     Denormalized(Vec<String>),
@@ -43,14 +46,14 @@ impl ModuleRef {
     }
 }
 
-#[Adapter("crate::parser::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::ast_visitor::AstAdapter")]
 #[derive(Debug, Clone, Visit)]
 pub enum AstUse {
     Use(Vec<String>, String),
     UseAll(Vec<String>),
 }
 
-#[Adapter("crate::parser::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::ast_visitor::AstAdapter")]
 #[derive(Debug, Clone, Visit)]
 /// A file that is being parsed, along with the associated
 /// parsed functions that are contained in the file.
@@ -100,7 +103,7 @@ lazy_static! {
     static ref GENERIC_ID_COUNTER: RwLock<usize> = RwLock::new(1);
 }
 
-#[Adapter("crate::parser::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::ast_visitor::AstAdapter")]
 #[derive(Debug, Clone, Eq, PartialEq, VisitAnonymous)]
 pub struct AstGeneric(pub GenericId, pub String);
 
@@ -119,7 +122,7 @@ impl From<AstGeneric> for AstType {
     }
 }
 
-#[Adapter("crate::parser::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::ast_visitor::AstAdapter")]
 #[derive(Debug, Clone, Eq, PartialEq, Visit)]
 pub struct AstFunction {
     /// The beginning position of the function
@@ -172,11 +175,11 @@ lazy_static! {
     static ref VARIABLE_ID_COUNTER: RwLock<usize> = RwLock::new(0);
 }
 
-#[Adapter("crate::parser::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::ast_visitor::AstAdapter")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, VisitAnonymous)]
 pub struct VariableId(pub usize);
 
-#[Adapter("crate::parser::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::ast_visitor::AstAdapter")]
 #[derive(Debug, Clone, Eq, PartialEq, Visit)]
 /// A name and type associated with a parameter, along
 /// with the position where this parameter is named.
@@ -203,19 +206,19 @@ impl AstNamedVariable {
     }
 }
 
-#[Adapter("crate::parser::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::ast_visitor::AstAdapter")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, VisitAnonymous)]
 pub struct InferId(pub usize);
 
-#[Adapter("crate::parser::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::ast_visitor::AstAdapter")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, VisitAnonymous)]
 pub struct GenericId(pub usize);
 
-#[Adapter("crate::parser::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::ast_visitor::AstAdapter")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, VisitAnonymous)]
 pub struct DummyId(pub usize);
 
-#[Adapter("crate::parser::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::ast_visitor::AstAdapter")]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Visit)]
 pub struct AstTraitType {
     pub name: ModuleRef,
@@ -228,7 +231,7 @@ impl AstTraitType {
     }
 }
 
-#[Adapter("crate::parser::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::ast_visitor::AstAdapter")]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Visit)]
 pub struct AstTraitTypeWithAssocs {
     pub trt: AstTraitType,
@@ -259,7 +262,7 @@ impl AstTraitTypeWithAssocs {
     }
 }
 
-#[Adapter("crate::parser::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::ast_visitor::AstAdapter")]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Visit)]
 /// A type as parsed by the Parser module.
 pub enum AstType {
@@ -398,7 +401,7 @@ impl AstType {
     }
 }
 
-#[Adapter("crate::parser::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::ast_visitor::AstAdapter")]
 #[derive(Debug, Clone, Eq, PartialEq, Visit)]
 /// A collection of statements, given by a `{}` block.
 pub struct AstBlock {
@@ -422,11 +425,11 @@ impl AstBlock {
     }
 }
 
-#[Adapter("crate::parser::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::ast_visitor::AstAdapter")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, VisitAnonymous)]
 pub struct LoopId(pub usize);
 
-#[Adapter("crate::parser::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::ast_visitor::AstAdapter")]
 #[derive(Debug, Clone, Eq, PartialEq, Visit)]
 pub enum AstStatement {
     Let {
@@ -452,7 +455,7 @@ impl AstStatement {
     }
 }
 
-#[Adapter("crate::parser::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::ast_visitor::AstAdapter")]
 #[derive(Debug, Clone, Eq, PartialEq, Visit)]
 pub struct AstExpression {
     pub data: AstExpressionData,
@@ -462,7 +465,7 @@ pub struct AstExpression {
 
 type SubExpression = Box<AstExpression>;
 
-#[Adapter("crate::parser::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::ast_visitor::AstAdapter")]
 #[derive(Debug, Clone, Eq, PartialEq, VisitAnonymous)]
 pub enum AstExpressionData {
     Unimplemented,
@@ -636,7 +639,7 @@ pub enum AstExpressionData {
     },
 }
 
-#[Adapter("crate::parser::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::ast_visitor::AstAdapter")]
 #[derive(Debug, Clone, Eq, PartialEq, VisitAnonymous)]
 pub enum InstructionArgument {
     Expression(AstExpression),
@@ -644,7 +647,7 @@ pub enum InstructionArgument {
     Anonymous(String),
 }
 
-#[Adapter("crate::parser::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::ast_visitor::AstAdapter")]
 #[derive(Debug, Clone, Eq, PartialEq, VisitAnonymous)]
 pub enum InstructionOutput {
     Type(AstType),
@@ -1162,21 +1165,21 @@ impl AstExpression {
     }
 }
 
-#[Adapter("crate::parser::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::ast_visitor::AstAdapter")]
 #[derive(Debug, Clone, Eq, PartialEq, Visit)]
 pub struct AstMatchBranch {
     pub pattern: AstMatchPattern,
     pub expression: AstExpression,
 }
 
-#[Adapter("crate::parser::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::ast_visitor::AstAdapter")]
 #[derive(Debug, Clone, Eq, PartialEq, Visit)]
 pub struct AstMatchPattern {
     pub data: AstMatchPatternData,
     pub ty: AstType,
 }
 
-#[Adapter("crate::parser::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::ast_visitor::AstAdapter")]
 #[derive(Debug, Clone, Eq, PartialEq, VisitAnonymous)]
 pub enum AstMatchPatternData {
     Underscore,
@@ -1291,7 +1294,7 @@ impl AstMatchPattern {
     }
 }
 
-#[Adapter("crate::parser::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::ast_visitor::AstAdapter")]
 #[derive(Debug, Clone, Eq, PartialEq, Visit)]
 pub enum AstLiteral {
     True,
@@ -1302,7 +1305,7 @@ pub enum AstLiteral {
     Char(char),
 }
 
-#[Adapter("crate::parser::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::ast_visitor::AstAdapter")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, VisitAnonymous)]
 /// The kind of binary operation
 pub enum BinOpKind {
@@ -1321,7 +1324,7 @@ pub enum BinOpKind {
     Or,
 }
 
-#[Adapter("crate::parser::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::ast_visitor::AstAdapter")]
 #[derive(Debug, Clone, Eq, PartialEq, Visit)]
 pub struct AstObject {
     pub name_span: Span,
@@ -1356,7 +1359,7 @@ impl AstObject {
     }
 }
 
-#[Adapter("crate::parser::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::ast_visitor::AstAdapter")]
 #[derive(Debug, Clone, Eq, PartialEq, Visit)]
 pub struct AstObjectFunction {
     pub name_span: Span,
@@ -1407,7 +1410,7 @@ impl AstObjectFunction {
     }
 }
 
-#[Adapter("crate::parser::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::ast_visitor::AstAdapter")]
 #[derive(Debug, Clone, Eq, PartialEq, Visit)]
 pub struct AstObjectMember {
     pub span: Span,
@@ -1425,7 +1428,7 @@ impl AstObjectMember {
     }
 }
 
-#[Adapter("crate::parser::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::ast_visitor::AstAdapter")]
 #[derive(Debug, Clone, Eq, PartialEq, Visit)]
 pub struct AstTrait {
     pub name_span: Span,
@@ -1462,14 +1465,14 @@ impl AstTrait {
     }
 }
 
-#[Adapter("crate::parser::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::ast_visitor::AstAdapter")]
 #[derive(Debug, Clone, Eq, PartialEq, Visit)]
 pub struct AstAssociatedType {
     pub name: String,
     pub restrictions: Vec<AstTraitTypeWithAssocs>,
 }
 
-#[Adapter("crate::parser::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::ast_visitor::AstAdapter")]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Visit)]
 pub struct AstTypeRestriction {
     pub ty: AstType,
@@ -1482,11 +1485,11 @@ impl AstTypeRestriction {
     }
 }
 
-#[Adapter("crate::parser::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::ast_visitor::AstAdapter")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, VisitAnonymous)]
 pub struct ImplId(pub usize);
 
-#[Adapter("crate::parser::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::ast_visitor::AstAdapter")]
 #[derive(Debug, Clone, Eq, PartialEq, Visit)]
 pub struct AstImpl {
     pub impl_id: ImplId,
@@ -1540,7 +1543,7 @@ impl AstImpl {
     }
 }
 
-#[Adapter("crate::parser::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::ast_visitor::AstAdapter")]
 #[derive(Debug, Clone, Eq, PartialEq, Visit)]
 pub struct AstGlobalVariable {
     pub name_span: Span,
@@ -1570,7 +1573,7 @@ impl AstGlobalVariable {
     }
 }
 
-#[Adapter("crate::parser::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::ast_visitor::AstAdapter")]
 #[derive(Debug, Clone, Eq, PartialEq, Visit)]
 pub struct AstEnum {
     pub name_span: Span,
@@ -1603,7 +1606,7 @@ impl AstEnum {
     }
 }
 
-#[Adapter("crate::parser::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::ast_visitor::AstAdapter")]
 #[derive(Debug, Clone, Eq, PartialEq, Visit)]
 pub struct AstEnumVariant {
     pub name_span: Span,
@@ -1618,7 +1621,7 @@ pub struct AstEnumVariant {
 }
 
 /// Used in tyck
-#[Adapter("crate::parser::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::ast_visitor::AstAdapter")]
 #[derive(Debug, Clone, PartialEq, Eq, Visit)]
 pub struct AstImplSignature {
     pub impl_id: ImplId,

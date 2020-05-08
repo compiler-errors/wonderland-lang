@@ -1,6 +1,6 @@
 use crate::{
     ana::represent::*,
-    parser::{ast::*, ast_visitor::AstAdapter},
+    ast::{ast_visitor::AstAdapter, *},
     tyck::{tyck_instantiation::instantiate_associated_ty_restrictions, TYCK_MAX_DEPTH},
     util::{PError, PResult},
 };

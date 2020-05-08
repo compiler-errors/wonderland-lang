@@ -1,7 +1,7 @@
 use self::decorate::*;
 use crate::{
+    ast::*,
     inst::{InstEnumRepresentation, InstEnumSignature, InstObjectSignature, InstantiatedProgram},
-    parser::ast::*,
     util::{Context as CheshireContext, PError, PResult, ZipExact},
 };
 use either::Either;

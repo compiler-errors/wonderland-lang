@@ -1,5 +1,5 @@
 use crate::{
-    parser::ast::{AstExpression, AstMatchPattern, AstNamedVariable, LoopId, ModuleRef},
+    ast::{AstExpression, AstMatchPattern, AstNamedVariable, LoopId, ModuleRef},
     util::{PError, PResult},
 };
 use gc::{Gc, GcCell};

@@ -1,6 +1,6 @@
 use crate::{
     ana::{represent::AnalyzedProgram, represent_visitor::PureAnalysisPass},
-    parser::{ast::AstImpl, ast_visitor::AstAdapter},
+    ast::{ast_visitor::AstAdapter, AstImpl},
     util::{PResult, Span},
 };
 use std::collections::HashSet;

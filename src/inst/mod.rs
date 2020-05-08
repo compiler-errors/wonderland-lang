@@ -1,7 +1,7 @@
 pub use crate::inst::represent::*;
 use crate::{
     ana::represent::*,
-    parser::{ast::*, ast_visitor::AstAdapter},
+    ast::{ast_visitor::AstAdapter, *},
     tyck::*,
     util::{Context, Expect, PResult, Visit},
 };

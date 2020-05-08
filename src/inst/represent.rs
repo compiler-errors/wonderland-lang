@@ -1,4 +1,4 @@
-use crate::parser::ast::{AstTraitType, AstType, ImplId, ModuleRef};
+use crate::ast::{AstTraitType, AstType, ImplId, ModuleRef};
 use std::collections::HashMap;
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]

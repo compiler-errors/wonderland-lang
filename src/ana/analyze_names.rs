@@ -3,9 +3,8 @@ use crate::{
         represent::{AnEnumData, AnObjectData, AnTraitData, AnalyzedProgram},
         represent_visitor::{AnAdapter, DirtyAnalysisPass},
     },
-    parser::{
-        ast::{AstExpression, AstExpressionData, AstTraitType, AstType, ModuleRef},
-        ast_visitor::AstAdapter,
+    ast::{
+        ast_visitor::AstAdapter, AstExpression, AstExpressionData, AstTraitType, AstType, ModuleRef,
     },
     util::PResult,
 };

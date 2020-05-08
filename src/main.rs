@@ -45,7 +45,6 @@ use crate::util::{report_err, FileId, FileRegistry, PError, PResult};
 use getopts::{Matches, Options};
 
 use crate::lexer::SpanToken;
-use log::LevelFilter;
 use std::{
     ffi::OsString,
     io::{Read, Write},
@@ -65,6 +64,9 @@ mod inst;
 
 #[cfg(feature = "lex")]
 mod lexer;
+
+#[cfg(feature = "ast")]
+mod ast;
 
 #[cfg(feature = "parse")]
 mod parser;

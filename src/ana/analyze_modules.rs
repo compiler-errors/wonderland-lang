@@ -1,5 +1,5 @@
 use crate::{
-    parser::{ast::*, ast_visitor::AstAdapter},
+    ast::{ast_visitor::AstAdapter, *},
     util::{Context, FileId, FileRegistry, PError, PResult, Visit},
 };
 use std::{cell::RefCell, collections::HashMap, rc::Rc};

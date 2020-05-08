@@ -6,7 +6,7 @@ use crate::{
             AnalyzedProgram,
         },
     },
-    parser::{ast::*, ast_visitor::AstAdapter},
+    ast::{ast_visitor::AstAdapter, *},
     util::{Expect, FileId, PResult},
 };
 use std::collections::{HashMap, HashSet};
