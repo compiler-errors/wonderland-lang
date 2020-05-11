@@ -41,13 +41,13 @@ fn panic<_T>(s: String) -> _T {
 }
 
 fn type_string<_T>() -> String {
-  instruction "ch_typestring"(:_T) -> String
+  instruction "ch_typestring"(_ :_T) -> String
 }
 
 fn exit<_T>(i: Int) -> _T {
     impl "llvm" {
       instruction "call" ("exit", i) -> ().
-      instruction "ch_undefined" (:_T) -> _T
+      instruction "ch_undefined" (_ :_T) -> _T
     } else impl "looking_glass" {
       instruction "exit" (i) -> _T
     }

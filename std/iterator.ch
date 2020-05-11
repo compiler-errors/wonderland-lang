@@ -25,8 +25,8 @@ trait FromIterator<_I> {
 }
 
 enum Range {
-  Finite(Int, Int).
-  Infinite(Int).
+  Finite(Int, Int),
+  Infinite(Int),
 }
 
 impl Iterator for Range {
@@ -78,28 +78,18 @@ impl<_It> for _It where _It: Iterator {
 }
 
 impl<_T> for _T where _T: Iterator, <Self as Iterator>::Item: Default + Add<<Self as Iterator>::Item, ::Result=<Self as Iterator>::Item> {
-  /* fn sum(self) -> <Self as Iterator>::Item =
+  fn sum(self) -> <Self as Iterator>::Item =
     Self:fold(
       self,
       <Self as Iterator>::Item:default(),
-      |a, b| a + b). */
-
-  fn sum(self) -> <Self as Iterator>::Item {
-    let i = <Self as Iterator>::Item:default().
-
-    for j in self {
-      i = i + j.
-    }
-
-    i
-  }
+      |a, b| a + b).
 }
 
 enum Map<_It, _F> {
   Iterator {
     iterator: _It,
-    fun: _F
-  }.
+    fun: _F,
+  },
 }
 
 impl<_It, _F, _O> Iterator for Map<_It, _F> where
@@ -129,8 +119,8 @@ impl<_It, _F, _O> Iterator for Map<_It, _F> where
 enum Enumerate<_It> {
   Iterator {
     iterator: _It,
-    idx: Int
-  }.
+    idx: Int,
+  },
 }
 
 impl<_It> Iterator for Enumerate<_It> where _It: Iterator {
@@ -161,8 +151,8 @@ impl<_It> Iterator for Enumerate<_It> where _It: Iterator {
 enum Limit<_It> {
   Iterator {
     iterator: _It,
-    remaining: Int
-  }.
+    remaining: Int,
+  },
 }
 
 impl<_It> Iterator for Limit<_It> where _It: Iterator {
@@ -214,8 +204,8 @@ impl<_T> Iterable for [_T] {
 enum ArrayIterator<_T> {
   Iterator {
     array: [_T],
-    idx: Int
-  }.
+    idx: Int,
+  },
 }
 
 impl<_T> Iterator for ArrayIterator<_T> {
@@ -279,12 +269,11 @@ fn resize_array_internal<_T>(a: [_T], n: Int) -> [_T] {
   a_new
 }
 
-
 enum StringIterator {
   Iterator {
     str: String,
-    idx: Int
-  }.
+    idx: Int,
+  },
 }
 
 impl Iterable for String {

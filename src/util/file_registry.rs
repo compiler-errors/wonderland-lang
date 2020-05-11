@@ -32,7 +32,7 @@ lazy_static! {
         paths: HashMap::new(),
         files: HashMap::new(),
         mod_paths: HashMap::new(),
-        temporary_files: Vec::new()
+        temporary_files: vec![]
     });
     static ref EXTENSIONS: HashSet<OsString> = {
         let mut x = HashSet::new();

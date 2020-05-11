@@ -12,7 +12,7 @@ pub struct StackMap<K: Eq + Hash, V: Debug> {
 
 impl<K: Eq + Hash + Debug + Clone, V: Clone + Debug> StackMap<K, V> {
     pub fn new() -> StackMap<K, V> {
-        StackMap { stack: Vec::new() }
+        StackMap { stack: vec![] }
     }
 
     pub fn push(&mut self) {

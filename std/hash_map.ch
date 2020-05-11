@@ -2,10 +2,10 @@ let default_bucket_size: Int = 8.
 let threshold: Float = 0.75.
 
 object HashMap<_K, _V> {
-  size: Int.
+  size: Int,
 
-  buckets: [Bucket<_K, _V>].
-  num_buckets: Int.
+  buckets: [Bucket<_K, _V>],
+  num_buckets: Int,
 }
 
 impl<_K, _V> for HashMap<_K, _V> {
@@ -161,8 +161,8 @@ enum HashMapIterator<_K, _V> {
   Iterator {
     size_hint: Int,
     buckets: ArrayIterator<Bucket<_K, _V>>,
-    links: ListIterator<(Int, _K, _V)>
-  }.
+    links: ListIterator<(Int, _K, _V)>,
+  },
 }
 
 impl<_K, _V> Iterator for HashMapIterator<_K, _V> {
@@ -228,7 +228,7 @@ impl<_K, _V> Into<String> for HashMap<_K, _V> where _K: Into<String>, _V: Into<S
 }
 
 object Bucket<_K, _V> {
-  entries: List<(Int, _K, _V)>.
+  entries: List<(Int, _K, _V)>,
 }
 
 impl<_K, _V> Default for Bucket<_K, _V> {

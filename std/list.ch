@@ -1,13 +1,13 @@
 object List<_T> {
-  size: Int.
-  root: Option<Link<_T>>.
-  end: Option<Link<_T>>.
+  size: Int,
+  root: Option<Link<_T>>,
+  end: Option<Link<_T>>,
 }
 
 object Link<_T> {
-  item: _T.
-  last: Option<Link<_T>>.
-  next: Option<Link<_T>>.
+  item: _T,
+  last: Option<Link<_T>>,
+  next: Option<Link<_T>>,
 }
 
 impl<_T> for List<_T> {
@@ -234,8 +234,8 @@ impl<_T> Iterable for List<_T> {
 enum ListIterator<_T> {
   Iterator {
     link: Option<Link<_T>>,
-    size: Int
-  }.
+    size: Int,
+  },
 }
 
 impl<_T> Iterator for ListIterator<_T> {

@@ -23,4 +23,12 @@ impl Span {
             end: max(self.end, next.end),
         }
     }
+
+    pub fn dummy() -> Span {
+        Span {
+            file: FileId(0),
+            start: 0,
+            end: 0,
+        }
+    }
 }

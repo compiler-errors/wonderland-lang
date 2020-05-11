@@ -2,7 +2,7 @@ use crate::{
     ana::{represent::AnalyzedProgram, represent_visitor::PureAnalysisPass},
     ast::{
         ast_visitor::AstAdapter, AstExpression, AstExpressionData, AstMatchPattern,
-        AstMatchPatternData,
+        AstMatchPatternData, AstType,
     },
     util::PResult,
 };
@@ -33,7 +33,7 @@ impl AstAdapter for AnalyzePositionalEnums {
                 enumerable,
                 generics,
                 variant,
-                children: Vec::new(),
+                children: vec![],
             },
             AstExpressionData::NamedEnum {
                 enumerable,
@@ -71,7 +71,7 @@ impl AstAdapter for AnalyzePositionalEnums {
                 enumerable,
                 generics,
                 variant,
-                children: Vec::new(),
+                children: vec![],
                 ignore_rest: false,
             },
             AstMatchPatternData::PositionalEnum {
@@ -89,7 +89,9 @@ impl AstAdapter for AnalyzePositionalEnums {
                     enumerable,
                     generics,
                     variant,
-                    children: augment(children, expected, || AstMatchPattern::underscore()),
+                    children: augment(children, expected, || {
+                        AstMatchPattern::underscore(AstType::infer())
+                    }),
                     ignore_rest: false,
                 }
             },
@@ -109,7 +111,9 @@ impl AstAdapter for AnalyzePositionalEnums {
                     enumerable,
                     generics,
                     variant,
-                    children: arrange(ordering, children, || Some(AstMatchPattern::underscore())),
+                    children: arrange(ordering, children, || {
+                        Some(AstMatchPattern::underscore(AstType::infer()))
+                    }),
                     ignore_rest: false,
                 }
             },

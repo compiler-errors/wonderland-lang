@@ -141,7 +141,7 @@ impl<'a> AstAdapter for AnalyzeVariables {
                 let params = params.visit(&mut i)?;
 
                 let expr = expr.visit(&mut i)?;
-                let mut captured = Vec::new();
+                let mut captured = vec![];
 
                 self.scope.push();
                 self.all_variables.push();

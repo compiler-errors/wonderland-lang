@@ -35,10 +35,9 @@ impl Into<String> for Char {
 
 impl Into<String> for Bool {
   fn into(self) -> String {
-      if self {
-          "true"
-      } else {
-          "false"
+      match self {
+        true => "true",
+        false => "false",
       }
   }
 }

@@ -1,11 +1,29 @@
-use crate::util::{FileId, FileRegistry, Span};
+use crate::{
+    lexer::Token,
+    util::{FileId, FileRegistry, PError, Span},
+};
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     sync::RwLock,
 };
 
 pub mod ast_display;
 pub mod ast_visitor;
+
+pub enum AstError {
+    DuplicatedMember(String),
+}
+
+#[cfg(feature = "parse")]
+impl<L, T> From<AstError> for lalrpop_util::ParseError<L, T, PError> {
+    fn from(e: AstError) -> Self {
+        let AstError::DuplicatedMember(name) = e;
+
+        lalrpop_util::ParseError::User {
+            error: PError::new(format!("Duplicated name: `{}`", name)),
+        }
+    }
+}
 
 #[Adapter("crate::ast::ast_visitor::AstAdapter")]
 #[derive(Debug, Clone, Visit)]
@@ -53,6 +71,16 @@ pub enum AstUse {
     UseAll(Vec<String>),
 }
 
+pub enum AstModuleMember {
+    Use(bool, AstUse),
+    Function(AstFunction),
+    Object(AstObject),
+    Trait(AstTrait),
+    Enum(AstEnum),
+    Impl(AstImpl),
+    Global(AstGlobalVariable),
+}
+
 #[Adapter("crate::ast::ast_visitor::AstAdapter")]
 #[derive(Debug, Clone, Visit)]
 /// A file that is being parsed, along with the associated
@@ -96,6 +124,82 @@ impl AstModule {
             impls,
             globals,
         }
+    }
+
+    pub fn try_new_from_members(
+        id: FileId,
+        name: String,
+        members: Vec<AstModuleMember>,
+    ) -> Result<AstModule, AstError> {
+        let mut names = HashSet::new();
+
+        let mut uses = Vec::new();
+        let mut pub_uses = Vec::new();
+
+        let mut functions = HashMap::new();
+        let mut objects = HashMap::new();
+        let mut traits = HashMap::new();
+        let mut enums = HashMap::new();
+        let mut impls = HashMap::new();
+        let mut globals = HashMap::new();
+
+        for member in members {
+            match member {
+                AstModuleMember::Use(p, u) =>
+                    if p {
+                        pub_uses.push(u);
+                    } else {
+                        uses.push(u);
+                    },
+                AstModuleMember::Function(f) => {
+                    if names.contains(&f.name) {
+                        return Err(AstError::DuplicatedMember(f.name.clone()));
+                    }
+
+                    names.insert(f.name.clone());
+                    functions.insert(f.name.clone(), f);
+                },
+                AstModuleMember::Object(o) => {
+                    if names.contains(&o.name) {
+                        return Err(AstError::DuplicatedMember(o.name.clone()));
+                    }
+
+                    names.insert(o.name.clone());
+                    objects.insert(o.name.clone(), o);
+                },
+                AstModuleMember::Trait(t) => {
+                    if names.contains(&t.name) {
+                        return Err(AstError::DuplicatedMember(t.name.clone()));
+                    }
+
+                    names.insert(t.name.clone());
+                    traits.insert(t.name.clone(), t);
+                },
+                AstModuleMember::Enum(e) => {
+                    if names.contains(&e.name) {
+                        return Err(AstError::DuplicatedMember(e.name.clone()));
+                    }
+
+                    names.insert(e.name.clone());
+                    enums.insert(e.name.clone(), e);
+                },
+                AstModuleMember::Global(g) => {
+                    if names.contains(&g.name) {
+                        return Err(AstError::DuplicatedMember(g.name.clone()));
+                    }
+
+                    names.insert(g.name.clone());
+                    globals.insert(g.name.clone(), g);
+                },
+                AstModuleMember::Impl(i) => {
+                    impls.insert(i.impl_id, i);
+                },
+            }
+        }
+
+        Ok(AstModule::new(
+            id, name, pub_uses, uses, functions, objects, traits, enums, impls, globals,
+        ))
     }
 }
 
@@ -147,7 +251,7 @@ pub struct AstFunction {
 }
 
 impl AstFunction {
-    pub fn new(
+    pub fn new_declaration(
         file: FileId,
         name_span: Span,
         name: String,
@@ -155,7 +259,6 @@ impl AstFunction {
         parameter_list: Vec<AstNamedVariable>,
         return_type: AstType,
         restrictions: Vec<AstTypeRestriction>,
-        definition: Option<AstBlock>,
     ) -> AstFunction {
         AstFunction {
             name_span,
@@ -165,7 +268,53 @@ impl AstFunction {
             parameter_list,
             return_type,
             restrictions,
-            definition,
+            definition: None,
+            variables: HashMap::new(),
+        }
+    }
+
+    pub fn new_definition(
+        file: FileId,
+        name_span: Span,
+        name: String,
+        generics: Vec<AstGeneric>,
+        parameter_list: Vec<AstNamedVariable>,
+        return_type: AstType,
+        restrictions: Vec<AstTypeRestriction>,
+        definition: AstBlock,
+    ) -> AstFunction {
+        AstFunction {
+            name_span,
+            generics,
+            module_ref: ModuleRef::Normalized(file, name.clone()),
+            name,
+            parameter_list,
+            return_type,
+            restrictions,
+            definition: Some(definition),
+            variables: HashMap::new(),
+        }
+    }
+
+    pub fn new_definition_from_expr(
+        file: FileId,
+        name_span: Span,
+        name: String,
+        generics: Vec<AstGeneric>,
+        parameter_list: Vec<AstNamedVariable>,
+        return_type: AstType,
+        restrictions: Vec<AstTypeRestriction>,
+        definition: AstExpression,
+    ) -> AstFunction {
+        AstFunction {
+            name_span,
+            generics,
+            module_ref: ModuleRef::Normalized(file, name.clone()),
+            name,
+            parameter_list,
+            return_type,
+            restrictions,
+            definition: Some(AstBlock::new(vec![], definition)),
             variables: HashMap::new(),
         }
     }
@@ -231,13 +380,17 @@ impl AstTraitType {
     }
 }
 
+pub enum AstTypeOrBinding {
+    Type(AstType),
+    Binding(String, AstType),
+}
+
 #[Adapter("crate::ast::ast_visitor::AstAdapter")]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Visit)]
 pub struct AstTraitTypeWithAssocs {
     pub trt: AstTraitType,
 
-    /// We store these bindings like this because hashmap is not hash, I
-    /// think...
+    /// We store these bindings like this because HashMap<_, _> is not Hash
     pub assoc_bindings: BTreeMap<String, AstType>,
 }
 
@@ -253,12 +406,42 @@ impl AstTraitTypeWithAssocs {
         }
     }
 
-    pub fn split(self) -> (AstTraitType, BTreeMap<String, AstType>) {
-        let AstTraitTypeWithAssocs {
-            trt: ty,
+    pub fn fn_trait(arg_tys: Vec<AstType>, return_ty: AstType) -> AstTraitTypeWithAssocs {
+        let call_trait =
+            ModuleRef::Denormalized(vec!["std".into(), "operators".into(), "Call".into()]);
+
+        let mut assoc_bindings = BTreeMap::new();
+        assoc_bindings.insert("Return".to_owned(), return_ty);
+
+        AstTraitTypeWithAssocs {
+            trt: AstTraitType::new(call_trait, vec![AstType::tuple(arg_tys)]),
             assoc_bindings,
-        } = self;
-        (ty, assoc_bindings)
+        }
+    }
+
+    pub fn try_flatten(
+        name: ModuleRef,
+        children: Vec<AstTypeOrBinding>,
+    ) -> Result<AstTraitTypeWithAssocs, AstError> {
+        let mut generics = vec![];
+        let mut assoc_bindings = BTreeMap::new();
+
+        for child in children {
+            match child {
+                AstTypeOrBinding::Type(t) => {
+                    generics.push(t);
+                },
+                AstTypeOrBinding::Binding(n, t) => {
+                    let existing = assoc_bindings.insert(n.clone(), t);
+
+                    if existing.is_some() {
+                        return Err(AstError::DuplicatedMember(n));
+                    }
+                },
+            }
+        }
+
+        Ok(AstTraitTypeWithAssocs::new(name, generics, assoc_bindings))
     }
 }
 
@@ -356,7 +539,11 @@ impl AstType {
     }
 
     pub fn none() -> AstType {
-        AstType::Tuple { types: Vec::new() }
+        AstType::Tuple { types: vec![] }
+    }
+
+    pub fn object_or_enum(object: ModuleRef, generics: Vec<AstType>) -> AstType {
+        AstType::ObjectEnum(object, generics)
     }
 
     pub fn object(object: ModuleRef, generics: Vec<AstType>) -> AstType {
@@ -419,7 +606,7 @@ impl AstBlock {
 
     pub fn empty(span: Span) -> AstBlock {
         AstBlock {
-            statements: Vec::new(),
+            statements: vec![],
             expression: Box::new(AstExpression::nothing(span)),
         }
     }
@@ -654,6 +841,12 @@ pub enum InstructionOutput {
     Anonymous(String),
 }
 
+pub enum AstEnumConstructorArguments {
+    Named(HashMap<String, AstExpression>),
+    Positional(Vec<AstExpression>),
+    Plain,
+}
+
 impl AstExpression {
     pub fn block(span: Span, block: AstBlock) -> AstExpression {
         AstExpression {
@@ -736,6 +929,25 @@ impl AstExpression {
                 else_block,
             },
             ty: AstType::infer(),
+        }
+    }
+
+    pub fn enum_constructor_from_args(
+        span: Span,
+        enumerable: ModuleRef,
+        generics: Vec<AstType>,
+        variant: String,
+        args: AstEnumConstructorArguments,
+    ) -> AstExpression {
+        match args {
+            AstEnumConstructorArguments::Plain =>
+                AstExpression::plain_enum_constructor(span, enumerable, generics, variant),
+            AstEnumConstructorArguments::Positional(args) =>
+                AstExpression::positional_enum_constructor(
+                    span, enumerable, generics, variant, args,
+                ),
+            AstEnumConstructorArguments::Named(args) =>
+                AstExpression::named_enum_constructor(span, enumerable, generics, variant, args),
         }
     }
 
@@ -835,16 +1047,6 @@ impl AstExpression {
         AstExpression {
             span,
             data: AstExpressionData::Tuple { values },
-            ty: AstType::infer(),
-        }
-    }
-
-    pub fn empty_array_literal(span: Span) -> AstExpression {
-        AstExpression {
-            span,
-            data: AstExpressionData::ArrayLiteral {
-                elements: Vec::new(),
-            },
             ty: AstType::infer(),
         }
     }
@@ -1029,8 +1231,8 @@ impl AstExpression {
     pub fn binop(
         span: Span,
         lhs: AstExpression,
-        rhs: AstExpression,
         binop: BinOpKind,
+        rhs: AstExpression,
     ) -> AstExpression {
         AstExpression {
             span,
@@ -1038,6 +1240,23 @@ impl AstExpression {
                 lhs: Box::new(lhs),
                 rhs: Box::new(rhs),
                 kind: binop,
+            },
+            ty: AstType::infer(),
+        }
+    }
+
+    pub fn binop_from_token(
+        span: Span,
+        lhs: AstExpression,
+        binop: Token,
+        rhs: AstExpression,
+    ) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::BinOp {
+                lhs: Box::new(lhs),
+                rhs: Box::new(rhs),
+                kind: BinOpKind::from_token(binop),
             },
             ty: AstType::infer(),
         }
@@ -1062,7 +1281,7 @@ impl AstExpression {
     pub fn nothing(span: Span) -> AstExpression {
         AstExpression {
             span,
-            data: AstExpressionData::Tuple { values: Vec::new() },
+            data: AstExpressionData::Tuple { values: vec![] },
             ty: AstType::infer(),
         }
     }
@@ -1153,6 +1372,51 @@ impl AstExpression {
         }
     }
 
+    pub fn as_string(expr: AstExpression) -> AstExpression {
+        AstExpression::transmute(expr.span, expr, AstType::String)
+    }
+
+    pub fn string_interpolation_begin(
+        span: Span,
+        begin: String,
+        expr_string: AstExpression,
+    ) -> AstExpression {
+        AstExpression::binop(
+            span,
+            AstExpression::literal(span, AstLiteral::String(begin)),
+            BinOpKind::Add,
+            expr_string,
+        )
+    }
+
+    pub fn string_interpolation_continue(
+        span: Span,
+        expr: AstExpression,
+        cont: String,
+        end_string: AstExpression,
+    ) -> AstExpression {
+        AstExpression::binop(
+            span,
+            AstExpression::as_string(expr),
+            BinOpKind::Add,
+            AstExpression::binop(
+                span,
+                AstExpression::literal(span, AstLiteral::String(cont)),
+                BinOpKind::Add,
+                end_string,
+            ),
+        )
+    }
+
+    pub fn string_interpolation_end(span: Span, expr: AstExpression, end: String) -> AstExpression {
+        AstExpression::binop(
+            span,
+            AstExpression::as_string(expr),
+            BinOpKind::Add,
+            AstExpression::literal(span, AstLiteral::String(end)),
+        )
+    }
+
     pub fn conditional_compilation(
         span: Span,
         branches: HashMap<String, AstBlock>,
@@ -1170,6 +1434,15 @@ impl AstExpression {
 pub struct AstMatchBranch {
     pub pattern: AstMatchPattern,
     pub expression: AstExpression,
+}
+
+impl AstMatchBranch {
+    pub fn new(pattern: AstMatchPattern, expression: AstExpression) -> AstMatchBranch {
+        AstMatchBranch {
+            pattern,
+            expression,
+        }
+    }
 }
 
 #[Adapter("crate::ast::ast_visitor::AstAdapter")]
@@ -1208,10 +1481,10 @@ pub enum AstMatchPatternData {
 }
 
 impl AstMatchPattern {
-    pub fn underscore() -> AstMatchPattern {
+    pub fn underscore(ty: AstType) -> AstMatchPattern {
         AstMatchPattern {
             data: AstMatchPatternData::Underscore,
-            ty: AstType::infer(),
+            ty,
         }
     }
 
@@ -1232,6 +1505,7 @@ impl AstMatchPattern {
         variant: String,
         children: Vec<AstMatchPattern>,
         ignore_rest: bool,
+        ty: AstType,
     ) -> AstMatchPattern {
         AstMatchPattern {
             data: AstMatchPatternData::PositionalEnum {
@@ -1241,7 +1515,7 @@ impl AstMatchPattern {
                 children,
                 ignore_rest,
             },
-            ty: AstType::infer(),
+            ty,
         }
     }
 
@@ -1251,6 +1525,7 @@ impl AstMatchPattern {
         variant: String,
         children: HashMap<String, AstMatchPattern>,
         ignore_rest: bool,
+        ty: AstType,
     ) -> AstMatchPattern {
         AstMatchPattern {
             data: AstMatchPatternData::NamedEnum {
@@ -1260,7 +1535,7 @@ impl AstMatchPattern {
                 children,
                 ignore_rest,
             },
-            ty: AstType::infer(),
+            ty,
         }
     }
 
@@ -1268,6 +1543,7 @@ impl AstMatchPattern {
         enumerable: ModuleRef,
         generics: Vec<AstType>,
         variant: String,
+        ty: AstType,
     ) -> AstMatchPattern {
         AstMatchPattern {
             data: AstMatchPatternData::PlainEnum {
@@ -1275,21 +1551,28 @@ impl AstMatchPattern {
                 generics,
                 variant,
             },
-            ty: AstType::infer(),
+            ty,
         }
     }
 
-    pub fn tuple(children: Vec<AstMatchPattern>) -> AstMatchPattern {
+    pub fn empty(ty: AstType) -> AstMatchPattern {
+        AstMatchPattern {
+            data: AstMatchPatternData::Tuple(vec![]),
+            ty,
+        }
+    }
+
+    pub fn tuple(children: Vec<AstMatchPattern>, ty: AstType) -> AstMatchPattern {
         AstMatchPattern {
             data: AstMatchPatternData::Tuple(children),
-            ty: AstType::infer(),
+            ty,
         }
     }
 
-    pub fn literal(lit: AstLiteral) -> AstMatchPattern {
+    pub fn literal(lit: AstLiteral, ty: AstType) -> AstMatchPattern {
         AstMatchPattern {
             data: AstMatchPatternData::Literal(lit),
-            ty: AstType::infer(),
+            ty,
         }
     }
 }
@@ -1324,6 +1607,27 @@ pub enum BinOpKind {
     Or,
 }
 
+impl BinOpKind {
+    pub fn from_token(op: Token) -> BinOpKind {
+        match op {
+            Token::Star => BinOpKind::Multiply,
+            Token::Slash => BinOpKind::Divide,
+            Token::Modulo => BinOpKind::Modulo,
+            Token::Plus => BinOpKind::Add,
+            Token::Minus => BinOpKind::Subtract,
+            Token::Lt => BinOpKind::Less,
+            Token::Gt => BinOpKind::Greater,
+            Token::GreaterEqual => BinOpKind::GreaterEqual,
+            Token::LessEqual => BinOpKind::LessEqual,
+            Token::NotEquals => BinOpKind::NotEqual,
+            Token::EqualsEquals => BinOpKind::EqualsEquals,
+            Token::And => BinOpKind::And,
+            Token::Pipe => BinOpKind::Or,
+            _ => unreachable!("Unknown token {}", op),
+        }
+    }
+}
+
 #[Adapter("crate::ast::ast_visitor::AstAdapter")]
 #[derive(Debug, Clone, Eq, PartialEq, Visit)]
 pub struct AstObject {
@@ -1343,10 +1647,10 @@ impl AstObject {
     pub fn new(
         file: FileId,
         name_span: Span,
-        generics: Vec<AstGeneric>,
         name: String,
-        members: Vec<AstObjectMember>,
+        generics: Vec<AstGeneric>,
         restrictions: Vec<AstTypeRestriction>,
+        members: Vec<AstObjectMember>,
     ) -> AstObject {
         AstObject {
             name_span,
@@ -1428,6 +1732,11 @@ impl AstObjectMember {
     }
 }
 
+pub enum AstTraitMember {
+    Type(String, Vec<AstTraitTypeWithAssocs>),
+    Function(AstObjectFunction),
+}
+
 #[Adapter("crate::ast::ast_visitor::AstAdapter")]
 #[derive(Debug, Clone, Eq, PartialEq, Visit)]
 pub struct AstTrait {
@@ -1463,6 +1772,47 @@ impl AstTrait {
             associated_types,
         }
     }
+
+    pub fn try_new_from_members(
+        file: FileId,
+        name_span: Span,
+        name: String,
+        generics: Vec<AstGeneric>,
+        restrictions: Vec<AstTypeRestriction>,
+        members: Vec<AstTraitMember>,
+    ) -> Result<AstTrait, AstError> {
+        let mut functions = HashMap::new();
+        let mut associated_types = HashMap::new();
+
+        for member in members {
+            match member {
+                AstTraitMember::Type(name, restrictions) => {
+                    if associated_types.contains_key(&name) {
+                        return Err(AstError::DuplicatedMember(name));
+                    }
+
+                    associated_types.insert(name.clone(), AstAssociatedType { name, restrictions });
+                },
+                AstTraitMember::Function(f) => {
+                    if functions.contains_key(&f.name) {
+                        return Err(AstError::DuplicatedMember(f.name.clone()));
+                    }
+
+                    functions.insert(f.name.clone(), f);
+                },
+            }
+        }
+
+        Ok(AstTrait::new(
+            file,
+            name_span,
+            name,
+            generics,
+            functions,
+            restrictions,
+            associated_types,
+        ))
+    }
 }
 
 #[Adapter("crate::ast::ast_visitor::AstAdapter")]
@@ -1483,6 +1833,29 @@ impl AstTypeRestriction {
     pub fn new(ty: AstType, trt: AstTraitTypeWithAssocs) -> AstTypeRestriction {
         AstTypeRestriction { ty, trt }
     }
+
+    pub fn flatten(
+        restrictions: Vec<(AstType, Vec<AstTraitTypeWithAssocs>)>,
+    ) -> Vec<AstTypeRestriction> {
+        let mut ret = vec![];
+
+        for (ty, mut trts) in restrictions {
+            if trts.len() == 1 {
+                ret.push(AstTypeRestriction::new(ty, trts.pop().unwrap()));
+            } else {
+                for trt in trts {
+                    ret.push(AstTypeRestriction::new(ty.clone(), trt));
+                }
+            }
+        }
+
+        ret
+    }
+}
+
+pub enum AstImplMember {
+    Type(String, AstType),
+    Function(AstObjectFunction),
 }
 
 #[Adapter("crate::ast::ast_visitor::AstAdapter")]
@@ -1533,6 +1906,47 @@ impl AstImpl {
             fns,
             associated_types,
         }
+    }
+
+    pub fn try_new_from_members(
+        name_span: Span,
+        generics: Vec<AstGeneric>,
+        trait_ty: Option<AstTraitType>,
+        impl_ty: AstType,
+        restrictions: Vec<AstTypeRestriction>,
+        members: Vec<AstImplMember>,
+    ) -> Result<AstImpl, AstError> {
+        let mut functions = HashMap::new();
+        let mut associated_types = HashMap::new();
+
+        for member in members {
+            match member {
+                AstImplMember::Type(name, ty) => {
+                    if associated_types.contains_key(&name) {
+                        return Err(AstError::DuplicatedMember(name));
+                    }
+
+                    associated_types.insert(name, ty);
+                },
+                AstImplMember::Function(f) => {
+                    if functions.contains_key(&f.name) {
+                        return Err(AstError::DuplicatedMember(f.name.clone()));
+                    }
+
+                    functions.insert(f.name.clone(), f);
+                },
+            }
+        }
+
+        Ok(AstImpl::new(
+            name_span,
+            generics,
+            trait_ty,
+            impl_ty,
+            functions,
+            restrictions,
+            associated_types,
+        ))
     }
 
     pub fn new_id() -> ImplId {
@@ -1618,6 +2032,46 @@ pub struct AstEnumVariant {
     /// positions. If None, then this enum is positional, and we cannot use
     /// field names.
     pub field_names: Option<HashMap<String, usize>>,
+}
+
+impl AstEnumVariant {
+    pub fn new_plain(name_span: Span, name: String) -> AstEnumVariant {
+        AstEnumVariant {
+            name_span,
+            name,
+            fields: vec![],
+            field_names: None,
+        }
+    }
+
+    pub fn new_named(
+        name_span: Span,
+        name: String,
+        fields: Vec<(String, AstType)>,
+    ) -> AstEnumVariant {
+        let field_names = fields
+            .iter()
+            .enumerate()
+            .map(|(i, (f, _))| (f.clone(), i))
+            .collect();
+        let fields = fields.into_iter().map(|(_, t)| t).collect();
+
+        AstEnumVariant {
+            name_span,
+            name,
+            fields,
+            field_names: Some(field_names),
+        }
+    }
+
+    pub fn new_positional(name_span: Span, name: String, fields: Vec<AstType>) -> AstEnumVariant {
+        AstEnumVariant {
+            name_span,
+            name,
+            fields,
+            field_names: None,
+        }
+    }
 }
 
 /// Used in tyck

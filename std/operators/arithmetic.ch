@@ -58,7 +58,7 @@ impl Subtract<Char> for Char {
   fn sub(self, other: Char) -> Int {
       impl "llvm" {
         instruction "sub" (self, other) -> $tmp.
-        instruction "sext" ($tmp, :Int) -> Int
+        instruction "sext" ($tmp, _ :Int) -> Int
       } else impl "looking_glass" {
         instruction "csub" (self, other) -> Int
       }

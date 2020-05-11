@@ -708,7 +708,7 @@ impl LookingGlass {
         args: &[InstructionArgument],
         scope: &mut StackMap<VariableId, CheshireValue>,
     ) -> LResult<Vec<CheshireValue>> {
-        let mut ret = Vec::new();
+        let mut ret = vec![];
 
         for arg in args {
             match arg {
@@ -844,7 +844,7 @@ impl LookingGlass {
         exprs: &[AstExpression],
         scope: &mut StackMap<VariableId, CheshireValue>,
     ) -> LResult<Vec<CheshireValue>> {
-        let mut ret = Vec::new();
+        let mut ret = vec![];
 
         for expr in exprs {
             ret.push(self.evaluate_expression(expr, scope)?);

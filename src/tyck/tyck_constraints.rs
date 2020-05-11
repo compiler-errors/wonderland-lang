@@ -19,7 +19,7 @@ impl TyckConstraintAssumptionAdapter {
     pub fn new(analyzed_program: AnalyzedProgram) -> TyckConstraintAssumptionAdapter {
         TyckConstraintAssumptionAdapter {
             analyzed_program,
-            dummy_impls: Vec::new(),
+            dummy_impls: vec![],
             self_ty: None,
         }
     }
@@ -78,11 +78,11 @@ impl TyckConstraintAssumptionAdapter {
 
         let dummy = AnImplData {
             impl_id,
-            generics: Vec::new(),
+            generics: vec![],
             methods: HashMap::new(),
             trait_ty: Some(trt.trt.clone()),
             impl_ty: ty.clone(),
-            restrictions: Vec::new(),
+            restrictions: vec![],
             associated_tys,
             is_dummy: true,
         };

@@ -40,9 +40,9 @@ impl Hash for String {
 
     for c in self {
       let c_as_i = impl "llvm" {
-        instruction "zext" (c, :Int) -> Int
+        instruction "zext" (c, _ :Int) -> Int
       } else impl "looking_glass" {
-        instruction "reinterpret" (c, :Int) -> Int
+        instruction "reinterpret" (c, _ :Int) -> Int
       }.
 
       h = instruction "xor" (h, c_as_i) -> Int.
@@ -57,9 +57,9 @@ impl Hash for String {
 impl Hash for Char {
   fn hash(self) -> Int {
     let c_as_i = impl "llvm" {
-      instruction "zext" (self, :Int) -> Int
+      instruction "zext" (self, _ :Int) -> Int
     } else impl "looking_glass" {
-      instruction "reinterpret" (self, :Int) -> Int
+      instruction "reinterpret" (self, _ :Int) -> Int
     }.
     
     c_as_i:hash()

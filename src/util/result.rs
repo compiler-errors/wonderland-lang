@@ -31,8 +31,8 @@ impl PError {
                 span: None,
                 string: error,
             },
-            comments: Vec::new(),
-            related_messages: Vec::new(),
+            comments: vec![],
+            related_messages: vec![],
         }
     }
 
@@ -42,8 +42,8 @@ impl PError {
                 span: Some(span),
                 string: error,
             },
-            comments: Vec::new(),
-            related_messages: Vec::new(),
+            comments: vec![],
+            related_messages: vec![],
         }
     }
 

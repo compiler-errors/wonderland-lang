@@ -492,7 +492,7 @@ impl<'ctx> Translator<'ctx> {
         return_type: &AstType,
         _exported: bool,
     ) -> PResult<FunctionValue<'ctx>> {
-        let mut param_tys = Vec::new();
+        let mut param_tys = vec![];
 
         for param in parameter_list {
             param_tys.push(self.get_llvm_ty(&param.ty)?);
@@ -713,7 +713,7 @@ impl<'ctx> Translator<'ctx> {
                 variant,
                 children,
             } => {
-                let mut flat_children = Vec::new();
+                let mut flat_children = vec![];
                 for child in children {
                     flat_children.extend(self.translate_expression(builder, child)?);
                 }
@@ -768,7 +768,7 @@ impl<'ctx> Translator<'ctx> {
                 .collect(),
 
             AstExpressionData::Tuple { values } => {
-                let mut tup = Vec::new();
+                let mut tup = vec![];
                 for v in values {
                     tup.extend(self.translate_expression(builder, v)?);
                 }
@@ -782,7 +782,7 @@ impl<'ctx> Translator<'ctx> {
                 let element_ast_ty =
                     AstType::get_element(&expression.ty).with_context(expression.span)?;
 
-                let mut elements = Vec::new();
+                let mut elements = vec![];
                 for expr in element_exprs {
                     elements.push(self.translate_expression(builder, expr)?);
                 }
@@ -839,8 +839,8 @@ impl<'ctx> Translator<'ctx> {
                 let name = decorate_fn(fn_name, generics)?;
                 let fun = self.module.get_function(&name).unwrap();
 
-                let mut arg_tys = Vec::new();
-                let mut args = Vec::new();
+                let mut arg_tys = vec![];
+                let mut args = vec![];
                 for expr in args_exprs {
                     args.push(self.translate_expression(builder, expr)?);
                     arg_tys.push(expr.ty.clone());
@@ -848,7 +848,7 @@ impl<'ctx> Translator<'ctx> {
 
                 // I need to bundle AFTER all of the expressions have been evaluated.
                 // We never want to be holding a bundled value through a possibly GC'able call.
-                let mut bundled_args = Vec::new();
+                let mut bundled_args = vec![];
                 for (e, ty) in ZipExact::zip_exact(args, arg_tys, "arguments")? {
                     bundled_args.push(self.bundle_vals(builder, &e, &ty)?);
                 }
@@ -873,8 +873,8 @@ impl<'ctx> Translator<'ctx> {
                 )?;
                 let fun = self.module.get_function(&name).unwrap();
 
-                let mut arg_tys = Vec::new();
-                let mut args = Vec::new();
+                let mut arg_tys = vec![];
+                let mut args = vec![];
                 for expr in args_exprs {
                     args.push(self.translate_expression(builder, expr)?);
                     arg_tys.push(expr.ty.clone());
@@ -882,7 +882,7 @@ impl<'ctx> Translator<'ctx> {
 
                 // I need to bundle AFTER all of the expressions have been evaluated.
                 // We never want to be holding a bundled value through a possibly GC'able call.
-                let mut bundled_args = Vec::new();
+                let mut bundled_args = vec![];
                 for (e, ty) in ZipExact::zip_exact(args, arg_tys, "arguments")? {
                     bundled_args.push(self.bundle_vals(builder, &e, &ty)?);
                 }
@@ -1452,7 +1452,7 @@ impl<'ctx> Translator<'ctx> {
         builder: &Builder<'ctx>,
         args: &[InstructionArgument],
     ) -> PResult<Vec<BasicValueEnum<'ctx>>> {
-        let mut values = Vec::new();
+        let mut values = vec![];
 
         for arg in args {
             values.push(self.translate_instruction_argument(builder, arg)?);
@@ -1466,7 +1466,7 @@ impl<'ctx> Translator<'ctx> {
         builder: &Builder<'ctx>,
         args: &[InstructionArgument],
     ) -> PResult<Vec<IntValue<'ctx>>> {
-        let mut output = Vec::new();
+        let mut output = vec![];
 
         for arg in args {
             if let InstructionArgument::Expression(AstExpression {
@@ -1774,7 +1774,7 @@ impl<'ctx> Translator<'ctx> {
         } = c
         {
             let id = new_type_id();
-            let mut captured_ids = Vec::new();
+            let mut captured_ids = vec![];
             let mut indices = HashMap::new();
             let mut ast_tys = HashMap::new();
             let mut tys = HashMap::new();
@@ -2001,7 +2001,7 @@ impl<'ctx> Translator<'ctx> {
 
         let (end_block, end_builder) = self.get_new_block(&builder)?;
 
-        let mut switch = Vec::new();
+        let mut switch = vec![];
         for t in tys {
             let id = self.type_ids[&t];
             debug!("GC_VISIT: {} => {}", t, id);
@@ -2420,7 +2420,7 @@ impl<'ctx> Translator<'ctx> {
     ) -> PResult<Vec<BasicValueEnum<'ctx>>> {
         match t {
             AstType::Tuple { types } => {
-                let mut ret = Vec::new();
+                let mut ret = vec![];
 
                 for (i, subty) in types.into_iter().enumerate() {
                     let subval = builder
@@ -2433,7 +2433,7 @@ impl<'ctx> Translator<'ctx> {
             },
             AstType::Enum(name, generics) => {
                 let en = InstEnumSignature(name.clone(), generics.clone());
-                let mut ret = Vec::new();
+                let mut ret = vec![];
 
                 for (i, subty) in self.enums[&en].fields.iter().enumerate() {
                     let subval = builder
@@ -2470,7 +2470,7 @@ impl<'ctx> Translator<'ctx> {
     ) -> PResult<Vec<PointerValue<'ctx>>> {
         match t {
             AstType::Tuple { types } => {
-                let mut ret = Vec::new();
+                let mut ret = vec![];
 
                 for (i, subty) in types.into_iter().enumerate() {
                     let subval = unsafe { builder.build_struct_gep(v, i as u32, &temp_name()) };
@@ -2481,7 +2481,7 @@ impl<'ctx> Translator<'ctx> {
             },
             AstType::Enum(name, generics) => {
                 let en = InstEnumSignature(name.clone(), generics.clone());
-                let mut ret = Vec::new();
+                let mut ret = vec![];
 
                 for (i, subty) in self.enums[&en].fields.iter().enumerate() {
                     let subval = unsafe { builder.build_struct_gep(v, i as u32, &temp_name()) };
@@ -2514,7 +2514,7 @@ impl<'ctx> Translator<'ctx> {
     ) -> PResult<Vec<PointerValue<'ctx>>> {
         match t {
             AstType::Tuple { types } => {
-                let mut ret = Vec::new();
+                let mut ret = vec![];
 
                 for (i, subty) in types.into_iter().enumerate() {
                     let subval = builder
@@ -2527,7 +2527,7 @@ impl<'ctx> Translator<'ctx> {
             },
             AstType::Enum(name, generics) => {
                 let en = InstEnumSignature(name.clone(), generics.clone());
-                let mut ret = Vec::new();
+                let mut ret = vec![];
 
                 for (i, subty) in self.enums[&en].fields.iter().enumerate() {
                     let subval = builder
@@ -2575,7 +2575,7 @@ impl<'ctx> Translator<'ctx> {
     fn flatten_globals(&self, t: &AstType) -> PResult<Vec<GlobalValue<'ctx>>> {
         match t {
             AstType::Tuple { types } => {
-                let mut ret = Vec::new();
+                let mut ret = vec![];
 
                 for subty in types.into_iter() {
                     ret.extend(self.flatten_globals(subty)?);
@@ -2585,7 +2585,7 @@ impl<'ctx> Translator<'ctx> {
             },
             AstType::Enum(name, generics) => {
                 let en = InstEnumSignature(name.clone(), generics.clone());
-                let mut ret = Vec::new();
+                let mut ret = vec![];
 
                 for subty in &self.enums[&en].fields {
                     let subtys = self.flatten_globals(subty)?;

@@ -4,8 +4,8 @@ use std::iterator::resize_array_internal.
 let default_size: Int = 8.
 
 object Vector<_T> {
-  array: [_T].
-  size: Int.
+  array: [_T],
+  size: Int,
 }
 
 impl<_T> for Vector<_T> {
@@ -36,7 +36,7 @@ impl<_T> for Vector<_T> {
       self:size = self:size - 1.
       let elem = self:array[self:size].
       self:array[self:size] = impl "llvm" {
-        instruction "ch_zeroed" (:_T) -> _T
+        instruction "ch_zeroed" (_ :_T) -> _T
       } else impl "looking_glass" {
         instruction "undefined" () -> _T
       }.
@@ -82,8 +82,8 @@ impl<_T> Iterable for Vector<_T> {
 enum VectorIterator<_T> {
   Iterator {
     vector: Vector<_T>,
-    idx: Int
-  }.
+    idx: Int,
+  },
 }
 
 impl<_T> Iterator for VectorIterator<_T> {

@@ -67,7 +67,7 @@ impl TyckSolver {
                 successes: HashMap::new(),
                 ambiguous: None,
             }],
-            return_type: Vec::new(),
+            return_type: vec![],
             variables: HashMap::new(),
             loops: HashMap::new(),
         }
@@ -402,7 +402,7 @@ impl TyckSolver {
         );
 
         let trait_data = &self.program.clone().analyzed_traits[&trt.trt.name];
-        let mut solutions = Vec::new();
+        let mut solutions = vec![];
 
         for imp in &trait_data.impls {
             let impl_generics: Vec<_> = self.program.analyzed_impls[imp]
@@ -540,7 +540,7 @@ impl TyckSolver {
             name
         );
 
-        let mut solutions = Vec::new();
+        let mut solutions = vec![];
         for trt in &self.program.clone().methods_to_traits[name] {
             let trait_data = &self.program.clone().analyzed_traits[&trt];
 
@@ -635,7 +635,7 @@ impl TyckSolver {
             name
         );
 
-        let mut solutions = Vec::new();
+        let mut solutions = vec![];
 
         if let Some(traits) = self.program.clone().methods_to_traits.get(name) {
             for trt in traits {
@@ -783,7 +783,7 @@ impl TyckSolver {
             trt
         );
 
-        let mut solutions = Vec::new();
+        let mut solutions = vec![];
 
         let trait_data = &self.program.clone().analyzed_traits[&trt.trt.name];
 
@@ -1022,7 +1022,7 @@ impl TyckSolver {
     }
 
     fn normalize_tys(&mut self, tys: &[AstType]) -> PResult<Vec<AstType>> {
-        let mut ret_tys = Vec::new();
+        let mut ret_tys = vec![];
 
         for t in tys {
             ret_tys.push(self.normalize_ty(t.clone())?);

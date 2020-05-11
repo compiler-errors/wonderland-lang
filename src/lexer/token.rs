@@ -77,7 +77,7 @@ pub enum Token {
     Char,
     SelfType,
     FnTrait,
-    ClosureEnvType,
+    ClosureEnvironment,
 
     // Literals
     String(String),
@@ -96,8 +96,6 @@ pub enum Token {
 
     /// End of file
     EOF,
-    /// Beginning of file
-    BOF,
 }
 
 impl Display for Token {
@@ -170,8 +168,8 @@ impl Display for Token {
             Token::Char => write!(f, "Type (Char)"),
             Token::StringType => write!(f, "Type (String)"),
             Token::SelfType => write!(f, "Type (Self)"),
-            Token::ClosureEnvType => write!(f, "Type (ClosureEnvType)"),
             Token::FnTrait => write!(f, "Fn"),
+            Token::ClosureEnvironment => write!(f, "Type (ClosureEnvironment)"),
             Token::String(_) => write!(f, "String"),
             Token::InterpolateBegin(_) => write!(f, "InterpolateBegin"),
             Token::InterpolateContinue(_) => write!(f, "InterpolateContinue"),
@@ -184,7 +182,6 @@ impl Display for Token {
             Token::TypeName(_) => write!(f, "TypeName"),
             Token::GenericName(_) => write!(f, "GenericName"),
             Token::EOF => write!(f, "EOF"),
-            Token::BOF => write!(f, "BOF"),
         }
     }
 }

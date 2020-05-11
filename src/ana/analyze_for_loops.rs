@@ -83,18 +83,21 @@ impl AstAdapter for AnalyzeForLoops {
                     span,
                     AstBlock::new(
                         vec![AstStatement::let_statement(
-                            AstMatchPattern::tuple(vec![
-                                AstMatchPattern::identifier(
-                                    span,
-                                    item_name.clone(),
-                                    AstType::infer(),
-                                ),
-                                AstMatchPattern::identifier(
-                                    span,
-                                    iter_name.clone(),
-                                    AstType::infer(),
-                                ),
-                            ]),
+                            AstMatchPattern::tuple(
+                                vec![
+                                    AstMatchPattern::identifier(
+                                        span,
+                                        item_name.clone(),
+                                        AstType::infer(),
+                                    ),
+                                    AstMatchPattern::identifier(
+                                        span,
+                                        iter_name.clone(),
+                                        AstType::infer(),
+                                    ),
+                                ],
+                                AstType::infer(),
+                            ),
                             AstExpression::object_call(
                                 span,
                                 AstExpression::object_call(

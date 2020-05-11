@@ -9,6 +9,8 @@ extern crate getopts;
 extern crate log;
 #[macro_use]
 extern crate adapter;
+#[macro_use]
+extern crate lalrpop_util;
 
 #[cfg(feature = "ana")]
 use crate::ana::analyze;
@@ -17,7 +19,7 @@ use crate::ana::analyze;
 use crate::inst::instantiate;
 
 #[cfg(feature = "lex")]
-use crate::lexer::{Lexer, Token};
+use crate::lexer::Lexer;
 
 #[cfg(feature = "parse")]
 use crate::parser::parse_program;
@@ -44,7 +46,6 @@ use crate::util::{report_err, FileId, FileRegistry, PError, PResult};
 
 use getopts::{Matches, Options};
 
-use crate::lexer::SpanToken;
 use std::{
     ffi::OsString,
     io::{Read, Write},
@@ -92,7 +93,7 @@ enum Mode {
     Evaluate,
 }
 
-const DEFAULT_MODE: Mode = Mode::Translate;
+const DEFAULT_MODE: Mode = Mode::Evaluate;
 
 fn main() {
     env_logger::builder().init();
@@ -182,7 +183,7 @@ fn get_files(mode: Mode, matches: &[String]) -> PResult<Vec<FileId>> {
         }
     } else {
         let (paths, stdin): (Vec<_>, Vec<_>) = matches.iter().partition(|s| *s != "-");
-        let mut files = Vec::new();
+        let mut files = vec![];
 
         for p in paths {
             let p = Path::new(p);
@@ -334,21 +335,16 @@ cheshire (-c | --compile) [--llvm-ir | -L] FILE... [-S | --tempdir DIR] [-O OUTP
 
 #[cfg(feature = "lex")]
 fn try_lex(files: Vec<FileId>) -> PResult<()> {
-    let lexers = files
-        .into_iter()
-        .map(Lexer::new)
-        .collect::<PResult<Vec<Lexer>>>()?;
+    for file in files {
+        let contents = FileRegistry::open(file)?;
+        let lex = Lexer::new(file, &contents);
 
-    for mut lex in lexers {
-        loop {
-            let SpanToken(t, _) = lex.bump_token()?;
+        for t in lex {
+            let (_, t, _) = t?;
             print!("{} ", t);
-
-            if t == Token::EOF {
-                println!();
-                break;
-            }
         }
+
+        println!();
     }
 
     Ok(())

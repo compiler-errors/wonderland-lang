@@ -321,13 +321,13 @@ impl InstantiationAdapter {
             .map(|(i, v)| (v.clone(), i as u64))
             .collect();
 
-        let mut fields = Vec::new();
+        let mut fields = vec![];
         let mut variants = HashMap::new();
 
         for (name, variant) in e.variants {
             let mut free_fields: HashMap<usize, AstType> =
                 fields.iter().cloned().enumerate().collect();
-            let mut member_idxes = Vec::new();
+            let mut member_idxes = vec![];
 
             for f in variant.fields {
                 for t in self.flatten_ty(f) {

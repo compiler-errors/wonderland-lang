@@ -1,6 +1,6 @@
 enum Option<_T> {
-  Some(_T).
-  None.
+  Some(_T),
+  None,
 }
 
 impl<_T> for Option<_T> {
