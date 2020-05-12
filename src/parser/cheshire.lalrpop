@@ -120,7 +120,7 @@ PlusSeparated<T>: Vec<T> = {
     <v:(<T> "+")*> <e:T> => append(v, e),
 };
 
-// --- The actual grammar --- //
+// --- Types --- //
 
 Generic: AstGeneric = GenericName => AstGeneric::new(<>);
 
@@ -139,19 +139,22 @@ TransmuteType = BaseType<"transmute">;
 BaseType<C>: AstType = {
     <AssociableType<C>>,
     <TupleType>,
-    GenericName => AstType::generic(<>.to_string()),
     "_" => AstType::infer(),
     "[" <Type> "]" => AstType::array(<>),
+    
     // This is not allowed to be in the RHS of an "expr as Ty"
     "fn" "(" <CommaTrailingOrEmpty<Type>> ")" <MaybeReturn> if  C != "transmute" =>
         AstType::fn_ptr_type(<>),
+    
     // This is not allowed to be in the RHS of an "expr as Ty" or the argument of a closure
     "|" <CommaTrailingOrEmpty<ClosureParameterType>> "|" <MaybeReturn> if C == "all" =>
         AstType::closure_type(<>),
 };
 
 AssociableType<C>: AstType = {
+    // Any type can be accessed with brackets, e.g. `<()>::AssociatedType`
     "<" <Type> ">",
+
     "Int" => AstType::Int,
     "Float" => AstType::Float,
     "Bool" => AstType::Bool,
@@ -159,18 +162,22 @@ AssociableType<C>: AstType = {
     "Char" => AstType::Char,
     "Self" => AstType::SelfType,
     "ClosureEnvironment" => AstType::ClosureEnvType,
+    GenericName => AstType::generic(<>.to_string()),
 
     "<" <Type> "as" <TraitTypeWithAssocs> ">" =>
         AstType::elaborated_type(<>),
 
-    <AssociableType<C>> "::" <TypeName> =>
-        AstType::associated_type(<>),
-
-    // Only plain typenames are allowed in the RHS of a "expr as Ty". Otherwise, use "as <Ty>"
+    // Object or enum types, with optional generic. E.g. `Option<Int>`
+    // NOTE: Only plain typenames are allowed in the RHS of a "expr as Ty". 
+    // That is, `as Ty<_T>` is disallowed. Instead, use "as <Ty<_T>>".
     <TypeNamePath> <MaybeExprGenerics> if C != "transmute" =>
         AstType::object_or_enum(<>),
     <TypeNamePath> if C == "transmute" =>
         AstType::object_or_enum(<>, vec![]),
+
+    // An associated type, e.g. `<()>::Item`
+    <AssociableType<C>> "::" <TypeName> =>
+        AstType::associated_type(<>),
 }
 
 TupleType: AstType = {
@@ -191,11 +198,6 @@ MaybeExprGenerics = {
     () => vec![],
 };
 
-MaybeColonExprGenerics = {
-    ":<" <CommaTrailing<Type>> ">",
-    () => vec![],
-};
-
 TraitTypeWithAssocs: AstTraitTypeWithAssocs = {
     <TypeNamePath> <MaybeExprGenericsOrAssoc> =>? Ok(AstTraitTypeWithAssocs::try_flatten(<>)?),
     "Fn" "(" <CommaTrailingOrEmpty<Type>> ")" <MaybeReturn> => AstTraitTypeWithAssocs::fn_trait(<>),
@@ -211,9 +213,12 @@ TypeOrBinding: AstTypeOrBinding = {
     "::" <TypeName> "=" <Type> => AstTypeOrBinding::Binding(<>),
 };
 
-// --- PROGRAM --- ///
+// --- Program --- ///
 
-pub Module: AstModule = <ModuleMember*> =>? Ok(AstModule::try_new_from_members(file, module_name.to_string(), <>)?);
+pub Module: AstModule = {
+    <ModuleMember*> =>? 
+        Ok(AstModule::try_new_from_members(file, module_name.to_string(), <>)?);
+};
 
 ModuleMember: AstModuleMember = {
     <u:Use> => AstModuleMember::Use(u.0, u.1),
@@ -225,12 +230,14 @@ ModuleMember: AstModuleMember = {
     <Global> => AstModuleMember::Global(<>),
 };
 
+// -- Global --- //
+
 Global: AstGlobalVariable = {
     "let" <l:@L> <i:Identifier> <h:@R> ":" <t:Type> "=" <e:Expression> "."+ =>
         AstGlobalVariable::new(file, Span::new(file, l, h), i, t, e),
 };
 
-/// --- FUNCTION --- ///
+/// --- Function --- ///
 
 Function: AstFunction = {
     "export" "fn" <l:@L> <i:Identifier> <h:@R> <g:MaybeDeclGenerics> <p:DeclParams> <r:MaybeReturn> <w:MaybeRestrictions> "." =>
@@ -260,6 +267,8 @@ MaybeRestrictions: Vec<AstTypeRestriction> = {
     "where" <Comma<TypeRestriction>> => AstTypeRestriction::flatten(<>),
     () => vec![],
 };
+
+// --- Statement --- //
 
 Block: AstBlock = {
     <@L> "{" "."* "}" <@R> => AstBlock::empty(Span::new(file, <>)),
@@ -291,6 +300,7 @@ Prec2 = { "&" };
 Prec3 = { "<", ">", "<=", ">=", "==", "!=" };
 Prec4 = { "+", "-" };
 Prec5 = { "*", "/", "%" };
+// Prec6 = { unary "!", unary "-" }
 
 Expression = Expression0<"all">;
 // Expressions that can precede a block, e.g. ```if <PreblockExpression> {```
@@ -304,15 +314,9 @@ Expression0<PB>: AstExpression = {
 Expression1<PB> = {
     <UndottableExpression>,
     LBinOp<Prec1, Expression2<PB>>,
-
-    <l:@L> "|" <p:CommaTrailingOrEmpty<Pattern>> "|" "->" <r:Type> <bl:@L> <b:Block> <h:@R> =>
-        AstExpression::closure(Span::new(file, l, h), p, r, AstExpression::block(Span::new(file, bl, h), b)),
-    <l:@L> "|" <p:CommaTrailingOrEmpty<Pattern>> "|" <e:Expression1<PB>> <h:@R> =>
-        AstExpression::closure(Span::new(file, l, h), p, AstType::infer(), e),
-
+    <ClosureExpression<PB>>,
     <ControlFlowExpression<PB>>,
-    <l:@L> "instruction" <i:String> "(" <p:CommaTrailingOrEmpty<InstructionArgument>> ")" "->" <o:InstructionOutput> <h:@R> =>
-        AstExpression::instruction(Span::new(file, l, h), i, p, o),
+    <InstructionExpression>,
 };
 Expression2<PB> = LBinOp<Prec2, Expression3<PB>>;
 Expression3<PB> = LBinOp<Prec3, Expression4<PB>>;
@@ -325,6 +329,20 @@ Expression6<PB> = {
 };
 Expression7<PB> = BaseExpression<PB>;
 
+InstructionExpression: AstExpression = {
+    <l:@L> "instruction" <i:String> "(" <p:CommaTrailingOrEmpty<InstructionArgument>> ")" "->" <o:InstructionOutput> <h:@R> =>
+        AstExpression::instruction(Span::new(file, l, h), i, p, o),
+};
+
+ClosureExpression<PB>: AstExpression = {
+    <l:@L> "|" <p:CommaTrailingOrEmpty<Pattern>> "|" "->" <r:Type> <bl:@L> <b:Block> <h:@R> =>
+        AstExpression::closure(Span::new(file, l, h), p, r, AstExpression::block(Span::new(file, bl, h), b)),
+    <l:@L> "|" <p:CommaTrailingOrEmpty<Pattern>> "|" <e:Expression1<PB>> <h:@R> =>
+        AstExpression::closure(Span::new(file, l, h), p, AstType::infer(), e),
+};
+
+// "Control-flow" expressions. These are not all control-flow (e.g. `assert`),
+// but are characterized as being quite statement-like and they have especially low precedence.
 ControlFlowExpression<PB>: AstExpression = {
     <l:@L> "assert" <e:Expression2<PB>> <h:@R> =>
         AstExpression::assert_statement(Span::new(file, l, h), e),
@@ -342,33 +360,34 @@ ControlFlowExpression<PB>: AstExpression = {
         AstExpression::continue_stmt(Span::new(file, l, h), Some(i)),
 };
 
-ConditionalCompilationExpression: AstExpression = {
-    <l:@L> <v:(<ConditionalCompilationBranch> "else")+> <e: ConditionalCompilationBranch> <h:@R> =>?
-        Ok(AstExpression::conditional_compilation(Span::new(file, l, h), dedupe("conditional compilation", append(v, e))?)),
-};
-
-ConditionalCompilationBranch: (String, AstBlock) = {
-    "impl" <String> <Block>,
-};
-
 BaseExpression<PB>: AstExpression = {
+    // Any expression that can be on the LHS of the `()` operator, e.g. `Call` trait
     <CallableExpression>,
-    <l:@L> <c:BaseExpression<PB>> "[" <i:Expression> "]" <h:@R> => AstExpression::access(Span::new(file, l, h), c, i),
+    // Array access syntax. Even non-callable base expressions can be accessed.
+    <l:@L> <c:BaseExpression<PB>> "[" <i:Expression> "]" <h:@R> => 
+        AstExpression::access(Span::new(file, l, h), c, i),
+    // An object-access or object-call
     <l:@L> <ex: BaseExpression<PB>> ":" <id: Identifier> <call: MaybeObjectCall> <h:@R> => match call {
         None => AstExpression::object_access(Span::new(file, l, h), ex, id),
         Some((generics, args)) => AstExpression::object_call(Span::new(file, l, h), ex, id, generics, args),
     },
+    // Tuple access, e.g. `(1, 2):0`
     <l:@L> <ex: BaseExpression<PB>> ":" <id: Integer> <h:@R> =>?
         Ok(AstExpression::tuple_access(Span::new(file, l, h), ex, usize::from_str(&id)
             .map_err(|_| ParseError::User {
                 error: PError::new_at(Span::new(file, l, h), format!("Cannot parse `{}` as tuple index", id))
         })?)),
+    // Enum constructor
     <l:@L> <e:TypeNamePath> <g:MaybeExprGenerics> "!" <v:TypeName> <a:EnumConstructorArguments<PB>> <h:@R> =>
         AstExpression::enum_constructor_from_args(Span::new(file, l, h), e, g, v, a),
+    // Object allocation, e.g. `allocate Box { item: 1 }`
+    // NOTE: This cannot exist in a position preceding a block, 
+    // e.g. `if allocate Box { item: 1 }` is illegal.
     <l:@L> "allocate" <o:TypeNamePath> <g:MaybeExprGenerics> "{" "}" <h:@R> if PB != "preblock" =>
         AstExpression::allocate_object(Span::new(file, l, h), o, g, HashMap::new()),
     <l:@L> "allocate" <o:TypeNamePath> <g:MaybeExprGenerics> <f:NamedExpressionFields> <h:@R> if PB != "preblock" =>
         AstExpression::allocate_object(Span::new(file, l, h), o, g, f),
+    // A transmute operator. This desugars into `<_ as Into<T>>::into(e)`
     <l:@L> <e:BaseExpression<PB>> "as" <t:TransmuteType> <h:@R> =>
         AstExpression::transmute(Span::new(file, l, h), e, t),
 };
@@ -387,6 +406,11 @@ InstructionOutput: InstructionOutput = {
 MaybeObjectCall: Option<(Vec<AstType>, Vec<AstExpression>)> = {
     <MaybeColonExprGenerics> "(" <CommaTrailingOrEmpty<Expression>> ")" => Some((<>)),
     () => None,
+};
+
+MaybeColonExprGenerics = {
+    ":<" <CommaTrailing<Type>> ">",
+    () => vec![],
 };
 
 NamedExpressionFields: HashMap<String, AstExpression> = {
@@ -418,6 +442,8 @@ CallableExpression: AstExpression = {
     <l:@L> <s:InterpolateBegin> <s2:InterpolateBody> <h:@R> => AstExpression::string_interpolation_begin(Span::new(file, l, h), s, s2),
 };
 
+// These are block-like expressions, and they are important because 
+// they can stand as statements without an extra `.` operator.
 UndottableExpression: AstExpression = {
     <IfStatement>,
     <l:@L> <a:MaybeLabel> "while" <c:PreblockExpression> <b:Block> <e:MaybeElseBlock> <h:@R> => AstExpression::while_loop(Span::new(file, l, h), a, c, b, e),
@@ -427,19 +453,31 @@ UndottableExpression: AstExpression = {
     <ConditionalCompilationExpression>,
 };
 
-MaybeElseOrIfBlock: AstBlock = {
-    "else" <IfStatement> => AstBlock::new(vec![], <>),
-    "else" <Block>,
-    <l:@L> => AstBlock::empty(Span::new(file, l, l)),
-};
-
-IfStatement: AstExpression = {
-    <l:@L> "if" <c:PreblockExpression> <b:Block> <e:MaybeElseOrIfBlock> <h:@R> => AstExpression::if_statement(Span::new(file, l, h), c, b, e),
-};
-
 MaybeLabel: Option<String> = {
     ":" <Identifier> => Some(<>),
     () => None,
+};
+
+ConditionalCompilationExpression: AstExpression = {
+    <l:@L> <v:(<ConditionalCompilationBranch> "else")+> <e: ConditionalCompilationBranch> <h:@R> =>?
+        Ok(AstExpression::conditional_compilation(Span::new(file, l, h), dedupe("conditional compilation", append(v, e))?)),
+};
+
+ConditionalCompilationBranch: (String, AstBlock) = {
+    "impl" <String> <Block>,
+};
+
+MaybeElseOrIfBlock: AstBlock = {
+    <l:@L> => AstBlock::empty(Span::new(file, l, l)),
+    "else" <Block>,
+    // `if` expressions are the only ones that can be chained 
+    // after an `else` without an additional block.
+    "else" <IfStatement> => AstBlock::new(vec![], <>),
+};
+
+IfStatement: AstExpression = {
+    <l:@L> "if" <c:PreblockExpression> <b:Block> <e:MaybeElseOrIfBlock> <h:@R> => 
+        AstExpression::if_statement(Span::new(file, l, h), c, b, e),
 };
 
 MaybeElseBlock: AstBlock = {
@@ -448,18 +486,17 @@ MaybeElseBlock: AstBlock = {
 };
 
 IdentifierExpression: AstExpression = {
-    <l:@L> <k: IdentifierPath> <h:@R> => {
-        if let ModuleRef::Denormalized(mut k) = k {
-            if k.len() == 1 {
-                AstExpression::identifier(Span::new(file, l, h), k.pop().unwrap())
-            } else {
-                AstExpression::global_variable(Span::new(file, l, h), k)
-            }
-        } else {
-            unreachable!()
-        }
+    <l:@L> <k: IdentifierPath> <h:@R> => match k {
+        ModuleRef::Denormalized([i]) =>
+            AstExpression::identifier(Span::new(file, l, h), i),
+        ModuleRef::Denormalized(k) =>
+            AstExpression::global_variable(Span::new(file, l, h), k),
+        _ => unreachable!(),
     },
-    <l:@L> <i:IdentifierPath> ":<" <g:CommaTrailing<Type>> ">" "(" <p:CommaTrailingOrEmpty<Expression>> ")" <h:@R> => AstExpression::call(Span::new(file, l, h), i, g, p),
+    // Function calls with the "minifish" syntax, e.g.
+    //   panic:<Int>("Yikes!")
+    <l:@L> <i:IdentifierPath> ":<" <g:CommaTrailing<Type>> ">" "(" <p:CommaTrailingOrEmpty<Expression>> ")" <h:@R> 
+        => AstExpression::call(Span::new(file, l, h), i, g, p),
 };
 
 InterpolateBody: AstExpression = {
@@ -486,11 +523,34 @@ MatchBranch: AstMatchBranch = {
     <Pattern> "=>" <Expression> => AstMatchBranch::new(<>),
 };
 
-PositionalPatternFields: (Vec<AstMatchPattern>, bool) = {
-    "(" "..." ")" => (vec![], true),
-    "(" <Pattern> ")" => (vec![<>], false),
-    "(" <(<Pattern> ",")+> "..." ")" => (<>, true),
-    "(" <(<Pattern> ",")+> <Pattern?> ")" => (append_maybe(<>), false),
+// --- Patterns --- //
+
+Pattern: AstMatchPattern = {
+    // Ignore pattern, `_`
+    "_" <MaybePatternType> => AstMatchPattern::underscore(<>),
+    // A literal pattern (Bool, String, Int, Float, Char)
+    <Literal> <MaybePatternType> => AstMatchPattern::literal(<>),
+    // A variable binding
+    <l:@L> <i:Identifier> <t:MaybePatternType> <h:@R> => 
+        AstMatchPattern::identifier(Span::new(file, l, h), i, t),
+    // The empty tuple pattern
+    "(" ")" <MaybePatternType> => AstMatchPattern::empty(<>),
+    // A non-empty tuple pattern
+    // NOTE: This does not allow `(a)`, due to congruency with tuple construction.
+    "(" <v:(<Pattern> ",")+> <e:Pattern?> ")" <t: MaybePatternType> =>
+        AstMatchPattern::tuple(append_maybe(v, e), t),
+    // Enum constructor tuple patterns
+    <e:TypeNamePath> <g:MaybeExprGenerics> "!" <v:TypeName> <t:MaybePatternType> =>
+        AstMatchPattern::plain_enum(e, g, v, t),
+    <e:TypeNamePath> <g:MaybeExprGenerics> "!" <v:TypeName> <p:NamedPatternFields> <t:MaybePatternType> =>?
+        Ok(AstMatchPattern::named_enum(e, g, v, dedupe("named enum", p.0)?, p.1, t)),
+    <e:TypeNamePath> <g:MaybeExprGenerics> "!" <v:TypeName> <p:PositionalPatternFields> <t:MaybePatternType> =>
+        AstMatchPattern::positional_enum(e, g, v, p.0, p.1, t),
+};
+
+MaybePatternType: AstType = {
+    ":" <Type>,
+    () => AstType::infer(),
 };
 
 NamedPatternFields: (Vec<(String, AstMatchPattern)>, bool) = {
@@ -505,40 +565,35 @@ NamedPatternField: (String, AstMatchPattern) = {
     <Identifier> ":" <Pattern>,
 };
 
-Pattern: AstMatchPattern = {
-    "_" <MaybePatternType> => AstMatchPattern::underscore(<>),
-    <Literal> <MaybePatternType> => AstMatchPattern::literal(<>),
-    <l:@L> <i:Identifier> <t:MaybePatternType> <h:@R> => AstMatchPattern::identifier(Span::new(file, l, h), i, t),
-    "(" ")" <MaybePatternType> => AstMatchPattern::empty(<>),
-    "(" <v:(<Pattern> ",")+> <e:Pattern?> ")" <t: MaybePatternType> =>
-        AstMatchPattern::tuple(append_maybe(v, e), t),
-    <e:TypeNamePath> <g:MaybeExprGenerics> "!" <v:TypeName> <t:MaybePatternType> =>
-        AstMatchPattern::plain_enum(e, g, v, t),
-    <e:TypeNamePath> <g:MaybeExprGenerics> "!" <v:TypeName> <p:PositionalPatternFields> <t:MaybePatternType> =>
-        AstMatchPattern::positional_enum(e, g, v, p.0, p.1, t),
-    <e:TypeNamePath> <g:MaybeExprGenerics> "!" <v:TypeName> <p:NamedPatternFields> <t:MaybePatternType> =>?
-        Ok(AstMatchPattern::named_enum(e, g, v, dedupe("named enum", p.0)?, p.1, t)),
+PositionalPatternFields: (Vec<AstMatchPattern>, bool) = {
+    "(" "..." ")" => (vec![], true),
+    "(" <Pattern> ")" => (vec![<>], false),
+    "(" <(<Pattern> ",")+> "..." ")" => (<>, true),
+    "(" <(<Pattern> ",")+> <Pattern?> ")" => (append_maybe(<>), false),
 };
 
-MaybePatternType: AstType = {
-    ":" <Type>,
-    () => AstType::infer(),
-};
-
-// --- USE --- //
+// --- Use --- //
 
 Use: (bool, AstUse) = {
-    "use" <p:"pub"?> <m:MaybeMod> <v:(<Identifier> "::")*> <e:TypeName> "." => (p.is_some(), AstUse::Use(combine(m, v), e)),
-    "use" <p:"pub"?> <m:MaybeMod> <v:(<Identifier> "::")*> <e:Identifier> "." => (p.is_some(), AstUse::Use(combine(m, v), e)),
-    "use" <p:"pub"?> <m:MaybeMod> <v:(<Identifier> "::")*> "*" "." => (p.is_some(), AstUse::UseAll(combine(m, v))),
+    // use a::b::c::Type.
+    "use" <p:"pub"?> <m:MaybeMod> <v:(<Identifier> "::")*> <e:TypeName> "." 
+        => (p.is_some(), AstUse::Use(combine(m, v), e)),
+    // use a::b::c::d.
+        "use" <p:"pub"?> <m:MaybeMod> <v:(<Identifier> "::")*> <e:Identifier> "." 
+        => (p.is_some(), AstUse::Use(combine(m, v), e)),
+    // use a::b::c::*.
+        "use" <p:"pub"?> <m:MaybeMod> <v:(<Identifier> "::")*> "*" "." 
+        => (p.is_some(), AstUse::UseAll(combine(m, v))),
 };
 
+// Possibly append `mod::` to the beginning of a `use` statement.
+// When done so, it will be expanded by the parser to the full module path of the current file.
 MaybeMod: Vec<String> = {
     "mod" "::" => FileRegistry::parent_mod_path(file),
     () => vec![],
 }
 
-// --- OBJECT --- //
+// --- Object --- //
 
 Object: AstObject = {
     "object" <l:@L> <t:TypeName> <h:@R> <g:MaybeDeclGenerics> <r:MaybeRestrictions> "{" <m:CommaTrailingOrEmpty<ObjectMember>> "}" =>
@@ -549,7 +604,7 @@ ObjectMember: AstObjectMember = {
     <l:@L> <i:Identifier> ":" <t:Type> <h:@R> => AstObjectMember::new(Span::new(file, l, h), i, t),
 };
 
-// --- TRAIT --- //
+// --- Trait --- //
 
 Trait: AstTrait = {
     "trait" <l:@L> <t:TypeName> <h:@R> <g:MaybeDeclGenerics> <r:MaybeRestrictions> "{" <m:(TraitMember)*> "}" =>?
@@ -557,27 +612,35 @@ Trait: AstTrait = {
 };
 
 TraitMember: AstTraitMember = {
+    // Associated type, with optional type constraints
+    // e.g. `type Item: Eq<Int> + Hash.`
     "type" <TypeName> "." => AstTraitMember::Type(<>, vec![]),
     "type" <TypeName> ":" <PlusSeparated<TraitTypeWithAssocs>> "." => AstTraitMember::Type(<>),
+    // Object function signature, e.g. `fn add(self, i: Int) -> Int.`
     <ObjectFunctionSignature> "." => AstTraitMember::Function(<>),
 };
 
+// Object function signatures are bodyless, and therefore have None definition.
 ObjectFunctionSignature: AstObjectFunction = {
     "fn" <l:@L> <i:Identifier> <h:@R> <g:MaybeDeclGenerics> <p:DeclObjectParams> <r:MaybeReturn> <w:MaybeRestrictions> =>
         AstObjectFunction::new(Span::new(file, l, h), i, g, p.0, p.1, r, w, None),
 };
 
 DeclObjectParams: (bool, Vec<AstNamedVariable>) = {
+    // Regular declaration parameters, no `self` type
+    "(" <CommaTrailingOrEmpty<DeclParam>> ")" => (false, <>),
+    // Case of `(self)`
+    // NOTE: for stupid reasons I delegated appending the "self" parameter to the parser. Why?
     "(" <l:@L> "self" <h:@R> ")" =>
         (true, vec![AstNamedVariable::new(Span::new(file, l, h), "self".to_string(), AstType::SelfType)]),
+    // Case of `(self, a: Int, b: (Int,))`
     "(" <l:@L> "self" <h:@R> "," <mut p:CommaTrailingOrEmpty<DeclParam>> ")" => {
         p.insert(0, AstNamedVariable::new(Span::new(file, l, h), "self".to_string(), AstType::SelfType));
         (true, p)
     },
-    "(" <CommaTrailingOrEmpty<DeclParam>> ")" => (false, <>),
 };
 
-// --- ENUM --- //
+// --- Enum --- //
 
 Enum: AstEnum = {
     "enum" <l:@L> <t:TypeName> <h:@R> <g:MaybeDeclGenerics> <r:MaybeRestrictions> "{" <v:CommaTrailingOrEmpty<EnumVariant>> "}" =>?
@@ -585,21 +648,22 @@ Enum: AstEnum = {
 };
 
 EnumVariant: (String, AstEnumVariant) = {
+    // Plain enum, e.g. Option!None
     <l:@L> <v:TypeName> <h:@R> =>
         (v.clone(), AstEnumVariant::new_plain(Span::new(file, l, h), v)),
+    // Named enum, e.g. Enum!Name { a: 1, b }
     <l:@L> <v:TypeName> <h:@R> "{" <f:CommaTrailing<NamedEnumField>> "}" =>? {
         check_dedupe("named enum variant", &f)?;
         Ok((v.clone(), AstEnumVariant::new_named(Span::new(file, l, h), v, f)))
     },
+    // Positional enum, e.g. Option!Some(1)
     <l:@L> <v:TypeName> <h:@R> "(" <f:CommaTrailing<Type>> ")" =>
         (v.clone(), AstEnumVariant::new_positional(Span::new(file, l, h), v, f)),
 };
 
-NamedEnumField = {
-    <Identifier> ":" <Type>,
-};
+NamedEnumField = <Identifier> ":" <Type>;
 
-// -- IMPL --- //
+// -- Impl --- //
 
 Impl: AstImpl = {
     <l:@L> "impl" <h:@R> <g:MaybeDeclGenerics> <tr:TraitType?> "for" <t:Type> <r:MaybeRestrictions> "{" <m:(ImplMember)*> "}" =>?
@@ -607,7 +671,9 @@ Impl: AstImpl = {
 };
 
 ImplMember: AstImplMember = {
+    // Associated type
     "type" <TypeName> "=" <Type> "." => AstImplMember::Type(<>),
+    // Member implementation
     <mut f:ObjectFunctionSignature> <b:Block> => {
         f.definition = Some(b);
         AstImplMember::Function(f)
