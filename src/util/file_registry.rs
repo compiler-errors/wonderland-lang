@@ -13,7 +13,7 @@ use std::{
 };
 use tempfile::NamedTempFile;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FileId(pub usize);
 
 pub struct FileRegistry {
@@ -116,6 +116,11 @@ impl FileRegistry {
                 children.push((path, mod_path));
             }
         }
+
+        info!(
+            "Seeked directory {:?} with {:?}, got {:?}",
+            path, mod_path, children
+        );
 
         Ok(children)
     }

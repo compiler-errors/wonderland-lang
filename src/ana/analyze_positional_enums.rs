@@ -60,7 +60,7 @@ impl AstAdapter for AnalyzePositionalEnums {
     }
 
     fn enter_ast_match_pattern(&mut self, p: AstMatchPattern) -> PResult<AstMatchPattern> {
-        let AstMatchPattern { data, ty } = p;
+        let AstMatchPattern { span, data, ty } = p;
 
         let data = match data {
             AstMatchPatternData::PlainEnum {
@@ -79,18 +79,29 @@ impl AstAdapter for AnalyzePositionalEnums {
                 variant,
                 generics,
                 children,
-                ignore_rest: true,
+                ignore_rest,
             } => {
                 let expected = self.0.analyzed_enums[&enumerable].variants[&variant]
                     .fields
                     .len();
+
+                if !ignore_rest && expected != children.len() {
+                    return perror_at!(
+                        span,
+                        "In enum `{}!{}`, expected `{}` members, but found `{}`.",
+                        enumerable.full_name(),
+                        variant,
+                        expected,
+                        children.len()
+                    );
+                }
 
                 AstMatchPatternData::PositionalEnum {
                     enumerable,
                     generics,
                     variant,
                     children: augment(children, expected, || {
-                        AstMatchPattern::underscore(AstType::infer())
+                        AstMatchPattern::underscore(span, AstType::infer())
                     }),
                     ignore_rest: false,
                 }
@@ -100,19 +111,38 @@ impl AstAdapter for AnalyzePositionalEnums {
                 generics,
                 variant,
                 children,
+                ignore_rest,
                 ..
             } => {
+                let expected = self.0.analyzed_enums[&enumerable].variants[&variant]
+                    .fields
+                    .len();
                 let ordering = self.0.analyzed_enums[&enumerable].variants[&variant]
                     .field_names
                     .as_ref()
                     .unwrap();
+
+                if !ignore_rest && expected != children.len() {
+                    return perror_at!(
+                        span,
+                        "In enum `{}!{}`, expected `{}` members, but found `{}`.",
+                        enumerable.full_name(),
+                        variant,
+                        expected,
+                        children.len()
+                    );
+                }
 
                 AstMatchPatternData::PositionalEnum {
                     enumerable,
                     generics,
                     variant,
                     children: arrange(ordering, children, || {
-                        Some(AstMatchPattern::underscore(AstType::infer()))
+                        if ignore_rest {
+                            Some(AstMatchPattern::underscore(span, AstType::infer()))
+                        } else {
+                            None
+                        }
                     }),
                     ignore_rest: false,
                 }
@@ -120,7 +150,7 @@ impl AstAdapter for AnalyzePositionalEnums {
             p => p,
         };
 
-        Ok(AstMatchPattern { data, ty })
+        Ok(AstMatchPattern { span, data, ty })
     }
 }
 

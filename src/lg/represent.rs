@@ -1,9 +1,11 @@
 use crate::{
-    ast::{AstExpression, AstMatchPattern, AstNamedVariable, LoopId, ModuleRef},
+    ast::{AstExpression, AstMatchPattern, LoopId, ModuleRef, VariableId},
+    inst::InstObjectFunctionSignature,
     util::{PError, PResult},
 };
 use gc::{Gc, GcCell};
 use gc_derive::*;
+use std::collections::HashMap;
 
 #[derive(Clone, Debug, Trace, Finalize)]
 pub enum CheshireValue {
@@ -24,12 +26,23 @@ pub enum CheshireValue {
         contents: Vec<CheshireValue>,
     },
     GlobalFn(ModuleRef),
-    Closure {
-        parameters: Vec<AstMatchPattern>,
-        captured: Vec<(AstNamedVariable, AstNamedVariable)>,
-        expression: AstExpression,
-    },
+    Closure(Gc<LgClosure>),
+    DynamicBox(Gc<LgDynamicBox>),
     Undefined,
+}
+
+#[derive(Clone, Debug, Trace, Finalize)]
+pub struct LgClosure {
+    pub parameters: Vec<AstMatchPattern>,
+    pub captured: HashMap<VariableId, CheshireValue>,
+    pub expression: AstExpression,
+}
+
+#[derive(Clone, Debug, Trace, Finalize)]
+pub struct LgDynamicBox {
+    pub type_id: usize,
+    pub object: CheshireValue,
+    pub table: HashMap<String, InstObjectFunctionSignature>,
 }
 
 impl CheshireValue {
@@ -65,14 +78,26 @@ impl CheshireValue {
 
     pub fn closure(
         parameters: Vec<AstMatchPattern>,
-        captured: Vec<(AstNamedVariable, AstNamedVariable)>,
+        captured: HashMap<VariableId, CheshireValue>,
         expression: AstExpression,
     ) -> CheshireValue {
-        CheshireValue::Closure {
+        CheshireValue::Closure(Gc::new(LgClosure {
             parameters,
             captured,
             expression,
-        }
+        }))
+    }
+
+    pub fn dynamic_box(
+        type_id: usize,
+        object: CheshireValue,
+        table: HashMap<String, InstObjectFunctionSignature>,
+    ) -> CheshireValue {
+        CheshireValue::DynamicBox(Gc::new(LgDynamicBox {
+            type_id,
+            object,
+            table,
+        }))
     }
 
     pub fn get_member(&self, idx: usize) -> PResult<CheshireValue> {
@@ -96,42 +121,46 @@ impl CheshireValue {
     pub fn get_tuple_member_mut(&mut self, idx: usize) -> PResult<&mut CheshireValue> {
         match self {
             CheshireValue::ValueCollection { contents } => Ok(&mut contents[idx]),
-            _ => perror!("Cannot access member (`{}`) of the type {:?}", idx, self),
+            _ => perror!(
+                "ICE: Cannot access member (`{}`) of the type {:?}",
+                idx,
+                self
+            ),
         }
     }
 
     pub fn unwrap_int(&self) -> PResult<i64> {
         match self {
             CheshireValue::Int(i) => Ok(*i),
-            _ => perror!("Cannot unwrap value `{:?}` as Int", self),
+            _ => perror!("ICE: Cannot unwrap value `{:?}` as Int", self),
         }
     }
 
     pub fn unwrap_float(&self) -> PResult<f64> {
         match self {
             CheshireValue::Float(f) => Ok(*f),
-            _ => perror!("Cannot unwrap value `{:?}` as Float", self),
+            _ => perror!("ICE: Cannot unwrap value `{:?}` as Float", self),
         }
     }
 
     pub fn unwrap_string(&self) -> PResult<String> {
         match self {
             CheshireValue::String(s) => Ok(s.clone()),
-            _ => perror!("Cannot unwrap value `{:?}` as String", self),
+            _ => perror!("ICE: Cannot unwrap value `{:?}` as String", self),
         }
     }
 
     pub fn array_len(&self) -> PResult<usize> {
         match self {
             CheshireValue::HeapCollection { contents } => Ok(contents.borrow().len()),
-            _ => perror!("Cannot unwrap value `{:?}` as String", self),
+            _ => perror!("ICE: Cannot unwrap value `{:?}` as String", self),
         }
     }
 
     pub fn string_len(&self) -> PResult<usize> {
         match self {
             CheshireValue::String(s) => Ok(s.len()),
-            _ => perror!("Cannot unwrap value `{:?}` as String", self),
+            _ => perror!("ICE: Cannot unwrap value `{:?}` as String", self),
         }
     }
 }

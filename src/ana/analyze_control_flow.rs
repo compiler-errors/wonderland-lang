@@ -45,7 +45,6 @@ impl AstAdapter for AnalyzeControlFlow {
                 else_block,
             } => {
                 self.0.push(Some((label.clone(), id)));
-                // TODO: I strongly dislike this clone.
                 let block = block.visit(self)?;
                 self.0.pop();
 

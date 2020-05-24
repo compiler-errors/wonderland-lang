@@ -6,7 +6,7 @@ use crate::{
 };
 use std::collections::{BTreeMap, HashMap};
 
-pub struct TyckConstraintAssumptionAdapter {
+pub struct TyckGenericConstraintAssumptionAdapter {
     pub analyzed_program: AnalyzedProgram,
     pub dummy_impls: Vec<AnImplData>,
 
@@ -15,9 +15,9 @@ pub struct TyckConstraintAssumptionAdapter {
     self_ty: Option<AstType>,
 }
 
-impl TyckConstraintAssumptionAdapter {
-    pub fn new(analyzed_program: AnalyzedProgram) -> TyckConstraintAssumptionAdapter {
-        TyckConstraintAssumptionAdapter {
+impl TyckGenericConstraintAssumptionAdapter {
+    pub fn new(analyzed_program: AnalyzedProgram) -> TyckGenericConstraintAssumptionAdapter {
+        TyckGenericConstraintAssumptionAdapter {
             analyzed_program,
             dummy_impls: vec![],
             self_ty: None,
@@ -47,33 +47,36 @@ impl TyckConstraintAssumptionAdapter {
         let mut associated_tys = HashMap::new();
         for (name, _) in trt_data.associated_tys.clone() {
             if &name == "Self" {
-                panic!("ICE: this should never happen. (I removed assoc-Self a long time ago...)");
-            } else {
-                let dummy_ty = if let Some(ty) = trt.assoc_bindings.get(&name) {
-                    ty.clone()
-                } else {
-                    AstType::dummy()
-                };
-
-                let restrictions = instantiate_associated_ty_restrictions(
-                    &self.analyzed_program,
-                    &trt.trt,
-                    &name,
-                    &ty,
-                )?;
-
-                for c in restrictions {
-                    // Alas, this means that we might have assumption bounds that are literally
-                    // unprovable.
-                    self.assume(&dummy_ty, &c, depth + 1)?;
-                }
-
-                debug!(
-                    "Associated type <{} as {}>::{} = {}",
-                    ty, trt, name, dummy_ty
+                unreachable!(
+                    "ICE: this should never happen. (I removed assoc-Self a long time ago...)"
                 );
-                associated_tys.insert(name.clone(), dummy_ty);
+            };
+
+            let assoc_ty = if let Some(ty) = trt.assoc_bindings.get(&name) {
+                ty.clone()
+            } else {
+                AstType::dummy()
+            };
+
+            let restrictions = instantiate_associated_ty_restrictions(
+                &self.analyzed_program,
+                &trt.trt,
+                &name,
+                &ty,
+            )?;
+
+            for c in restrictions {
+                // Alas, this means that we might have assumption bounds that are literally
+                // unprovable.
+                self.assume(&assoc_ty, &c, depth + 1)?;
             }
+
+            debug!(
+                "Associated type <{} as {}>::{} = {}",
+                ty, trt, name, assoc_ty
+            );
+
+            associated_tys.insert(name.clone(), assoc_ty);
         }
 
         let dummy = AnImplData {
@@ -84,7 +87,7 @@ impl TyckConstraintAssumptionAdapter {
             impl_ty: ty.clone(),
             restrictions: vec![],
             associated_tys,
-            is_dummy: true,
+            kind: AnImplKind::Dummy,
         };
 
         self.dummy_impls.push(dummy.clone());
@@ -97,7 +100,7 @@ impl TyckConstraintAssumptionAdapter {
     }
 }
 
-impl AstAdapter for TyckConstraintAssumptionAdapter {
+impl AstAdapter for TyckGenericConstraintAssumptionAdapter {
     fn enter_ast_type(&mut self, t: AstType) -> PResult<AstType> {
         match t {
             AstType::SelfType => self
@@ -130,6 +133,166 @@ impl AstAdapter for TyckConstraintAssumptionAdapter {
 
         self.assume(&self.self_ty.clone().unwrap(), &self_trt, 0)?;
         self.self_ty = None;
+
+        Ok(t)
+    }
+}
+
+pub struct TyckDynamicAssumptionAdapter {
+    pub analyzed_program: AnalyzedProgram,
+    pub dummy_impls: Vec<AnImplData>,
+}
+
+impl TyckDynamicAssumptionAdapter {
+    pub fn new(analyzed_program: AnalyzedProgram) -> TyckDynamicAssumptionAdapter {
+        TyckDynamicAssumptionAdapter {
+            analyzed_program,
+            dummy_impls: vec![],
+        }
+    }
+
+    pub fn assume(&mut self, ty: &AstType, trt: &AstTraitTypeWithAssocs) -> PResult<()> {
+        debug!("Assuming {} :- {}", ty, trt);
+
+        let trt_data = self
+            .analyzed_program
+            .analyzed_traits
+            .get_mut(&trt.trt.name)
+            .unwrap();
+        let impl_id = AstImpl::new_id();
+        trt_data.impls.push(impl_id);
+
+        let mut associated_tys = HashMap::new();
+        for (name, _) in trt_data.associated_tys.clone() {
+            if &name == "Self" {
+                unreachable!(
+                    "ICE: this should never happen. (I removed assoc-Self a long time ago...)"
+                );
+            };
+
+            let assoc_ty = if let Some(ty) = trt.assoc_bindings.get(&name) {
+                ty.clone()
+            } else {
+                unreachable!(
+                    "ICE: Expected dynamic trait to have all of its associated types elaborated."
+                )
+            };
+
+            debug!(
+                "Associated type <{} as {}>::{} = {}",
+                ty, trt, name, assoc_ty
+            );
+
+            associated_tys.insert(name.clone(), assoc_ty);
+        }
+
+        let dummy = AnImplData {
+            impl_id,
+            generics: vec![],
+            methods: HashMap::new(),
+            trait_ty: Some(trt.trt.clone()),
+            impl_ty: ty.clone(),
+            restrictions: vec![],
+            associated_tys,
+            kind: AnImplKind::DynamicDispatch,
+        };
+
+        self.dummy_impls.push(dummy.clone());
+
+        self.analyzed_program.analyzed_impls.insert(impl_id, dummy);
+
+        Ok(())
+    }
+
+    fn add_dyn_into(&mut self, ty: &AstType) -> PResult<()> {
+        // impl<_T> Into<Dyn<Trt1 + Trt2>> for _T where _T: Trt1 + Trt2
+
+        if let AstType::DynamicType { trait_tys } = ty {
+            let into_trait = self
+                .analyzed_program
+                .construct_trt_ref("operators::sugar::Into")?;
+
+            let trt_data = self
+                .analyzed_program
+                .analyzed_traits
+                .get_mut(&into_trait)
+                .unwrap();
+            let impl_id = AstImpl::new_id();
+            trt_data.impls.push(impl_id);
+
+            let generic = AstGeneric::new("T".to_string());
+            let restrictions = trait_tys
+                .iter()
+                .map(|trt| AstTypeRestriction::new(generic.clone().into(), trt.clone()))
+                .collect();
+
+            let dummy = AnImplData {
+                impl_id,
+                generics: vec![generic.clone()],
+                methods: HashMap::new(),
+                trait_ty: Some(AstTraitType::new(into_trait.clone(), vec![ty.clone()])),
+                impl_ty: generic.clone().into(),
+                restrictions,
+                associated_tys: HashMap::new(),
+
+                kind: AnImplKind::DynamicCoersion,
+            };
+
+            self.dummy_impls.push(dummy.clone());
+            self.analyzed_program.analyzed_impls.insert(impl_id, dummy);
+
+            Ok(())
+        } else {
+            unreachable!()
+        }
+    }
+
+    fn add_dyn_downcast(&mut self, ty: &AstType) -> PResult<()> {
+        // impl<_T> TryDowncast<_T> for Dyn<Trt1 + Trt2> where _T: Trt1 + Trt2
+
+        if let AstType::DynamicType { .. } = ty {
+            let downcast_trait = self.analyzed_program.construct_trt_ref("any::Downcast")?;
+
+            let trt_data = self
+                .analyzed_program
+                .analyzed_traits
+                .get_mut(&downcast_trait)
+                .unwrap();
+            let impl_id = AstImpl::new_id();
+            trt_data.impls.push(impl_id);
+
+            let dummy = AnImplData {
+                impl_id,
+                generics: vec![],
+                methods: HashMap::new(),
+                trait_ty: Some(AstTraitType::new(downcast_trait.clone(), vec![])),
+                impl_ty: ty.clone(),
+                restrictions: vec![],
+                associated_tys: HashMap::new(),
+                kind: AnImplKind::DynamicDowncast,
+            };
+
+            self.dummy_impls.push(dummy.clone());
+            self.analyzed_program.analyzed_impls.insert(impl_id, dummy);
+
+            Ok(())
+        } else {
+            unreachable!()
+        }
+    }
+}
+
+impl AstAdapter for TyckDynamicAssumptionAdapter {
+    fn enter_ast_type(&mut self, t: AstType) -> PResult<AstType> {
+        match &t {
+            AstType::DynamicType { trait_tys } =>
+                for trait_ty in trait_tys {
+                    self.assume(&t, trait_ty)?;
+                    self.add_dyn_into(&t)?;
+                    self.add_dyn_downcast(&t)?;
+                },
+            _ => {},
+        }
 
         Ok(t)
     }

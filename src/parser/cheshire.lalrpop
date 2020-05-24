@@ -85,6 +85,7 @@ extern {
         "Char" => Token::Char,
         "Self" => Token::SelfType,
         "Fn" => Token::FnTrait,
+        "Dyn" => Token::DynTrait,
         "ClosureEnvironment" => Token::ClosureEnvironment,
 
         String => Token::String(<String>),
@@ -167,6 +168,9 @@ AssociableType<C>: AstType = {
     "<" <Type> "as" <TraitTypeWithAssocs> ">" =>
         AstType::elaborated_type(<>),
 
+    "Dyn" "<" <PlusSeparated<TraitTypeWithAssocs>> ">" =>?
+        Ok(AstType::dynamic_type(dedup_set("dynamic traits", <>)?)),
+
     // Object or enum types, with optional generic. E.g. `Option<Int>`
     // NOTE: Only plain typenames are allowed in the RHS of a "expr as Ty". 
     // That is, `as Ty<_T>` is disallowed. Instead, use "as <Ty<_T>>".
@@ -217,7 +221,7 @@ TypeOrBinding: AstTypeOrBinding = {
 
 pub Module: AstModule = {
     <ModuleMember*> =>? 
-        Ok(AstModule::try_new_from_members(file, module_name.to_string(), <>)?);
+        Ok(AstModule::try_new_from_members(file, module_name.to_string(), <>)?),
 };
 
 ModuleMember: AstModuleMember = {
@@ -254,7 +258,10 @@ MaybeDeclGenerics = {
 };
 
 // TODO: Verify no duplicates
-DeclParams = "(" <CommaTrailingOrEmpty<DeclParam>> ")";
+DeclParams: Vec<AstNamedVariable> = "(" <p:CommaTrailingOrEmpty<DeclParam>> ")" =>? {
+    check_dedup_keys("parameters", p.iter().map(|p| &p.name))?;
+    Ok(p)
+};
 
 DeclParam: AstNamedVariable = <l:@L> <i:Identifier> ":" <t:Type> <h:@R> => AstNamedVariable::new(Span::new(file, l, h), i, t);
 
@@ -414,7 +421,7 @@ MaybeColonExprGenerics = {
 };
 
 NamedExpressionFields: HashMap<String, AstExpression> = {
-    "{" <k: CommaTrailing<NamedExpressionField>> "}" =>? dedupe("named fields", k),
+    "{" <k: CommaTrailing<NamedExpressionField>> "}" =>? dedup_keys("named fields", k),
 };
 
 NamedExpressionField: (String, AstExpression) = {
@@ -460,7 +467,7 @@ MaybeLabel: Option<String> = {
 
 ConditionalCompilationExpression: AstExpression = {
     <l:@L> <v:(<ConditionalCompilationBranch> "else")+> <e: ConditionalCompilationBranch> <h:@R> =>?
-        Ok(AstExpression::conditional_compilation(Span::new(file, l, h), dedupe("conditional compilation", append(v, e))?)),
+        Ok(AstExpression::conditional_compilation(Span::new(file, l, h), dedup_keys("conditional compilation", append(v, e))?)),
 };
 
 ConditionalCompilationBranch: (String, AstBlock) = {
@@ -487,8 +494,8 @@ MaybeElseBlock: AstBlock = {
 
 IdentifierExpression: AstExpression = {
     <l:@L> <k: IdentifierPath> <h:@R> => match k {
-        ModuleRef::Denormalized([i]) =>
-            AstExpression::identifier(Span::new(file, l, h), i),
+        ModuleRef::Denormalized(mut k) if k.len() == 1 =>
+            AstExpression::identifier(Span::new(file, l, h), k.pop().unwrap()),
         ModuleRef::Denormalized(k) =>
             AstExpression::global_variable(Span::new(file, l, h), k),
         _ => unreachable!(),
@@ -527,25 +534,25 @@ MatchBranch: AstMatchBranch = {
 
 Pattern: AstMatchPattern = {
     // Ignore pattern, `_`
-    "_" <MaybePatternType> => AstMatchPattern::underscore(<>),
+    <l:@L> "_" <t:MaybePatternType> <h:@R> => AstMatchPattern::underscore(Span::new(file, l, h), t),
     // A literal pattern (Bool, String, Int, Float, Char)
-    <Literal> <MaybePatternType> => AstMatchPattern::literal(<>),
+    <l:@L> <i:Literal> <t:MaybePatternType> <h:@R> => AstMatchPattern::literal(Span::new(file, l, h), i, t),
     // A variable binding
     <l:@L> <i:Identifier> <t:MaybePatternType> <h:@R> => 
         AstMatchPattern::identifier(Span::new(file, l, h), i, t),
     // The empty tuple pattern
-    "(" ")" <MaybePatternType> => AstMatchPattern::empty(<>),
+    <l:@L> "(" ")" <t:MaybePatternType> <h:@R> => AstMatchPattern::empty(Span::new(file, l, h), t),
     // A non-empty tuple pattern
     // NOTE: This does not allow `(a)`, due to congruency with tuple construction.
-    "(" <v:(<Pattern> ",")+> <e:Pattern?> ")" <t: MaybePatternType> =>
-        AstMatchPattern::tuple(append_maybe(v, e), t),
+    <l:@L> "(" <v:(<Pattern> ",")+> <e:Pattern?> ")" <t: MaybePatternType> <h:@R> =>
+        AstMatchPattern::tuple(Span::new(file, l, h), append_maybe(v, e), t),
     // Enum constructor tuple patterns
-    <e:TypeNamePath> <g:MaybeExprGenerics> "!" <v:TypeName> <t:MaybePatternType> =>
-        AstMatchPattern::plain_enum(e, g, v, t),
-    <e:TypeNamePath> <g:MaybeExprGenerics> "!" <v:TypeName> <p:NamedPatternFields> <t:MaybePatternType> =>?
-        Ok(AstMatchPattern::named_enum(e, g, v, dedupe("named enum", p.0)?, p.1, t)),
-    <e:TypeNamePath> <g:MaybeExprGenerics> "!" <v:TypeName> <p:PositionalPatternFields> <t:MaybePatternType> =>
-        AstMatchPattern::positional_enum(e, g, v, p.0, p.1, t),
+    <l:@L> <e:TypeNamePath> <g:MaybeExprGenerics> "!" <v:TypeName> <t:MaybePatternType> <h:@R> =>
+        AstMatchPattern::plain_enum(Span::new(file, l, h), e, g, v, t),
+    <l:@L> <e:TypeNamePath> <g:MaybeExprGenerics> "!" <v:TypeName> <p:NamedPatternFields> <t:MaybePatternType> <h:@R> =>?
+        Ok(AstMatchPattern::named_enum(Span::new(file, l, h), e, g, v, dedup_keys("named enum", p.0)?, p.1, t)),
+    <l:@L> <e:TypeNamePath> <g:MaybeExprGenerics> "!" <v:TypeName> <p:PositionalPatternFields> <t:MaybePatternType> <h:@R> =>
+        AstMatchPattern::positional_enum(Span::new(file, l, h), e, g, v, p.0, p.1, t),
 };
 
 MaybePatternType: AstType = {
@@ -644,7 +651,7 @@ DeclObjectParams: (bool, Vec<AstNamedVariable>) = {
 
 Enum: AstEnum = {
     "enum" <l:@L> <t:TypeName> <h:@R> <g:MaybeDeclGenerics> <r:MaybeRestrictions> "{" <v:CommaTrailingOrEmpty<EnumVariant>> "}" =>?
-        Ok(AstEnum::new(file, Span::new(file, l, h), t, g, r, dedupe("enum", v)?)),
+        Ok(AstEnum::new(file, Span::new(file, l, h), t, g, r, dedup_keys("enum", v)?)),
 };
 
 EnumVariant: (String, AstEnumVariant) = {
@@ -653,7 +660,7 @@ EnumVariant: (String, AstEnumVariant) = {
         (v.clone(), AstEnumVariant::new_plain(Span::new(file, l, h), v)),
     // Named enum, e.g. Enum!Name { a: 1, b }
     <l:@L> <v:TypeName> <h:@R> "{" <f:CommaTrailing<NamedEnumField>> "}" =>? {
-        check_dedupe("named enum variant", &f)?;
+        check_dedup_keys("named enum variant", f.iter().map(|(k, _)| k))?;
         Ok((v.clone(), AstEnumVariant::new_named(Span::new(file, l, h), v, f)))
     },
     // Positional enum, e.g. Option!Some(1)

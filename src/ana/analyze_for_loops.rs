@@ -84,6 +84,7 @@ impl AstAdapter for AnalyzeForLoops {
                     AstBlock::new(
                         vec![AstStatement::let_statement(
                             AstMatchPattern::tuple(
+                                span,
                                 vec![
                                     AstMatchPattern::identifier(
                                         span,

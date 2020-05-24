@@ -3,7 +3,7 @@ use crate::{
     util::{FileId, FileRegistry, PError, Span},
 };
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     sync::RwLock,
 };
 
@@ -32,27 +32,21 @@ pub struct AstProgram {
 }
 
 #[Adapter("crate::ast::ast_visitor::AstAdapter")]
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Visit)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Visit, PartialOrd, Ord)]
 pub enum ModuleRef {
     Denormalized(Vec<String>),
     Normalized(FileId, String),
 }
 
-// Ugh, I wish this were exported in the library. This is copypasta from
-// `gc::trace::..`.
-#[cfg(feature = "lg")]
-macro_rules! simple_empty_finalize_trace {
-    ($($T:ty),*) => {
-        $(
-            impl gc::Finalize for $T {}
-            unsafe impl gc::Trace for $T { gc::unsafe_empty_trace!(); }
-        )*
-    }
-}
-
 // We don't need GC on these values.
 #[cfg(feature = "lg")]
-simple_empty_finalize_trace![ModuleRef, AstMatchPattern, AstNamedVariable, AstExpression];
+simple_empty_finalize_trace![
+    VariableId,
+    ModuleRef,
+    AstMatchPattern,
+    AstNamedVariable,
+    AstExpression
+];
 
 impl ModuleRef {
     pub fn full_name(&self) -> String {
@@ -356,19 +350,19 @@ impl AstNamedVariable {
 }
 
 #[Adapter("crate::ast::ast_visitor::AstAdapter")]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, VisitAnonymous)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, VisitAnonymous)]
 pub struct InferId(pub usize);
 
 #[Adapter("crate::ast::ast_visitor::AstAdapter")]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, VisitAnonymous)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, VisitAnonymous)]
 pub struct GenericId(pub usize);
 
 #[Adapter("crate::ast::ast_visitor::AstAdapter")]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, VisitAnonymous)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, VisitAnonymous)]
 pub struct DummyId(pub usize);
 
 #[Adapter("crate::ast::ast_visitor::AstAdapter")]
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Visit)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Visit)]
 pub struct AstTraitType {
     pub name: ModuleRef,
     pub generics: Vec<AstType>,
@@ -386,7 +380,7 @@ pub enum AstTypeOrBinding {
 }
 
 #[Adapter("crate::ast::ast_visitor::AstAdapter")]
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Visit)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Visit)]
 pub struct AstTraitTypeWithAssocs {
     pub trt: AstTraitType,
 
@@ -446,7 +440,7 @@ impl AstTraitTypeWithAssocs {
 }
 
 #[Adapter("crate::ast::ast_visitor::AstAdapter")]
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Visit)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Visit, PartialOrd, Ord)]
 /// A type as parsed by the Parser module.
 pub enum AstType {
     Infer(InferId),
@@ -492,6 +486,10 @@ pub enum AstType {
     ElaboratedType {
         obj_ty: Box<AstType>,
         trait_ty: AstTraitTypeWithAssocs,
+    },
+
+    DynamicType {
+        trait_tys: BTreeSet<AstTraitTypeWithAssocs>,
     },
 
     GenericPlaceholder(GenericId, String),
@@ -585,6 +583,10 @@ impl AstType {
             obj_ty: Box::new(ty),
             trait_ty: trt,
         }
+    }
+
+    pub fn dynamic_type(trait_tys: BTreeSet<AstTraitTypeWithAssocs>) -> AstType {
+        AstType::DynamicType { trait_tys }
     }
 }
 
@@ -1025,6 +1027,21 @@ impl AstExpression {
         }
     }
 
+    pub fn identifier_with_id(
+        span: Span,
+        identifier: String,
+        variable_id: VariableId,
+    ) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::Identifier {
+                name: identifier,
+                variable_id: Some(variable_id),
+            },
+            ty: AstType::infer(),
+        }
+    }
+
     pub fn global_variable(span: Span, path: Vec<String>) -> AstExpression {
         AstExpression {
             span,
@@ -1448,6 +1465,7 @@ impl AstMatchBranch {
 #[Adapter("crate::ast::ast_visitor::AstAdapter")]
 #[derive(Debug, Clone, Eq, PartialEq, Visit)]
 pub struct AstMatchPattern {
+    pub span: Span,
     pub data: AstMatchPatternData,
     pub ty: AstType,
 }
@@ -1481,25 +1499,24 @@ pub enum AstMatchPatternData {
 }
 
 impl AstMatchPattern {
-    pub fn underscore(ty: AstType) -> AstMatchPattern {
+    pub fn underscore(span: Span, ty: AstType) -> AstMatchPattern {
         AstMatchPattern {
             data: AstMatchPatternData::Underscore,
             ty,
+            span,
         }
     }
 
-    pub fn identifier(name_span: Span, name: String, ty: AstType) -> AstMatchPattern {
+    pub fn identifier(span: Span, name: String, ty: AstType) -> AstMatchPattern {
         AstMatchPattern {
-            data: AstMatchPatternData::Identifier(AstNamedVariable::new(
-                name_span,
-                name,
-                ty.clone(),
-            )),
+            data: AstMatchPatternData::Identifier(AstNamedVariable::new(span, name, ty.clone())),
             ty,
+            span,
         }
     }
 
     pub fn positional_enum(
+        span: Span,
         enumerable: ModuleRef,
         generics: Vec<AstType>,
         variant: String,
@@ -1516,10 +1533,12 @@ impl AstMatchPattern {
                 ignore_rest,
             },
             ty,
+            span,
         }
     }
 
     pub fn named_enum(
+        span: Span,
         enumerable: ModuleRef,
         generics: Vec<AstType>,
         variant: String,
@@ -1536,10 +1555,12 @@ impl AstMatchPattern {
                 ignore_rest,
             },
             ty,
+            span,
         }
     }
 
     pub fn plain_enum(
+        span: Span,
         enumerable: ModuleRef,
         generics: Vec<AstType>,
         variant: String,
@@ -1552,27 +1573,31 @@ impl AstMatchPattern {
                 variant,
             },
             ty,
+            span,
         }
     }
 
-    pub fn empty(ty: AstType) -> AstMatchPattern {
+    pub fn empty(span: Span, ty: AstType) -> AstMatchPattern {
         AstMatchPattern {
+            span,
             data: AstMatchPatternData::Tuple(vec![]),
             ty,
         }
     }
 
-    pub fn tuple(children: Vec<AstMatchPattern>, ty: AstType) -> AstMatchPattern {
+    pub fn tuple(span: Span, children: Vec<AstMatchPattern>, ty: AstType) -> AstMatchPattern {
         AstMatchPattern {
             data: AstMatchPatternData::Tuple(children),
             ty,
+            span,
         }
     }
 
-    pub fn literal(lit: AstLiteral, ty: AstType) -> AstMatchPattern {
+    pub fn literal(span: Span, lit: AstLiteral, ty: AstType) -> AstMatchPattern {
         AstMatchPattern {
             data: AstMatchPatternData::Literal(lit),
             ty,
+            span,
         }
     }
 }

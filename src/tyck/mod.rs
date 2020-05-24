@@ -6,30 +6,34 @@ pub use crate::tyck::{
 use crate::{
     ana::represent::AnalyzedProgram,
     ast::*,
-    tyck::tyck_constraints::{Dummifier, TyckConstraintAssumptionAdapter},
+    tyck::tyck_constraints::{Dummifier, TyckGenericConstraintAssumptionAdapter},
     util::{Context, FileRegistry, PResult, Visit},
 };
 use std::{collections::HashMap, fmt::Debug, rc::Rc};
+pub use tyck_constraints::TyckDynamicAssumptionAdapter;
 
 mod tyck_constraints;
-mod tyck_instantiation;
+pub mod tyck_instantiation;
 mod tyck_represent;
 mod tyck_solver;
 
 const TYCK_MAX_DEPTH: usize = 64;
 
 pub fn typecheck(analyzed_program: &AnalyzedProgram, parsed_program: &AstProgram) -> PResult<()> {
-    let mut constraint_assumptions = TyckConstraintAssumptionAdapter::new(analyzed_program.clone());
+    let parsed_program = parsed_program.clone().visit(&mut Dummifier)?;
 
-    let parsed_program = parsed_program
-        .clone()
-        .visit(&mut Dummifier)?
-        .visit(&mut constraint_assumptions)?;
+    let mut generic_assumptions =
+        TyckGenericConstraintAssumptionAdapter::new(analyzed_program.clone());
+    let parsed_program = parsed_program.visit(&mut generic_assumptions)?;
 
-    let analyzed_program = Rc::new(constraint_assumptions.analyzed_program);
+    let mut dynamic_assumptions =
+        TyckDynamicAssumptionAdapter::new(generic_assumptions.analyzed_program);
+    let parsed_program = parsed_program.visit(&mut dynamic_assumptions)?;
+
+    let analyzed_program = Rc::new(dynamic_assumptions.analyzed_program);
     let base_solver = TyckSolver::new(analyzed_program.clone());
 
-    for imp in constraint_assumptions.dummy_impls {
+    for imp in generic_assumptions.dummy_impls {
         typecheck_simple(&base_solver, imp).with_comment(|| format!("Dummy impl"))?;
     }
 
@@ -85,7 +89,7 @@ pub fn typecheck_module(
     for (_, imp) in impls {
         let imp = typecheck_impl(&base_solver, imp)?;
 
-        if !program.analyzed_impls[&imp.impl_id].is_dummy {
+        if program.analyzed_impls[&imp.impl_id].is_regular() {
             typecheck_impl_collisions(&base_solver, &imp)?;
         }
     }
@@ -155,6 +159,7 @@ fn typecheck_impl_collisions(base_solver: &TyckSolver, imp: &AstImpl) -> PResult
         let t = TyckInstantiatedImpl {
             impl_ty: imp.impl_ty.clone(),
             trait_ty: trait_ty.clone(),
+            impl_signature: None,
         };
 
         let mut solver = base_solver.clone();

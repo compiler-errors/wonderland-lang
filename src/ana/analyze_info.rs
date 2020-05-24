@@ -1,3 +1,4 @@
+use super::represent::AnImplKind;
 use crate::{
     ana::{
         analyze_modules::{ModuleMap, SharedModule},
@@ -42,6 +43,7 @@ impl AnalyzeInfo {
             parameters: fun.parameter_list.iter().map(|p| p.ty.clone()).collect(),
             return_type: fun.return_type.clone(),
             restrictions: fun.restrictions.clone(),
+            has_self: fun.has_self,
         }
     }
 }
@@ -55,6 +57,7 @@ impl AstAdapter for AnalyzeInfo {
                 parameters: fun.parameter_list.iter().map(|p| p.ty.clone()).collect(),
                 return_type: fun.return_type.clone(),
                 restrictions: fun.restrictions.clone(),
+                has_self: false,
             };
 
             self.analyzed_program
@@ -188,7 +191,7 @@ impl AstAdapter for AnalyzeInfo {
                 impl_ty: imp.impl_ty.clone(),
                 restrictions: imp.restrictions.clone(),
                 associated_tys: imp.associated_types.clone(),
-                is_dummy: false,
+                kind: AnImplKind::Regular,
             };
 
             if imp.trait_ty.is_none() {

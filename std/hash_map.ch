@@ -100,8 +100,6 @@ impl<_K, _V> for HashMap<_K, _V> where _K: Equals<_K> + Hash {
   }
 
   fn try_grow(self) {
-    // TODO: Let's integrate this into some type of ensure_size or resize or smth.
-
     if (self:size as Float) > (self:num_buckets as Float) * threshold {
       let old_buckets = self:buckets.
       self:num_buckets = self:num_buckets * 2.

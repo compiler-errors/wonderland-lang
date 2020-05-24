@@ -2,20 +2,22 @@ use crate::{
     ast::{
         AstBlock, AstExpression, AstExpressionData, AstFunction, AstGlobalVariable, AstLiteral,
         AstMatchBranch, AstMatchPattern, AstMatchPatternData, AstNamedVariable, AstObject,
-        AstObjectFunction, AstStatement, InstructionArgument, InstructionOutput, ModuleRef,
-        VariableId,
+        AstObjectFunction, AstStatement, AstTraitType, AstTraitTypeWithAssocs, AstType,
+        InstructionArgument, InstructionOutput, ModuleRef, VariableId,
     },
     inst::{
-        InstEnumRepresentation, InstEnumSignature, InstFunctionSignature,
-        InstObjectFunctionSignature, InstObjectSignature, InstantiatedProgram,
+        decorate::decorate_dynamic_fn, InstEnumRepresentation, InstEnumSignature,
+        InstFunctionSignature, InstObjectFunctionSignature, InstObjectSignature,
+        InstantiatedProgram,
     },
     lg::represent::{CheshireValue, LError, LResult, ShouldPopStack},
     util::{Expect, PResult, StackMap, ZipExact},
 };
+use represent::{LgClosure, LgDynamicBox};
 use std::{
     cell::RefCell,
     collections::HashMap,
-    ops::{BitXor, Shr},
+    ops::{BitXor, Deref, Shr},
 };
 
 mod represent;
@@ -29,6 +31,11 @@ struct LookingGlass {
     pub program_enums: HashMap<InstEnumSignature, InstEnumRepresentation>,
     pub program_globals: HashMap<ModuleRef, AstGlobalVariable>,
 
+    /// Precomputed associations to make calculating dynamic v-tables easier
+    pub program_object_tables:
+        HashMap<(AstType, AstTraitType), HashMap<String, InstObjectFunctionSignature>>,
+    pub type_ids: HashMap<AstType, usize>,
+
     pub global_variables: RefCell<HashMap<ModuleRef, CheshireValue>>,
 }
 
@@ -41,8 +48,29 @@ pub fn evaluate(program: InstantiatedProgram) -> PResult<()> {
         instantiated_objects,
         instantiated_enums,
         instantiated_globals,
+
+        instantiated_types,
         ..
     } = program;
+
+    let mut program_object_tables: HashMap<_, HashMap<_, _>> = HashMap::new();
+
+    for (sig, fun) in &instantiated_object_fns {
+        if !is_dyn_dispatchable(fun) {
+            continue;
+        }
+
+        let InstObjectFunctionSignature(ty, trt, name, _) = sig;
+
+        if let Some(trt) = trt {
+            let decorated_name = decorate_dynamic_fn(trt, name)?;
+
+            program_object_tables
+                .entry((ty.clone(), trt.clone()))
+                .or_default()
+                .insert(decorated_name, sig.clone());
+        }
+    }
 
     let mut lg = LookingGlass {
         main_fn,
@@ -52,6 +80,13 @@ pub fn evaluate(program: InstantiatedProgram) -> PResult<()> {
         program_objects: instantiated_objects,
         program_enums: instantiated_enums,
         program_globals: instantiated_globals,
+
+        program_object_tables,
+        type_ids: instantiated_types
+            .into_iter()
+            .enumerate()
+            .map(|(i, t)| (t, i))
+            .collect(),
 
         global_variables: RefCell::new(HashMap::new()),
     };
@@ -67,9 +102,9 @@ pub fn evaluate(program: InstantiatedProgram) -> PResult<()> {
             info!("Exited early with code `{}'", exit_code);
             Ok(())
         },
-        Err(LError::Return(_)) => unreachable!("Uncaught `return` in LookingGlass evaluation"),
-        Err(LError::Continue(_)) => unreachable!("Uncaught `continue` in LookingGlass evaluation"),
-        Err(LError::Break(..)) => unreachable!("Uncaught `break` in LookingGlass evaluation"),
+        Err(LError::Return(_)) => perror!("Uncaught `return` in LookingGlass evaluation"),
+        Err(LError::Continue(_)) => perror!("Uncaught `continue` in LookingGlass evaluation"),
+        Err(LError::Break(..)) => perror!("Uncaught `break` in LookingGlass evaluation"),
         Err(LError::InternalException(err)) => Err(err),
     }
 }
@@ -80,7 +115,7 @@ impl LookingGlass {
 
         for (var, val) in &self.program_globals {
             let mut scope = StackMap::new();
-            debug!("Initializing `{}` as `{:?}`", val.name, val.init);
+            debug!("Initializing global `{}` as `{:?}`", val.name, val.init);
             let val = self.evaluate_expression(&val.init, &mut scope)?;
             global_variables.insert(var.clone(), val);
         }
@@ -158,14 +193,14 @@ impl LookingGlass {
         &self,
         parameters: &[AstMatchPattern],
         args: Vec<CheshireValue>,
-        env: HashMap<VariableId, CheshireValue>,
+        env: &HashMap<VariableId, CheshireValue>,
         definition: &AstExpression,
     ) -> LResult<CheshireValue> {
         let mut scope = StackMap::new();
         scope.push();
 
         for (id, val) in env {
-            scope.add(id, val);
+            scope.add(*id, val.clone());
         }
 
         for (param, arg) in ZipExact::zip_exact(parameters, args, "arguments")? {
@@ -255,8 +290,15 @@ impl LookingGlass {
                 expr,
                 captured,
                 ..
-            } =>
-                CheshireValue::closure(params.clone(), captured.clone().unwrap(), (**expr).clone()),
+            } => {
+                let mut env = HashMap::new();
+
+                for (old, new) in captured.as_ref().unwrap() {
+                    env.insert(new.id, scope.get(&old.id).clone().unwrap());
+                }
+
+                CheshireValue::closure(params.clone(), env, (**expr).clone())
+            },
 
             AstExpressionData::FnCall {
                 fn_name,
@@ -466,18 +508,14 @@ impl LookingGlass {
                             let fun = &self.program_fns[&fun_signature];
                             self.evaluate_function(fun, args)?
                         },
-                        CheshireValue::Closure {
-                            parameters,
-                            captured,
-                            expression,
-                        } => {
-                            let mut env = HashMap::new();
+                        CheshireValue::Closure(closure) => {
+                            let LgClosure {
+                                parameters,
+                                captured,
+                                expression,
+                            } = closure.deref();
 
-                            for (old, new) in captured {
-                                env.insert(new.id, scope.get(&old.id).unwrap());
-                            }
-
-                            self.evaluate_closure(parameters, args, env, expression)?
+                            self.evaluate_closure(parameters, args, captured, expression)?
                         },
                         _ => unreachable!(),
                     }
@@ -675,6 +713,52 @@ impl LookingGlass {
                     self.breakpoint();
                     CheshireValue::value_collection(vec![])
                 },
+                (
+                    "ch_dynamic_box",
+                    [obj, InstructionArgument::Type(obj_ty), InstructionArgument::Type(dyn_ty)],
+                ) => {
+                    let obj = self.evaluate_instruction_argument(obj, scope)?;
+                    self.evaluate_dynamic_box(obj, obj_ty, dyn_ty)?
+                },
+                (
+                    "ch_dynamic_transmute",
+                    [obj, InstructionArgument::Type(old_dyn_ty), InstructionArgument::Type(new_dyn_ty)],
+                ) => {
+                    let obj = self.evaluate_instruction_argument(obj, scope)?;
+                    self.evaluate_dynamic_transmute(obj, old_dyn_ty, new_dyn_ty)?
+                },
+                ("ch_dynamic_dispatch", fun_and_args) => {
+                    if let InstructionArgument::Expression(AstExpression {
+                        data: AstExpressionData::Literal(AstLiteral::String(fn_name)),
+                        ..
+                    }) = &fun_and_args[0]
+                    {
+                        let args =
+                            self.evaluate_instruction_arguments(&fun_and_args[1..], scope)?;
+                        self.evaluate_dynamic_dispatch(fn_name, args)?
+                    } else {
+                        unreachable!(
+                            "Always expects a string literal as the first argument to \
+                             ch_dynamic_dispatch"
+                        );
+                    }
+                },
+                ("ch_dynamic_unbox", [obj, InstructionArgument::Type(ty)]) => {
+                    let obj = self.evaluate_instruction_argument(obj, scope)?;
+                    if let CheshireValue::DynamicBox(dyn_box) = &obj {
+                        let LgDynamicBox {
+                            type_id, object, ..
+                        } = dyn_box.deref();
+
+                        if *type_id == self.type_ids[&ty] {
+                            CheshireValue::enum_variant("Some".to_string(), vec![object.clone()])
+                        } else {
+                            CheshireValue::enum_variant("None".to_string(), vec![])
+                        }
+                    } else {
+                        unreachable!("Can only downcast a Dyn type");
+                    }
+                },
                 ("gc", []) => {
                     gc::force_collect();
                     CheshireValue::value_collection(vec![])
@@ -721,6 +805,79 @@ impl LookingGlass {
         }
 
         Ok(ret)
+    }
+
+    fn evaluate_dynamic_box(
+        &self,
+        obj: CheshireValue,
+        obj_ty: &AstType,
+        dyn_ty: &AstType,
+    ) -> PResult<CheshireValue> {
+        if let AstType::DynamicType { trait_tys } = dyn_ty {
+            let mut table = HashMap::new();
+
+            for AstTraitTypeWithAssocs { trt, .. } in trait_tys {
+                let key = (obj_ty.clone(), trt.clone());
+
+                if self.program_object_tables.contains_key(&key) {
+                    for (decorated_name, signature) in &self.program_object_tables[&key] {
+                        table.insert(decorated_name.clone(), signature.clone());
+                    }
+                }
+            }
+
+            Ok(CheshireValue::dynamic_box(
+                self.type_ids[obj_ty],
+                obj,
+                table,
+            ))
+        } else {
+            unreachable!("Can only box if given a dynamic type")
+        }
+    }
+
+    fn evaluate_dynamic_transmute(
+        &self,
+        dyn_obj: CheshireValue,
+        old_dyn_ty: &AstType,
+        new_dyn_ty: &AstType,
+    ) -> PResult<CheshireValue> {
+        if let (
+            CheshireValue::DynamicBox(_),
+            AstType::DynamicType { .. },
+            AstType::DynamicType { .. },
+        ) = (&dyn_obj, old_dyn_ty, new_dyn_ty)
+        {
+            Ok(dyn_obj)
+        } else {
+            unreachable!("Incorrect dynamic transmute...")
+        }
+    }
+
+    fn evaluate_dynamic_dispatch(
+        &self,
+        fn_name: &str,
+        mut args: Vec<CheshireValue>,
+    ) -> LResult<CheshireValue> {
+        let self_arg = args.remove(0);
+
+        if let CheshireValue::DynamicBox(dyn_box) = &self_arg {
+            let LgDynamicBox { object, table, .. } = dyn_box.deref();
+
+            args.insert(0, object.clone());
+
+            debug!(
+                "Dispatching function `{}`. My table has keys {:?}",
+                fn_name,
+                table.keys()
+            );
+
+            let sig = &table[fn_name];
+            let fun = &self.program_object_fns[sig];
+            self.evaluate_object_function(fun, args)
+        } else {
+            unreachable!()
+        }
     }
 
     fn assign_lval(
@@ -950,4 +1107,20 @@ impl LookingGlass {
 
     #[cfg_attr(build = "debug", inline(never))]
     fn breakpoint(&self) {}
+}
+
+fn is_dyn_dispatchable(fun: &AstObjectFunction) -> bool {
+    if !fun.has_self {
+        return false;
+    }
+
+    if !fun.restrictions.is_empty() {
+        return false;
+    }
+
+    if !fun.generics.is_empty() {
+        return false;
+    }
+
+    true
 }

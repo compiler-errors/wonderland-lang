@@ -1,7 +1,7 @@
 use crate::{
     ana::{represent::AnalyzedProgram, represent_visitor::PureAnalysisPass},
     ast::{ast_visitor::AstAdapter, AstImpl},
-    util::{PResult, Span},
+    util::{PResult, Span, ZipKeys},
 };
 use std::collections::HashSet;
 
@@ -35,6 +35,30 @@ impl AstAdapter for AnalyzeImpls {
                 info.associated_tys.keys().cloned().collect(),
                 i.associated_types.keys().cloned().collect(),
             )?;
+
+            for (name, (impl_fn, trt_fn)) in ZipKeys::zip_keys(&i.fns, &info.methods) {
+                if impl_fn.generics.len() != trt_fn.generics.len() {
+                    return perror_at!(
+                        impl_fn.name_span,
+                        "Implementation of `<{} as {}>::{}` does not have the same number of \
+                         generics as trait!",
+                        i.impl_ty,
+                        trait_ty,
+                        name
+                    );
+                }
+
+                if impl_fn.parameter_list.len() != trt_fn.parameters.len() {
+                    return perror_at!(
+                        impl_fn.name_span,
+                        "Implementation `<{} as {}>::{}` does not have the same number of \
+                         parameters as trait!",
+                        i.impl_ty,
+                        trait_ty,
+                        name
+                    );
+                }
+            }
         } else {
             if !i.associated_types.is_empty() {
                 return perror_at!(

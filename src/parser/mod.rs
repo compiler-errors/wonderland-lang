@@ -7,7 +7,7 @@ use crate::{
 };
 use lalrpop_util::ParseError;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeSet, HashMap, HashSet},
     fmt::Display,
     hash::Hash,
 };
@@ -78,7 +78,26 @@ pub fn combine<T>(mut v: Vec<T>, t: Vec<T>) -> Vec<T> {
     v
 }
 
-pub fn dedupe<K: Display + Eq + Hash, V, L, T>(
+pub fn dedup_set<K: Display + Eq + Ord, L, T>(
+    where_at: &str,
+    vec: Vec<K>,
+) -> Result<BTreeSet<K>, ParseError<L, T, PError>> {
+    let mut set = BTreeSet::new();
+
+    for k in vec {
+        if set.contains(&k) {
+            return Err(ParseError::User {
+                error: PError::new(format!("Duplicated entry `{}` in {}", k, where_at)),
+            });
+        }
+
+        set.insert(k);
+    }
+
+    Ok(set)
+}
+
+pub fn dedup_keys<K: Display + Eq + Hash, V, L, T>(
     where_at: &str,
     vec: Vec<(K, V)>,
 ) -> Result<HashMap<K, V>, ParseError<L, T, PError>> {
@@ -97,13 +116,13 @@ pub fn dedupe<K: Display + Eq + Hash, V, L, T>(
     Ok(map)
 }
 
-pub fn check_dedupe<K: Clone + Display + Eq + Hash, V, L, T>(
+pub fn check_dedup_keys<'a, K: Clone + Display + Eq + Hash + 'a, L, T>(
     where_at: &str,
-    vec: &[(K, V)],
+    vec: impl IntoIterator<Item = &'a K>,
 ) -> Result<(), ParseError<L, T, PError>> {
     let mut keys = HashSet::new();
 
-    for (k, _) in vec {
+    for k in vec {
         if keys.contains(k) {
             return Err(ParseError::User {
                 error: PError::new(format!("Duplicated entry `{}` in {}", k, where_at)),

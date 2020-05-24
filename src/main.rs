@@ -11,6 +11,34 @@ extern crate log;
 extern crate adapter;
 #[macro_use]
 extern crate lalrpop_util;
+extern crate self as wonderland;
+
+#[macro_use]
+mod util;
+
+#[cfg(feature = "ana")]
+mod ana;
+
+#[cfg(feature = "inst")]
+mod inst;
+
+#[cfg(feature = "lex")]
+mod lexer;
+
+#[cfg(feature = "ast")]
+mod ast;
+
+#[cfg(feature = "parse")]
+mod parser;
+
+#[cfg(feature = "tr")]
+mod tr;
+
+#[cfg(feature = "tyck")]
+mod tyck;
+
+#[cfg(feature = "lg")]
+mod lg;
 
 #[cfg(feature = "ana")]
 use crate::ana::analyze;
@@ -53,33 +81,6 @@ use std::{
     process::exit,
 };
 use tempfile::NamedTempFile;
-
-#[macro_use]
-mod util;
-
-#[cfg(feature = "ana")]
-mod ana;
-
-#[cfg(feature = "inst")]
-mod inst;
-
-#[cfg(feature = "lex")]
-mod lexer;
-
-#[cfg(feature = "ast")]
-mod ast;
-
-#[cfg(feature = "parse")]
-mod parser;
-
-#[cfg(feature = "tr")]
-mod tr;
-
-#[cfg(feature = "tyck")]
-mod tyck;
-
-#[cfg(feature = "lg")]
-mod lg;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Mode {
@@ -145,7 +146,6 @@ fn main() {
         help(true);
     });
 
-    let files = get_files(mode, &matches.free).unwrap_or_else(|e| report_err(e));
     let llvm_ir = matches.opt_present("L");
     let output_file = matches.opt_str("O").unwrap_or_else(|| {
         if llvm_ir {
@@ -160,6 +160,10 @@ fn main() {
         .map(|s| OsString::from(s))
         .collect();
     let permanent_temp_dir = matches.opt_str("S");
+
+    let mut files = matches.free;
+    files.push("std".to_string());
+    let files = get_files(mode, &files).unwrap_or_else(|e| report_err(e));
 
     println!("Mode: {:#?}", mode);
     match_mode(

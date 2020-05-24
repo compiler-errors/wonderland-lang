@@ -1,6 +1,6 @@
 use crate::util::result::PResult;
 
-use std::iter::Zip;
+use std::{borrow::Borrow, collections::HashMap, hash::Hash, iter::Zip};
 
 pub trait ZipExact<S>: IntoIterator
 where
@@ -9,12 +9,12 @@ where
     fn zip_exact(self, other: S, what: &str) -> PResult<Zip<Self::IntoIter, S::IntoIter>>;
 }
 
-impl<
-        S: IntoIterator<IntoIter = SI>,
-        SI: ExactSizeIterator<Item = S::Item>,
-        T: IntoIterator<IntoIter = TI>,
-        TI: ExactSizeIterator<Item = T::Item>,
-    > ZipExact<T> for S
+impl<S, SI, T, TI> ZipExact<T> for S
+where
+    S: IntoIterator<IntoIter = SI>,
+    SI: ExactSizeIterator<Item = S::Item>,
+    T: IntoIterator<IntoIter = TI>,
+    TI: ExactSizeIterator<Item = T::Item>,
 {
     fn zip_exact(self, other: T, what: &str) -> PResult<Zip<S::IntoIter, T::IntoIter>> {
         let s = self.into_iter();
@@ -30,5 +30,35 @@ impl<
         } else {
             Ok(Iterator::zip(s, t))
         }
+    }
+}
+
+pub trait ZipKeys<S, K: Eq + Hash, V1, V2> {
+    fn zip_keys(self, other: S) -> HashMap<K, (V1, V2)>;
+}
+
+impl<T, S, K1, K2, V1, V2> ZipKeys<S, K1, V1, V2> for T
+where
+    T: IntoIterator<Item = (K1, V1)>,
+    S: IntoIterator<Item = (K2, V2)>,
+    K1: Borrow<K2> + Eq + Hash,
+    K2: Eq + Hash,
+{
+    fn zip_keys(self, other: S) -> HashMap<K1, (V1, V2)> {
+        let mut first = HashMap::new();
+
+        for (k, v) in other.into_iter() {
+            first.insert(k, v);
+        }
+
+        let mut second = HashMap::new();
+
+        for (k, v1) in self.into_iter() {
+            if let Some(v2) = first.remove(k.borrow()) {
+                second.insert(k, (v1, v2));
+            }
+        }
+
+        second
     }
 }

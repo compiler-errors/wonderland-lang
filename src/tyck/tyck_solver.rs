@@ -8,10 +8,11 @@ use crate::{
         tyck_instantiation::*, TyckAdapter, TyckInstantiatedImpl, TyckInstantiatedObjectFunction,
         TYCK_MAX_DEPTH,
     },
-    util::{PError, PResult, Visit, ZipExact},
+    util::{PError, PResult, Visit, ZipExact, ZipKeys},
 };
+use ast_display::DisplayTraitTypes;
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     fmt::Debug,
     rc::Rc,
 };
@@ -147,7 +148,9 @@ impl TyckSolver {
                     .insert(id, ty.clone())
                     .is_some()
                 {
-                    panic!("ICE: Duplicated inference, normalization should not let this happen!");
+                    unreachable!(
+                        "ICE: Duplicated inference, normalization should not let this happen!"
+                    );
                 }
             },
 
@@ -251,12 +254,90 @@ impl TyckSolver {
                 self.unify(full_unify, &a_ret, &b_ret)?;
             },
 
+            (
+                AstType::DynamicType {
+                    trait_tys: a_trait_tys,
+                },
+                AstType::DynamicType {
+                    trait_tys: b_trait_tys,
+                },
+            ) => {
+                self.unify_dynamic_tys(full_unify, &a_trait_tys, &b_trait_tys)?;
+            },
+
             (a, b) => {
                 return perror!("Type non-union, {} and {}", a, b);
             },
         }
 
         Ok(())
+    }
+
+    fn unify_dynamic_tys(
+        &mut self,
+        full_unify: bool,
+        a_trait_tys: &BTreeSet<AstTraitTypeWithAssocs>,
+        b_trait_tys: &BTreeSet<AstTraitTypeWithAssocs>,
+    ) -> PResult<()> {
+        let a_trait_refs = Self::dedupe_trait_refs(a_trait_tys);
+        let b_trait_refs = Self::dedupe_trait_refs(b_trait_tys);
+
+        for (_, (a_generics, b_generics)) in ZipKeys::zip_keys(a_trait_refs, b_trait_refs) {
+            self.unify_all(full_unify, &a_generics, &b_generics)?;
+        }
+
+        let a_trait_map: HashMap<_, _> = self
+            .normalize_trts(a_trait_tys)?
+            .into_iter()
+            .map(|x| (x.trt.clone(), x.assoc_bindings.clone()))
+            .collect();
+        let b_trait_map: HashMap<_, _> = self
+            .normalize_trts(b_trait_tys)?
+            .into_iter()
+            .map(|x| (x.trt.clone(), x.assoc_bindings.clone()))
+            .collect();
+
+        if a_trait_map.len() != b_trait_map.len() {
+            return perror!(
+                "Dynamic trait non-union, Dyn<{}> and Dyn<{}>",
+                DisplayTraitTypes(self.normalize_trts(a_trait_tys)?.iter()),
+                DisplayTraitTypes(self.normalize_trts(b_trait_tys)?.iter())
+            );
+        }
+
+        for (b_trt, b_assoc_bindings) in b_trait_map {
+            if let Some(a_assoc_bindings) = a_trait_map.get(&b_trt) {
+                for (_, (a_ty, b_ty)) in ZipKeys::zip_keys(a_assoc_bindings, b_assoc_bindings) {
+                    self.unify(full_unify, a_ty, &b_ty)?;
+                }
+            } else {
+                return perror!(
+                    "Dynamic trait non-union, Dyn<{}> and Dyn<{}>",
+                    DisplayTraitTypes(self.normalize_trts(a_trait_tys)?.iter()),
+                    DisplayTraitTypes(self.normalize_trts(b_trait_tys)?.iter())
+                );
+            }
+        }
+
+        Ok(())
+    }
+
+    fn dedupe_trait_refs(
+        trait_tys: &BTreeSet<AstTraitTypeWithAssocs>,
+    ) -> HashMap<ModuleRef, Vec<AstType>> {
+        let mut unique_traits = HashMap::new();
+        let mut holdout_traits = HashSet::new();
+
+        for AstTraitTypeWithAssocs { trt, .. } in trait_tys {
+            if holdout_traits.contains(&trt.name) {
+                unique_traits.remove(&trt.name);
+            } else {
+                unique_traits.insert(trt.name.clone(), trt.generics.clone());
+                holdout_traits.insert(trt.name.clone());
+            }
+        }
+
+        unique_traits
     }
 
     fn unify_all(&mut self, full_unify: bool, a: &[AstType], b: &[AstType]) -> PResult<()> {
@@ -269,23 +350,28 @@ impl TyckSolver {
         Ok(())
     }
 
-    fn full_unify_pattern(&mut self, pattern: &AstMatchPattern, other_ty: &AstType) -> PResult<()> {
+    fn unify_pattern(
+        &mut self,
+        full_unify: bool,
+        pattern: &AstMatchPattern,
+        other_ty: &AstType,
+    ) -> PResult<()> {
         self.unify(true, &pattern.ty, other_ty)?;
 
         match &pattern.data {
             AstMatchPatternData::Underscore => {},
-            AstMatchPatternData::Identifier(v) => self.unify(true, &v.ty, other_ty)?,
+            AstMatchPatternData::Identifier(v) => self.unify(full_unify, &v.ty, other_ty)?,
             AstMatchPatternData::Tuple(children) => {
                 let children_tys = children.iter().map(|child| child.ty.clone()).collect();
-                self.unify(true, &AstType::tuple(children_tys), other_ty)?;
+                self.unify(full_unify, &AstType::tuple(children_tys), other_ty)?;
             },
             AstMatchPatternData::Literal(lit) => match lit {
                 AstLiteral::True | AstLiteral::False =>
-                    self.unify(true, &AstType::Bool, other_ty)?,
-                AstLiteral::Int(..) => self.unify(true, &AstType::Int, other_ty)?,
-                AstLiteral::Float(..) => self.unify(true, &AstType::Float, other_ty)?,
-                AstLiteral::Char(..) => self.unify(true, &AstType::Char, other_ty)?,
-                AstLiteral::String { .. } => self.unify(true, &AstType::String, other_ty)?,
+                    self.unify(full_unify, &AstType::Bool, other_ty)?,
+                AstLiteral::Int(..) => self.unify(full_unify, &AstType::Int, other_ty)?,
+                AstLiteral::Float(..) => self.unify(full_unify, &AstType::Float, other_ty)?,
+                AstLiteral::Char(..) => self.unify(full_unify, &AstType::Char, other_ty)?,
+                AstLiteral::String { .. } => self.unify(full_unify, &AstType::String, other_ty)?,
             },
             AstMatchPatternData::PositionalEnum {
                 enumerable,
@@ -300,11 +386,11 @@ impl TyckSolver {
                 for (child, ty) in
                     ZipExact::zip_exact(children, expected_tys, "positional elements")?
                 {
-                    self.full_unify_pattern(child, &ty)?;
+                    self.unify_pattern(full_unify, child, &ty)?;
                 }
 
                 self.unify(
-                    true,
+                    full_unify,
                     &other_ty,
                     &AstType::enumerable(enumerable.clone(), generics.clone()),
                 )?;
@@ -363,7 +449,7 @@ impl TyckSolver {
         })
     }
 
-    fn push_new_epoch(&mut self) -> PResult<()> {
+    fn push_new_epoch(&mut self) {
         if self.epochs.len() > TYCK_MAX_DEPTH {
             panic!("ICE: OVERFLOW");
         }
@@ -376,7 +462,6 @@ impl TyckSolver {
         };
 
         self.epochs.push(new);
-        Ok(())
     }
 
     fn push_epoch(&mut self, t: TyckEpoch) {
@@ -411,7 +496,7 @@ impl TyckSolver {
                 .map(|_| AstType::infer())
                 .collect();
 
-            self.push_new_epoch()?;
+            self.push_new_epoch();
             let sol = self.elaborate_impl(*imp, &impl_generics, ty, Some(&trt.trt));
             let epoch = self.rollback_epoch();
 
@@ -551,7 +636,7 @@ impl TyckSolver {
                     .map(|_| AstType::infer())
                     .collect();
 
-                self.push_new_epoch()?;
+                self.push_new_epoch();
                 let sol = self.elaborate_impl(
                     *imp,
                     &impl_generics,
@@ -661,7 +746,7 @@ impl TyckSolver {
                         .map(|_| AstType::infer())
                         .collect();
 
-                    self.push_new_epoch()?;
+                    self.push_new_epoch();
                     let sol = self.elaborate_method(
                         *imp,
                         &impl_generics,
@@ -710,7 +795,7 @@ impl TyckSolver {
                     .map(|_| AstType::infer())
                     .collect();
 
-                self.push_new_epoch()?;
+                self.push_new_epoch();
                 let sol = self.elaborate_method(
                     *imp,
                     &impl_generics,
@@ -794,7 +879,7 @@ impl TyckSolver {
                 .map(|_| AstType::infer())
                 .collect();
 
-            self.push_new_epoch()?;
+            self.push_new_epoch();
             let sol = self.elaborate_method(
                 *imp,
                 &impl_generics,
@@ -894,7 +979,7 @@ impl TyckSolver {
             (None, None) => {},
         }
 
-        if !impl_info.is_dummy {
+        if impl_info.is_regular() {
             let (expected_args, expected_return_ty, _) = instantiate_impl_fn_signature(
                 &self.program,
                 impl_id,
@@ -926,20 +1011,30 @@ impl TyckSolver {
         for (result, epoch) in solutions {
             if let Ok(signature) = result {
                 if epoch.ambiguous.is_some() {
+                    // Bail because this solution is ambiguous!
+                    // Therefore, we need to continue to iterate until
+                    // this solution becomes successful or an error.
                     return Ok(None);
                 }
 
-                if let Some((older_signature, _)) = &solution {
-                    if self.program.analyzed_impls[&older_signature.impl_id].is_dummy {
-                        continue;
-                    }
-
-                    if !self.program.analyzed_impls[&signature.impl_id].is_dummy {
+                solution = match (solution, (signature, epoch)) {
+                    (None, new_solution) => Some(new_solution),
+                    (Some((dummy_impl, _)), other) | (Some(other), (dummy_impl, _))
+                        if self.program.analyzed_impls[&dummy_impl.impl_id].is_dummy() =>
+                        Some(other),
+                    (Some((dynamic_impl, _)), other) | (Some(other), (dynamic_impl, _))
+                        if self.program.analyzed_impls[&dynamic_impl.impl_id]
+                            .is_dynamic_dispatch() =>
+                        Some(other),
+                    (Some((dynamic_impl, _)), other) | (Some(other), (dynamic_impl, _))
+                        if self.program.analyzed_impls[&dynamic_impl.impl_id].is_dynamic_cast() =>
+                        Some(other),
+                    (Some(_), _) => {
                         return perror!("Conflicting solutions!");
-                    }
-                }
-
-                solution = Some((signature, epoch));
+                    },
+                };
+            } else {
+                // We can successfully get rid of the Error solution.
             }
         }
 
@@ -1017,10 +1112,6 @@ impl TyckSolver {
         t.visit(&mut NormalizationAdapter(self))
     }
 
-    fn normalize_trt(&mut self, t: AstTraitTypeWithAssocs) -> PResult<AstTraitTypeWithAssocs> {
-        t.visit(&mut NormalizationAdapter(self))
-    }
-
     fn normalize_tys(&mut self, tys: &[AstType]) -> PResult<Vec<AstType>> {
         let mut ret_tys = vec![];
 
@@ -1029,6 +1120,23 @@ impl TyckSolver {
         }
 
         Ok(ret_tys)
+    }
+
+    fn normalize_trt(&mut self, t: AstTraitTypeWithAssocs) -> PResult<AstTraitTypeWithAssocs> {
+        t.visit(&mut NormalizationAdapter(self))
+    }
+
+    fn normalize_trts(
+        &mut self,
+        trts: &BTreeSet<AstTraitTypeWithAssocs>,
+    ) -> PResult<BTreeSet<AstTraitTypeWithAssocs>> {
+        let mut ret_trts = BTreeSet::new();
+
+        for t in trts {
+            ret_trts.insert(self.normalize_trt(t.clone())?);
+        }
+
+        Ok(ret_trts)
     }
 }
 
@@ -1164,7 +1272,7 @@ impl AstAdapter for TyckSolver {
             // Removed in earlier stages
             AstStatement::Expression { .. } => {},
             AstStatement::Let { pattern, value } => {
-                self.full_unify_pattern(pattern, &value.ty)?;
+                self.unify_pattern(true, pattern, &value.ty)?;
             },
         }
 
@@ -1212,7 +1320,7 @@ impl AstAdapter for TyckSolver {
                     expression,
                 } in branches
                 {
-                    self.full_unify_pattern(pattern, match_expr_ty)?;
+                    self.unify_pattern(true, pattern, match_expr_ty)?;
                     self.unify(true, &expression.ty, &ty)?;
                 }
             },
@@ -1373,7 +1481,7 @@ impl AstAdapter for TyckSolver {
                 if let Some(impl_signature) = impl_signature {
                     let impl_data = &self.program.analyzed_impls[&impl_signature.impl_id];
 
-                    if !impl_data.is_dummy {
+                    if impl_data.is_regular() {
                         let fn_data = &impl_data.methods[fn_name];
 
                         let expected_args = fn_data.parameters.len();
@@ -1619,7 +1727,7 @@ impl AstAdapter for TyckSolver {
     }
 
     fn exit_ast_match_pattern(&mut self, p: AstMatchPattern) -> PResult<AstMatchPattern> {
-        self.full_unify_pattern(&p, &p.ty)?;
+        self.unify_pattern(true, &p, &p.ty)?;
 
         Ok(p)
     }
@@ -1702,24 +1810,31 @@ impl TyckAdapter for TyckSolver {
         &mut self,
         i: TyckInstantiatedImpl,
     ) -> PResult<TyckInstantiatedImpl> {
-        let TyckInstantiatedImpl { impl_ty, trait_ty } = i;
+        let TyckInstantiatedImpl {
+            impl_ty,
+            trait_ty,
+            impl_signature: _,
+        } = i;
+
         let trait_ty = AstTraitTypeWithAssocs {
             trt: trait_ty,
             assoc_bindings: BTreeMap::new(),
         };
 
-        self.satisfy_impl(&impl_ty, &trait_ty)?;
+        // TODO: Can we stop doing this once we've got the signature memoized?
+        let impl_signature = self.satisfy_impl(&impl_ty, &trait_ty)?;
 
         Ok(TyckInstantiatedImpl {
             impl_ty,
             trait_ty: trait_ty.trt,
+            impl_signature,
         })
     }
 }
 
 impl AnAdapter for TyckSolver {
     fn enter_an_impl_data(&mut self, i: AnImplData) -> PResult<AnImplData> {
-        assert!(i.is_dummy);
+        assert!(i.is_dummy());
 
         if let Some(trait_ty) = &i.trait_ty {
             self.satisfy_restrictions(&instantiate_trait_restrictions(

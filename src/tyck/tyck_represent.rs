@@ -1,5 +1,5 @@
 use crate::{
-    ast::{ast_visitor::AstAdapter, AstObjectFunction, AstTraitType, AstType},
+    ast::{ast_visitor::AstAdapter, AstImplSignature, AstObjectFunction, AstTraitType, AstType},
     util::PResult,
 };
 
@@ -47,4 +47,15 @@ pub struct TyckInstantiatedObjectFunction {
 pub struct TyckInstantiatedImpl {
     pub impl_ty: AstType,
     pub trait_ty: AstTraitType,
+    pub impl_signature: Option<AstImplSignature>,
+}
+
+impl TyckInstantiatedImpl {
+    pub fn new(impl_ty: AstType, trait_ty: AstTraitType) -> TyckInstantiatedImpl {
+        TyckInstantiatedImpl {
+            impl_ty,
+            trait_ty,
+            impl_signature: None,
+        }
+    }
 }

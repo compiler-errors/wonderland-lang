@@ -1,6 +1,6 @@
 use crate::util::{FileId, PResult, Span};
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     hash::Hash,
 };
 
@@ -57,6 +57,18 @@ impl<T, K: Eq + Hash + Ord, V: Visit<T>> Visit<T> for BTreeMap<K, V> {
 
         for (k, v) in self.into_iter() {
             out.insert(k, v.visit(adapter)?);
+        }
+
+        Ok(out)
+    }
+}
+
+impl<T, K: Eq + Hash + Ord + Visit<T>> Visit<T> for BTreeSet<K> {
+    fn visit(self, adapter: &mut T) -> PResult<BTreeSet<K>> {
+        let mut out = BTreeSet::new();
+
+        for k in self.into_iter() {
+            out.insert(k.visit(adapter)?);
         }
 
         Ok(out)

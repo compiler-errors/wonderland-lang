@@ -55,6 +55,8 @@ impl fmt::Display for AstType {
                 },
             AstType::ElaboratedType { obj_ty, trait_ty } =>
                 write!(f, "<{} as {}>", obj_ty, trait_ty),
+            AstType::DynamicType { trait_tys } =>
+                write!(f, "Dyn<{}>", DisplayTraitTypes(trait_tys.iter())),
             AstType::GenericPlaceholder(id, name) => write!(f, "_{}{}(gp)", name, id.0),
             AstType::DummyGeneric(id, name) => write!(f, "_{}{}(dg)", name, id.0),
             AstType::Dummy(id) => write!(f, "_{}(d)", id.0),
@@ -132,6 +134,27 @@ impl<'a> fmt::Display for DisplayGenerics<'a> {
                 DisplayAstTypeList(generics, assoc_bindings, false)
             )?;
         }
+        Ok(())
+    }
+}
+
+pub struct DisplayTraitTypes<'a, I: Iterator<Item = &'a AstTraitTypeWithAssocs> + Clone>(pub I);
+
+impl<'a, I> fmt::Display for DisplayTraitTypes<'a, I>
+where
+    I: Iterator<Item = &'a AstTraitTypeWithAssocs> + Clone,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let DisplayTraitTypes(traits) = self;
+
+        for (idx, trt) in traits.clone().enumerate() {
+            if idx > 0 {
+                write!(f, " + ")?;
+            }
+
+            write!(f, "{}", trt)?;
+        }
+
         Ok(())
     }
 }

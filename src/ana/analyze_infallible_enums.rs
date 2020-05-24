@@ -49,9 +49,10 @@ impl AstAdapter for AnalyzeInfallibleEnums {
     fn enter_ast_statement(&mut self, s: AstStatement) -> PResult<AstStatement> {
         if let AstStatement::Let { pattern, .. } = &s {
             if !self.is_infallible(pattern) {
-                // FIXME: This should be a spanned error, once the statement is turned into an
-                // expr.
-                return perror!("The match pattern is not infallible, perhaps use a `match` block");
+                return perror_at!(
+                    pattern.span,
+                    "The match pattern is not infallible, perhaps use a `match` block"
+                );
             }
         }
 
@@ -62,9 +63,8 @@ impl AstAdapter for AnalyzeInfallibleEnums {
         if let AstExpressionData::Closure { params, .. } = &e.data {
             for param in params {
                 if !self.is_infallible(param) {
-                    // FIXME: This should be a spanned error, once the statement is turned into an
-                    // expr.
-                    return perror!(
+                    return perror_at!(
+                        param.span,
                         "The match pattern is not infallible. Closures must receive infallible \
                          patterns as arguments!"
                     );

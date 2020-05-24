@@ -26,8 +26,6 @@ use std::{
 };
 use tempfile::TempDir;
 
-mod decorate;
-
 lazy_static! {
     static ref STDLIB_PATH: &'static OsStr = OsStr::new("std/clib/clib.c");
     static ref LIBC_PATH: &'static OsStr = if cfg!(target_os = "linux") {

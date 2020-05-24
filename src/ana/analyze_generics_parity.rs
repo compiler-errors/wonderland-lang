@@ -169,7 +169,7 @@ impl AstAdapter for AnalyzeGenericsParity {
     }
 
     fn enter_ast_match_pattern(&mut self, p: AstMatchPattern) -> PResult<AstMatchPattern> {
-        let AstMatchPattern { data, ty } = p;
+        let AstMatchPattern { span, data, ty } = p;
 
         let data = match data {
             AstMatchPatternData::PlainEnum {
@@ -219,6 +219,6 @@ impl AstAdapter for AnalyzeGenericsParity {
             p => p,
         };
 
-        Ok(AstMatchPattern { data, ty })
+        Ok(AstMatchPattern { span, data, ty })
     }
 }

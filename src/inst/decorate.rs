@@ -1,7 +1,39 @@
+#![allow(dead_code)]
+
 use crate::{
     ast::*,
     util::{FileRegistry, PResult},
 };
+
+/* Brief explanation of all of the prefix characters:
+ * A   - Array
+ * B   - Bool
+ * C/c - Closure (c = no args)
+ * D   - Float
+ * E/e - Enum (e = no generics)
+ * F/f - Fn pointer type or signature (f = no generics)
+ * G
+ * H   - Char
+ * I   - Int
+ *  /i - Object fn, no trait or fn generics
+ * J
+ * K
+ * L
+ * M/m - Object fn with trait generics (m = no fn generics)
+ * N   - String
+ * O/o - Object (o = no generics)
+ * P/p - Module (p = std)
+ * Q/q - Dynamic type (q = raw Dyn, no traits)
+ * R
+ * S
+ * T/t - Tuple (t = unary)
+ * U   - Nullary tuple "Unit"
+ * V
+ * W
+ * X
+ * Y/y - Traitless `impl for` method (y = no fn generics)
+ * Z/z - Trait (z = no generics)
+ */
 
 pub fn decorate_module(module: &ModuleRef) -> PResult<(String, String)> {
     if let ModuleRef::Normalized(file, symbol_name) = module {
@@ -116,7 +148,20 @@ pub fn decorate_ty(t: &AstType) -> PResult<String> {
                 string
             },
 
-        _ => unreachable!(),
+        AstType::DynamicType { trait_tys } =>
+            if trait_tys.is_empty() {
+                "q".to_string()
+            } else {
+                let mut string = format!("Q{}", trait_tys.len());
+
+                for trt in trait_tys {
+                    string.push_str(&decorate_trait(&trt.trt)?);
+                }
+
+                string
+            },
+
+        _ => unreachable!("ICE: Cannot decorate type {}", t),
     })
 }
 
@@ -146,10 +191,10 @@ pub fn decorate_object(name: &ModuleRef, generics: &[AstType]) -> PResult<String
     let (decorated_module, name) = decorate_module(name)?;
 
     Ok(if generics.len() == 0 {
-        format!("s{}{}{}", decorated_module, name.len(), name)
+        format!("o{}{}{}", decorated_module, name.len(), name)
     } else {
         let mut string = format!(
-            "S{}{}{}{}",
+            "O{}{}{}{}",
             decorated_module,
             name.len(),
             name,
@@ -246,4 +291,37 @@ pub fn decorate_object_fn(
             string
         })
     }
+}
+
+pub fn decorate_trait(trt: &AstTraitType) -> PResult<String> {
+    if trt.generics.is_empty() {
+        let (decorated_module, name) = decorate_module(&trt.name)?;
+
+        Ok(format!("z{}{}{}", decorated_module, name.len(), name,))
+    } else {
+        let (decorated_module, name) = decorate_module(&trt.name)?;
+
+        let mut string = format!(
+            "Z{}{}{}{}",
+            decorated_module,
+            name.len(),
+            name,
+            trt.generics.len()
+        );
+
+        for t in &trt.generics {
+            string.push_str(&decorate_ty(t)?);
+        }
+
+        Ok(string)
+    }
+}
+
+pub fn decorate_dynamic_fn(trt: &AstTraitType, fn_name: &str) -> PResult<String> {
+    Ok(format!(
+        "{}+{}{}",
+        decorate_trait(trt)?,
+        fn_name.len(),
+        fn_name
+    ))
 }

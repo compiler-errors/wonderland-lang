@@ -1,14 +1,15 @@
+extern crate heck;
 extern crate proc_macro;
 extern crate proc_macro2;
-use proc_macro2::TokenStream;
 extern crate quote;
-use quote::{format_ident, quote, ToTokens};
 extern crate syn;
+
 use heck::SnakeCase;
+use proc_macro2::TokenStream;
+use quote::{format_ident, quote, ToTokens};
 use syn::{
     parse2, Attribute, Expr, Fields, Ident, ItemEnum, ItemStruct, Lit, Meta, NestedMeta, Path,
 };
-extern crate heck;
 
 #[proc_macro_attribute]
 pub fn adapter(
@@ -32,8 +33,8 @@ pub fn derive_visit(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
         let reconstruct_self = get_reconstruct_self(&st.ident, &st.fields);
 
         let imp = quote! {
-            impl<A> crate::util::Visit<A> for #ty_name where A: #adapter_name {
-                fn visit(self, adapter: &mut A) -> crate::util::PResult<Self> {
+            impl<A> ::wonderland::util::Visit<A> for #ty_name where A: #adapter_name {
+                fn visit(self, adapter: &mut A) -> ::wonderland::util::PResult<Self> {
                     let #deconstruct_self = <A as #adapter_name >:: #enter_ty_fn (adapter, self)?;
 
                     let i = #reconstruct_self;
@@ -71,8 +72,8 @@ pub fn derive_visit(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
             .collect();
 
         let imp = quote! {
-            impl<A> crate::util::Visit<A> for #ty_name where A: #adapter_name {
-                fn visit(self, adapter: &mut A) -> crate::util::PResult<Self> {
+            impl<A> ::wonderland::util::Visit<A> for #ty_name where A: #adapter_name {
+                fn visit(self, adapter: &mut A) -> ::wonderland::util::PResult<Self> {
                     let i = <A as #adapter_name >:: #enter_ty_fn (adapter, self)?;
 
                     let i = match i {
@@ -103,8 +104,8 @@ pub fn derive_visit_anonymous(item: proc_macro::TokenStream) -> proc_macro::Toke
         let reconstruct_self = get_reconstruct_self(&st.ident, &st.fields);
 
         let imp = quote! {
-            impl<A> crate::util::Visit<A> for #ty_name where A: #adapter_name {
-                fn visit(self, adapter: &mut A) -> crate::util::PResult<Self> {
+            impl<A> ::wonderland::util::Visit<A> for #ty_name where A: #adapter_name {
+                fn visit(self, adapter: &mut A) -> ::wonderland::util::PResult<Self> {
                     let #deconstruct_self = self;
 
                     let i = #reconstruct_self;
@@ -138,8 +139,8 @@ pub fn derive_visit_anonymous(item: proc_macro::TokenStream) -> proc_macro::Toke
             .collect();
 
         let imp = quote! {
-            impl<A> crate::util::Visit<A> for #ty_name where A: #adapter_name {
-                fn visit(self, adapter: &mut A) -> crate::util::PResult<Self> {
+            impl<A> ::wonderland::util::Visit<A> for #ty_name where A: #adapter_name {
+                fn visit(self, adapter: &mut A) -> ::wonderland::util::PResult<Self> {
                     let i = match self {
                         #(#deconstruct_patterns => #reconstruct_patterns),*
                     };
@@ -245,7 +246,8 @@ fn get_reconstruct_self<T: ToTokens>(ty: &T, fields: &Fields) -> TokenStream {
                     let id = f.ident.as_ref().unwrap();
                     let id_ty = &f.ty;
                     let st: TokenStream =
-                        quote!(<#id_ty as crate::util::Visit<A>>::visit(#id, adapter)?).into();
+                        quote!(<#id_ty as ::wonderland::util::Visit<A>>::visit(#id, adapter)?)
+                            .into();
                     parse2::<Expr>(st).unwrap()
                 })
                 .collect();
@@ -266,7 +268,8 @@ fn get_reconstruct_self<T: ToTokens>(ty: &T, fields: &Fields) -> TokenStream {
                     let id = format_ident!("__field{}", idx);
                     let id_ty = &f.ty;
                     let st: TokenStream =
-                        quote!(<#id_ty as crate::util::Visit<A>>::visit(#id, adapter)?).into();
+                        quote!(<#id_ty as ::wonderland::util::Visit<A>>::visit(#id, adapter)?)
+                            .into();
                     parse2::<Expr>(st).unwrap()
                 })
                 .collect();

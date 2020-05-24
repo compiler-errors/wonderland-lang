@@ -58,6 +58,13 @@ impl AstAdapter for AnalyzeNames {
                     return perror_at!(e.span, "No such object named `{}`.", object.full_name());
                 }
             },
+            AstExpressionData::PlainEnum { enumerable, .. }
+            | AstExpressionData::PositionalEnum { enumerable, .. }
+            | AstExpressionData::NamedEnum { enumerable, .. } => {
+                if !self.analyzed_enums.contains_key(enumerable) {
+                    return perror_at!(e.span, "No such enum named `{}`.", enumerable.full_name());
+                }
+            },
             _ => {},
         }
 

@@ -567,6 +567,7 @@ impl<'input> Lexer<'input> {
             "Char" => Token::Char,
             "Self" => Token::SelfType,
             "Fn" => Token::FnTrait,
+            "Dyn" => Token::DynTrait,
             "ClosureEnvironment" => Token::ClosureEnvironment,
 
             _ => match string.chars().nth(0).unwrap() {

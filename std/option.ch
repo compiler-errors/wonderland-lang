@@ -11,11 +11,15 @@ impl<_T> for Option<_T> {
     }
   }
 
-  fn unwrap(self) -> _T {
+  fn expect(self, s: String) -> _T {
       match self {
           Option!Some(v) => v,
-          _ => panic("No value for \(type_string:<Self>())"),
+          _ => panic(s),
       }
+  }
+
+  fn unwrap(self) -> _T {
+      self:expect("No value for \(type_string:<Self>())")
   }
 
   fn unwrap_or(self, other: _T) -> _T {

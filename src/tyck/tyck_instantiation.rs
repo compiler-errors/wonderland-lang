@@ -4,6 +4,7 @@ use crate::{
         ast_visitor::AstAdapter, AstGeneric, AstTraitType, AstTraitTypeWithAssocs, AstType,
         AstTypeRestriction, GenericId, ImplId, ModuleRef,
     },
+    tyck::TyckAdapter,
     util::{PResult, Visit},
 };
 use std::collections::{BTreeMap, HashMap};
@@ -329,6 +330,8 @@ impl AstAdapter for GenericsAdapter {
         }
     }
 }
+
+impl TyckAdapter for GenericsAdapter {}
 
 pub struct SelfAdapter(AstType);
 

@@ -95,7 +95,6 @@ pub struct MappedModule {
 }
 
 // Dummy impl to satisfy the visitor derive...
-// TODO: Make a #[SkipVisit] or something
 impl<T> Visit<T> for Rc<RefCell<MappedModule>> {}
 
 impl MappedModule {

@@ -1,3 +1,4 @@
+use pub mod::any::*.
 use pub mod::operators::*.
 use pub mod::iterator::*.
 use pub mod::option::*.
@@ -44,6 +45,10 @@ fn type_string<_T>() -> String {
   instruction "ch_typestring"(_ :_T) -> String
 }
 
+fn type_string_of<_T>(t: _T) -> String {
+  instruction "ch_typestring"(_ :_T) -> String
+}
+
 fn exit<_T>(i: Int) -> _T {
     impl "llvm" {
       instruction "call" ("exit", i) -> ().
@@ -51,4 +56,8 @@ fn exit<_T>(i: Int) -> _T {
     } else impl "looking_glass" {
       instruction "exit" (i) -> _T
     }
+}
+
+fn breakpoint() {
+  instruction "breakpoint" () -> ().
 }
