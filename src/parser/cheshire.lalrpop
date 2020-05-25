@@ -2,9 +2,9 @@ use std::collections::HashMap;
 use std::str::FromStr;
 
 use crate::ast::*;
-use crate::parser::*;
-use crate::lexer::Token;
-use crate::util::{FileId, Span, PError};
+use crate::parser::util::*;
+use crate::lexer::*;
+use crate::util::{FileId, FileRegistry, Span, PError};
 use lalrpop_util::ParseError;
 
 grammar(file: FileId, module_name: &str);
@@ -101,6 +101,25 @@ extern {
         Identifier => Token::Identifier(<String>),
         TypeName => Token::TypeName(<String>),
         GenericName => Token::GenericName(<String>),
+
+        "$[Block](" => Token::QuotationStart(crate::lexer::QUOTE_BLOCK),
+        "$[Break](" => Token::QuotationStart(crate::lexer::QUOTE_BREAK),
+        "$[Continue](" => Token::QuotationStart(crate::lexer::QUOTE_CONTINUE),
+        "$[Dummy](" => Token::QuotationStart(crate::lexer::QUOTE_DUMMY),
+        "$[DummyGeneric](" => Token::QuotationStart(crate::lexer::QUOTE_DUMMYGENERIC),
+        "$[GenericPlaceholder](" => Token::QuotationStart(crate::lexer::QUOTE_GENERICPLACEHOLDER),
+        "$[Identifier](" => Token::QuotationStart(crate::lexer::QUOTE_IDENTIFIER),
+        "$[Infer](" => Token::QuotationStart(crate::lexer::QUOTE_INFER),
+        "$[For](" => Token::QuotationStart(crate::lexer::QUOTE_FOR),
+        "$[While](" => Token::QuotationStart(crate::lexer::QUOTE_WHILE),
+        "$[MatchBranch](" => Token::QuotationStart(crate::lexer::QUOTE_MATCHBRANCH),
+        "$[ModuleRef](" => Token::QuotationStart(crate::lexer::QUOTE_MODULEREF),
+        "$[NamedVariable](" => Token::QuotationStart(crate::lexer::QUOTE_NAMEDVARIABLE),
+        "$[SpannedExpr](" => Token::QuotationStart(crate::lexer::QUOTE_SPANNEDEXPR),
+        "$[SpannedPattern](" => Token::QuotationStart(crate::lexer::QUOTE_SPANNEDPATTERN),
+        "$[StaticCall](" => Token::QuotationStart(crate::lexer::QUOTE_STATICCALL),
+
+        ")$" => Token::QuotationEnd,
     }
 }
 
@@ -121,16 +140,30 @@ PlusSeparated<T>: Vec<T> = {
     <v:(<T> "+")*> <e:T> => append(v, e),
 };
 
+OrUnderscore<T>: Option<T> = {
+    <T> => Some(<>),
+    "_" => None,
+};
+
+QuotedId: usize = {
+    <l:@L> <id:Integer> <h:@R> =>?
+        usize::from_str(&id).map_err(|_| ParseError::User {
+            error: PError::new_at(Span::new(file, l, h), format!("Cannot parse `{}` as tuple index", id))
+        }),
+}
+
 // --- Types --- //
 
 Generic: AstGeneric = GenericName => AstGeneric::new(<>);
 
 TypeNamePath: ModuleRef = {
     <v:(<Identifier> "::")*> <e:TypeName> => ModuleRef::Denormalized(append(v, e)),
+    "$[ModuleRef](" <id:QuotedId> "," <e:TypeName> ")$" => ModuleRef::Normalized(FileId(id), e),
 };
 
 IdentifierPath: ModuleRef = {
     <v:(<Identifier> "::")*> <e:Identifier> => ModuleRef::Denormalized(append(v, e)),
+    "$[ModuleRef](" <id:QuotedId> "," <e:Identifier> ")$" => ModuleRef::Normalized(FileId(id), e),
 };
 
 Type = BaseType<"all">;
@@ -142,11 +175,11 @@ BaseType<C>: AstType = {
     <TupleType>,
     "_" => AstType::infer(),
     "[" <Type> "]" => AstType::array(<>),
-    
+
     // This is not allowed to be in the RHS of an "expr as Ty"
     "fn" "(" <CommaTrailingOrEmpty<Type>> ")" <MaybeReturn> if  C != "transmute" =>
         AstType::fn_ptr_type(<>),
-    
+
     // This is not allowed to be in the RHS of an "expr as Ty" or the argument of a closure
     "|" <CommaTrailingOrEmpty<ClosureParameterType>> "|" <MaybeReturn> if C == "all" =>
         AstType::closure_type(<>),
@@ -172,7 +205,7 @@ AssociableType<C>: AstType = {
         Ok(AstType::dynamic_type(dedup_set("dynamic traits", <>)?)),
 
     // Object or enum types, with optional generic. E.g. `Option<Int>`
-    // NOTE: Only plain typenames are allowed in the RHS of a "expr as Ty". 
+    // NOTE: Only plain typenames are allowed in the RHS of a "expr as Ty".
     // That is, `as Ty<_T>` is disallowed. Instead, use "as <Ty<_T>>".
     <TypeNamePath> <MaybeExprGenerics> if C != "transmute" =>
         AstType::object_or_enum(<>),
@@ -182,6 +215,15 @@ AssociableType<C>: AstType = {
     // An associated type, e.g. `<()>::Item`
     <AssociableType<C>> "::" <TypeName> =>
         AstType::associated_type(<>),
+
+    "$[Infer](" <id:QuotedId> ")$" =>
+        AstType::Infer(InferId(id)),
+    "$[Dummy](" <id:QuotedId> ")$" =>
+        AstType::Dummy(DummyId(id)),
+    "$[DummyGeneric](" <i:TypeName> "," <id:QuotedId> ")$" =>
+        AstType::DummyGeneric(GenericId(id), i),
+    "$[GenericPlaceholder](" <id:QuotedId> "," <i:TypeName> ")$" =>
+        AstType::GenericPlaceholder(GenericId(id), i),
 }
 
 TupleType: AstType = {
@@ -220,7 +262,7 @@ TypeOrBinding: AstTypeOrBinding = {
 // --- Program --- ///
 
 pub Module: AstModule = {
-    <ModuleMember*> =>? 
+    <ModuleMember*> =>?
         Ok(AstModule::try_new_from_members(file, module_name.to_string(), <>)?),
 };
 
@@ -279,10 +321,18 @@ MaybeRestrictions: Vec<AstTypeRestriction> = {
 
 Block: AstBlock = {
     <@L> "{" "."* "}" <@R> => AstBlock::empty(Span::new(file, <>)),
-    "{" "."* <v:(<Statement>)*> <e: Expression> "}" => AstBlock::new(v, e),
+    "{" "."* <v:(<Statement>)*> <e:Expression> "}" => AstBlock::new(v, e),
     "{" "."* <v:(<Statement>)*> <d:DottedStatement> <l:@L> "}" <r:@R> =>
         AstBlock::new(append(v, d), AstExpression::nothing(Span::new(file, l, r))),
+    "$[Block](" <mut b:Block> "," "(" <scope:CommaTrailingOrEmpty<QuotedNamedVariable>> ")" ")$" => {
+        amend_variables(scope, &mut b.scope);
+        b
+    }
 };
+
+QuotedNamedVariable: AstNamedVariable =
+    "$[NamedVariable](" <f:QuotedId> "," <l:QuotedId> "," <h:QuotedId> "," <n:Identifier> "," <t:Type> "," <i:QuotedId> ")$" =>
+        AstNamedVariable::quoted_new(Span::new(FileId(f), l, h), n, t, VariableId(i));
 
 Statement: AstStatement = {
     <UndottableExpression> => AstStatement::expression_statement(<>),
@@ -309,7 +359,7 @@ Prec4 = { "+", "-" };
 Prec5 = { "*", "/", "%" };
 // Prec6 = { unary "!", unary "-" }
 
-Expression = Expression0<"all">;
+pub Expression = Expression0<"all">;
 // Expressions that can precede a block, e.g. ```if <PreblockExpression> {```
 PreblockExpression = Expression0<"preblock">;
 
@@ -365,21 +415,26 @@ ControlFlowExpression<PB>: AstExpression = {
         AstExpression::continue_stmt(Span::new(file, l, h), None),
     <l:@L> "continue" "at" <i:Identifier> <h:@R> =>
         AstExpression::continue_stmt(Span::new(file, l, h), Some(i)),
+
+    <l:@L> "$[Break](" <b:OrUnderscore<Identifier>> <i:OrUnderscore<QuotedId>> <e:Expression> ")$" <h:@R> =>
+        AstExpression::quoted_break_stmt(Span::new(file, l, h), e, b, i),
+    <l:@L> "$[Continue](" <b:OrUnderscore<Identifier>> <i:OrUnderscore<QuotedId>> ")$" <h:@R> =>
+        AstExpression::quoted_continue_stmt(Span::new(file, l, h), b, i),
 };
 
 BaseExpression<PB>: AstExpression = {
     // Any expression that can be on the LHS of the `()` operator, e.g. `Call` trait
     <CallableExpression>,
     // Array access syntax. Even non-callable base expressions can be accessed.
-    <l:@L> <c:BaseExpression<PB>> "[" <i:Expression> "]" <h:@R> => 
+    <l:@L> <c:BaseExpression<PB>> "[" <i:Expression> "]" <h:@R> =>
         AstExpression::access(Span::new(file, l, h), c, i),
     // An object-access or object-call
-    <l:@L> <ex: BaseExpression<PB>> ":" <id: Identifier> <call: MaybeObjectCall> <h:@R> => match call {
+    <l:@L> <ex:BaseExpression<PB>> ":" <id:Identifier> <call:MaybeObjectCall> <h:@R> => match call {
         None => AstExpression::object_access(Span::new(file, l, h), ex, id),
         Some((generics, args)) => AstExpression::object_call(Span::new(file, l, h), ex, id, generics, args),
     },
     // Tuple access, e.g. `(1, 2):0`
-    <l:@L> <ex: BaseExpression<PB>> ":" <id: Integer> <h:@R> =>?
+    <l:@L> <ex:BaseExpression<PB>> ":" <id:Integer> <h:@R> =>?
         Ok(AstExpression::tuple_access(Span::new(file, l, h), ex, usize::from_str(&id)
             .map_err(|_| ParseError::User {
                 error: PError::new_at(Span::new(file, l, h), format!("Cannot parse `{}` as tuple index", id))
@@ -388,7 +443,7 @@ BaseExpression<PB>: AstExpression = {
     <l:@L> <e:TypeNamePath> <g:MaybeExprGenerics> "!" <v:TypeName> <a:EnumConstructorArguments<PB>> <h:@R> =>
         AstExpression::enum_constructor_from_args(Span::new(file, l, h), e, g, v, a),
     // Object allocation, e.g. `allocate Box { item: 1 }`
-    // NOTE: This cannot exist in a position preceding a block, 
+    // NOTE: This cannot exist in a position preceding a block,
     // e.g. `if allocate Box { item: 1 }` is illegal.
     <l:@L> "allocate" <o:TypeNamePath> <g:MaybeExprGenerics> "{" "}" <h:@R> if PB != "preblock" =>
         AstExpression::allocate_object(Span::new(file, l, h), o, g, HashMap::new()),
@@ -421,7 +476,7 @@ MaybeColonExprGenerics = {
 };
 
 NamedExpressionFields: HashMap<String, AstExpression> = {
-    "{" <k: CommaTrailing<NamedExpressionField>> "}" =>? dedup_keys("named fields", k),
+    "{" <k:CommaTrailing<NamedExpressionField>> "}" =>? dedup_keys("named fields", k),
 };
 
 NamedExpressionField: (String, AstExpression) = {
@@ -447,9 +502,32 @@ CallableExpression: AstExpression = {
     <l:@L> <c:CallableExpression> "(" <p:CommaTrailingOrEmpty<Expression>> ")" <h:@R> => AstExpression::expr_call(Span::new(file, l, h), c, p),
     <l:@L> <t:AssociableType<"all">> ":" <f:Identifier> <g:MaybeColonExprGenerics> "(" <p:CommaTrailingOrEmpty<Expression>> ")" <h:@R> => AstExpression::static_call(Span::new(file, l, h), t, f, g, p),
     <l:@L> <s:InterpolateBegin> <s2:InterpolateBody> <h:@R> => AstExpression::string_interpolation_begin(Span::new(file, l, h), s, s2),
+
+    <l:@L> "$[Identifier](" <i:Identifier> "," <id:QuotedId> ")$" <h:@R> =>
+        AstExpression::quoted_identifier(Span::new(file, l, h), i, VariableId(id)),
+    <l:@L> "$[Identifier](" "self" "," <id:QuotedId> ")$" <h:@R> =>
+        AstExpression::quoted_identifier(Span::new(file, l, h), "self".to_string(), VariableId(id)),
+    "$[SpannedExpr](" <f:QuotedId> "," <l:QuotedId> "," <h:QuotedId> "," <t:Type> "," <mut e:Expression> ")$" => {
+        e.span = Span::new(FileId(f), l, h);
+        e.ty = t;
+        e
+    },
+    <l:@L> "$[StaticCall]("
+        <ty:Type> ","
+        <trt:TraitTypeWithAssocs> ","
+        <fn_name:Identifier> ","
+        "(" <fn_generics:CommaTrailingOrEmpty<Type>> ")" ","
+        "(" <args:CommaTrailingOrEmpty<Expression>> ")" ","
+        <impl_id:QuotedId> ","
+        "(" <impl_generics:CommaTrailingOrEmpty<Type>> ")" ")$" <h:@R> =>
+        AstExpression::quoted_static_call(Span::new(file, l, h), ty, trt, fn_name, fn_generics, args, ImplId(impl_id), impl_generics),
+    <l:@L> "$[While](" <label:OrUnderscore<Identifier>> "," <i:QuotedId> "," <c:Expression> "," <t:Block> "," <e:Block> ")$" <h:@R> =>
+        AstExpression::quoted_while_loop(Span::new(file, l, h), label, LoopId(i), c, t, e),
+    <l:@L> "$[For](" <label:OrUnderscore<Identifier>> "," <p:Pattern> "," <c:Expression> "," <t:Block> "," <e:Block> ")$" <h:@R> =>
+        AstExpression::for_loop(Span::new(file, l, h), label, p, c, t, e),
 };
 
-// These are block-like expressions, and they are important because 
+// These are block-like expressions, and they are important because
 // they can stand as statements without an extra `.` operator.
 UndottableExpression: AstExpression = {
     <IfStatement>,
@@ -466,7 +544,7 @@ MaybeLabel: Option<String> = {
 };
 
 ConditionalCompilationExpression: AstExpression = {
-    <l:@L> <v:(<ConditionalCompilationBranch> "else")+> <e: ConditionalCompilationBranch> <h:@R> =>?
+    <l:@L> <v:(<ConditionalCompilationBranch> "else")+> <e:ConditionalCompilationBranch> <h:@R> =>?
         Ok(AstExpression::conditional_compilation(Span::new(file, l, h), dedup_keys("conditional compilation", append(v, e))?)),
 };
 
@@ -477,13 +555,13 @@ ConditionalCompilationBranch: (String, AstBlock) = {
 MaybeElseOrIfBlock: AstBlock = {
     <l:@L> => AstBlock::empty(Span::new(file, l, l)),
     "else" <Block>,
-    // `if` expressions are the only ones that can be chained 
+    // `if` expressions are the only ones that can be chained
     // after an `else` without an additional block.
     "else" <IfStatement> => AstBlock::new(vec![], <>),
 };
 
 IfStatement: AstExpression = {
-    <l:@L> "if" <c:PreblockExpression> <b:Block> <e:MaybeElseOrIfBlock> <h:@R> => 
+    <l:@L> "if" <c:PreblockExpression> <b:Block> <e:MaybeElseOrIfBlock> <h:@R> =>
         AstExpression::if_statement(Span::new(file, l, h), c, b, e),
 };
 
@@ -493,16 +571,15 @@ MaybeElseBlock: AstBlock = {
 };
 
 IdentifierExpression: AstExpression = {
-    <l:@L> <k: IdentifierPath> <h:@R> => match k {
+    <l:@L> <k:IdentifierPath> <h:@R> => match k {
         ModuleRef::Denormalized(mut k) if k.len() == 1 =>
             AstExpression::identifier(Span::new(file, l, h), k.pop().unwrap()),
-        ModuleRef::Denormalized(k) =>
-            AstExpression::global_variable(Span::new(file, l, h), k),
-        _ => unreachable!(),
+        m =>
+            AstExpression::global_variable(Span::new(file, l, h), m),
     },
     // Function calls with the "minifish" syntax, e.g.
     //   panic:<Int>("Yikes!")
-    <l:@L> <i:IdentifierPath> ":<" <g:CommaTrailing<Type>> ">" "(" <p:CommaTrailingOrEmpty<Expression>> ")" <h:@R> 
+    <l:@L> <i:IdentifierPath> ":<" <g:CommaTrailing<Type>> ">" "(" <p:CommaTrailingOrEmpty<Expression>> ")" <h:@R>
         => AstExpression::call(Span::new(file, l, h), i, g, p),
 };
 
@@ -528,6 +605,10 @@ Literal: AstLiteral = {
 
 MatchBranch: AstMatchBranch = {
     <Pattern> "=>" <Expression> => AstMatchBranch::new(<>),
+    "$[MatchBranch](" <mut b:MatchBranch> "," "(" <scope:CommaTrailingOrEmpty<QuotedNamedVariable>> ")" ")$" => {
+        amend_variables(scope, &mut b.scope);
+        b
+    }
 };
 
 // --- Patterns --- //
@@ -538,13 +619,13 @@ Pattern: AstMatchPattern = {
     // A literal pattern (Bool, String, Int, Float, Char)
     <l:@L> <i:Literal> <t:MaybePatternType> <h:@R> => AstMatchPattern::literal(Span::new(file, l, h), i, t),
     // A variable binding
-    <l:@L> <i:Identifier> <t:MaybePatternType> <h:@R> => 
+    <l:@L> <i:Identifier> <t:MaybePatternType> <h:@R> =>
         AstMatchPattern::identifier(Span::new(file, l, h), i, t),
     // The empty tuple pattern
     <l:@L> "(" ")" <t:MaybePatternType> <h:@R> => AstMatchPattern::empty(Span::new(file, l, h), t),
     // A non-empty tuple pattern
     // NOTE: This does not allow `(a)`, due to congruency with tuple construction.
-    <l:@L> "(" <v:(<Pattern> ",")+> <e:Pattern?> ")" <t: MaybePatternType> <h:@R> =>
+    <l:@L> "(" <v:(<Pattern> ",")+> <e:Pattern?> ")" <t:MaybePatternType> <h:@R> =>
         AstMatchPattern::tuple(Span::new(file, l, h), append_maybe(v, e), t),
     // Enum constructor tuple patterns
     <l:@L> <e:TypeNamePath> <g:MaybeExprGenerics> "!" <v:TypeName> <t:MaybePatternType> <h:@R> =>
@@ -553,6 +634,14 @@ Pattern: AstMatchPattern = {
         Ok(AstMatchPattern::named_enum(Span::new(file, l, h), e, g, v, dedup_keys("named enum", p.0)?, p.1, t)),
     <l:@L> <e:TypeNamePath> <g:MaybeExprGenerics> "!" <v:TypeName> <p:PositionalPatternFields> <t:MaybePatternType> <h:@R> =>
         AstMatchPattern::positional_enum(Span::new(file, l, h), e, g, v, p.0, p.1, t),
+
+    "$[SpannedPattern](" <f:QuotedId> "," <l:QuotedId> "," <h:QuotedId> "," <t:Type> "," <mut p:Pattern> ")$" => {
+        p.span = Span::new(FileId(f), l, h);
+        p.ty = t;
+        p
+    },
+    <q:QuotedNamedVariable> =>
+        AstMatchPattern::quoted_named_variable(q),
 };
 
 MaybePatternType: AstType = {
@@ -583,13 +672,13 @@ PositionalPatternFields: (Vec<AstMatchPattern>, bool) = {
 
 Use: (bool, AstUse) = {
     // use a::b::c::Type.
-    "use" <p:"pub"?> <m:MaybeMod> <v:(<Identifier> "::")*> <e:TypeName> "." 
+    "use" <p:"pub"?> <m:MaybeMod> <v:(<Identifier> "::")*> <e:TypeName> "."
         => (p.is_some(), AstUse::Use(combine(m, v), e)),
     // use a::b::c::d.
-        "use" <p:"pub"?> <m:MaybeMod> <v:(<Identifier> "::")*> <e:Identifier> "." 
+        "use" <p:"pub"?> <m:MaybeMod> <v:(<Identifier> "::")*> <e:Identifier> "."
         => (p.is_some(), AstUse::Use(combine(m, v), e)),
     // use a::b::c::*.
-        "use" <p:"pub"?> <m:MaybeMod> <v:(<Identifier> "::")*> "*" "." 
+        "use" <p:"pub"?> <m:MaybeMod> <v:(<Identifier> "::")*> "*" "."
         => (p.is_some(), AstUse::UseAll(combine(m, v))),
 };
 
@@ -672,7 +761,7 @@ NamedEnumField = <Identifier> ":" <Type>;
 
 // -- Impl --- //
 
-Impl: AstImpl = {
+pub Impl: AstImpl = {
     <l:@L> "impl" <h:@R> <g:MaybeDeclGenerics> <tr:TraitType?> "for" <t:Type> <r:MaybeRestrictions> "{" <m:(ImplMember)*> "}" =>?
         Ok(AstImpl::try_new_from_members(Span::new(file, l, h), g, tr, t, r, m)?)
 };

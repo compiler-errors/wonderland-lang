@@ -7,8 +7,8 @@ use std::{
     sync::RwLock,
 };
 
-pub mod ast_display;
-pub mod ast_visitor;
+pub mod display;
+pub mod visitor;
 
 pub enum AstError {
     DuplicatedMember(String),
@@ -25,13 +25,13 @@ impl<L, T> From<AstError> for lalrpop_util::ParseError<L, T, PError> {
     }
 }
 
-#[Adapter("crate::ast::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::visitor::AstAdapter")]
 #[derive(Debug, Clone, Visit)]
 pub struct AstProgram {
     pub modules: Vec<AstModule>,
 }
 
-#[Adapter("crate::ast::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::visitor::AstAdapter")]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Visit, PartialOrd, Ord)]
 pub enum ModuleRef {
     Denormalized(Vec<String>),
@@ -58,7 +58,7 @@ impl ModuleRef {
     }
 }
 
-#[Adapter("crate::ast::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::visitor::AstAdapter")]
 #[derive(Debug, Clone, Visit)]
 pub enum AstUse {
     Use(Vec<String>, String),
@@ -75,7 +75,7 @@ pub enum AstModuleMember {
     Global(AstGlobalVariable),
 }
 
-#[Adapter("crate::ast::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::visitor::AstAdapter")]
 #[derive(Debug, Clone, Visit)]
 /// A file that is being parsed, along with the associated
 /// parsed functions that are contained in the file.
@@ -201,7 +201,7 @@ lazy_static! {
     static ref GENERIC_ID_COUNTER: RwLock<usize> = RwLock::new(1);
 }
 
-#[Adapter("crate::ast::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::visitor::AstAdapter")]
 #[derive(Debug, Clone, Eq, PartialEq, VisitAnonymous)]
 pub struct AstGeneric(pub GenericId, pub String);
 
@@ -220,7 +220,7 @@ impl From<AstGeneric> for AstType {
     }
 }
 
-#[Adapter("crate::ast::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::visitor::AstAdapter")]
 #[derive(Debug, Clone, Eq, PartialEq, Visit)]
 pub struct AstFunction {
     /// The beginning position of the function
@@ -241,7 +241,7 @@ pub struct AstFunction {
     pub definition: Option<AstBlock>,
 
     /// The collection of varialbes associated with the function
-    pub variables: HashMap<VariableId, AstNamedVariable>,
+    pub scope: Option<HashMap<VariableId, AstNamedVariable>>,
 }
 
 impl AstFunction {
@@ -263,7 +263,7 @@ impl AstFunction {
             return_type,
             restrictions,
             definition: None,
-            variables: HashMap::new(),
+            scope: None,
         }
     }
 
@@ -286,7 +286,7 @@ impl AstFunction {
             return_type,
             restrictions,
             definition: Some(definition),
-            variables: HashMap::new(),
+            scope: None,
         }
     }
 
@@ -309,7 +309,7 @@ impl AstFunction {
             return_type,
             restrictions,
             definition: Some(AstBlock::new(vec![], definition)),
-            variables: HashMap::new(),
+            scope: None,
         }
     }
 }
@@ -318,11 +318,11 @@ lazy_static! {
     static ref VARIABLE_ID_COUNTER: RwLock<usize> = RwLock::new(0);
 }
 
-#[Adapter("crate::ast::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::visitor::AstAdapter")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, VisitAnonymous)]
 pub struct VariableId(pub usize);
 
-#[Adapter("crate::ast::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::visitor::AstAdapter")]
 #[derive(Debug, Clone, Eq, PartialEq, Visit)]
 /// A name and type associated with a parameter, along
 /// with the position where this parameter is named.
@@ -347,21 +347,25 @@ impl AstNamedVariable {
             id: VariableId(id_ref.clone()),
         }
     }
+
+    pub fn quoted_new(span: Span, name: String, ty: AstType, id: VariableId) -> AstNamedVariable {
+        AstNamedVariable { span, name, ty, id }
+    }
 }
 
-#[Adapter("crate::ast::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::visitor::AstAdapter")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, VisitAnonymous)]
 pub struct InferId(pub usize);
 
-#[Adapter("crate::ast::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::visitor::AstAdapter")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, VisitAnonymous)]
 pub struct GenericId(pub usize);
 
-#[Adapter("crate::ast::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::visitor::AstAdapter")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, VisitAnonymous)]
 pub struct DummyId(pub usize);
 
-#[Adapter("crate::ast::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::visitor::AstAdapter")]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Visit)]
 pub struct AstTraitType {
     pub name: ModuleRef,
@@ -379,7 +383,7 @@ pub enum AstTypeOrBinding {
     Binding(String, AstType),
 }
 
-#[Adapter("crate::ast::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::visitor::AstAdapter")]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Visit)]
 pub struct AstTraitTypeWithAssocs {
     pub trt: AstTraitType,
@@ -439,7 +443,7 @@ impl AstTraitTypeWithAssocs {
     }
 }
 
-#[Adapter("crate::ast::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::visitor::AstAdapter")]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Visit, PartialOrd, Ord)]
 /// A type as parsed by the Parser module.
 pub enum AstType {
@@ -590,12 +594,13 @@ impl AstType {
     }
 }
 
-#[Adapter("crate::ast::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::visitor::AstAdapter")]
 #[derive(Debug, Clone, Eq, PartialEq, Visit)]
 /// A collection of statements, given by a `{}` block.
 pub struct AstBlock {
     pub statements: Vec<AstStatement>,
     pub expression: Box<AstExpression>,
+    pub scope: Option<HashMap<VariableId, AstNamedVariable>>,
 }
 
 impl AstBlock {
@@ -603,6 +608,7 @@ impl AstBlock {
         AstBlock {
             statements,
             expression: Box::new(expr),
+            scope: None,
         }
     }
 
@@ -610,15 +616,16 @@ impl AstBlock {
         AstBlock {
             statements: vec![],
             expression: Box::new(AstExpression::nothing(span)),
+            scope: None,
         }
     }
 }
 
-#[Adapter("crate::ast::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::visitor::AstAdapter")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, VisitAnonymous)]
 pub struct LoopId(pub usize);
 
-#[Adapter("crate::ast::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::visitor::AstAdapter")]
 #[derive(Debug, Clone, Eq, PartialEq, Visit)]
 pub enum AstStatement {
     Let {
@@ -644,7 +651,7 @@ impl AstStatement {
     }
 }
 
-#[Adapter("crate::ast::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::visitor::AstAdapter")]
 #[derive(Debug, Clone, Eq, PartialEq, Visit)]
 pub struct AstExpression {
     pub data: AstExpressionData,
@@ -654,7 +661,7 @@ pub struct AstExpression {
 
 type SubExpression = Box<AstExpression>;
 
-#[Adapter("crate::ast::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::visitor::AstAdapter")]
 #[derive(Debug, Clone, Eq, PartialEq, VisitAnonymous)]
 pub enum AstExpressionData {
     Unimplemented,
@@ -682,7 +689,7 @@ pub enum AstExpressionData {
         expr: SubExpression,
 
         captured: Option<Vec<(AstNamedVariable, AstNamedVariable)>>,
-        variables: Option<HashMap<VariableId, AstNamedVariable>>,
+        scope: Option<HashMap<VariableId, AstNamedVariable>>,
     },
 
     /// A regular function call
@@ -828,7 +835,10 @@ pub enum AstExpressionData {
     },
 }
 
-#[Adapter("crate::ast::ast_visitor::AstAdapter")]
+/// Convenience type for quasiquoting a label
+pub struct AstLabel(pub String);
+
+#[Adapter("crate::ast::visitor::AstAdapter")]
 #[derive(Debug, Clone, Eq, PartialEq, VisitAnonymous)]
 pub enum InstructionArgument {
     Expression(AstExpression),
@@ -836,7 +846,7 @@ pub enum InstructionArgument {
     Anonymous(String),
 }
 
-#[Adapter("crate::ast::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::visitor::AstAdapter")]
 #[derive(Debug, Clone, Eq, PartialEq, VisitAnonymous)]
 pub enum InstructionOutput {
     Type(AstType),
@@ -904,6 +914,27 @@ impl AstExpression {
             span,
             data: AstExpressionData::While {
                 id: LoopId(id_ref.clone()),
+                label,
+                condition: Box::new(condition),
+                block,
+                else_block,
+            },
+            ty: AstType::infer(),
+        }
+    }
+
+    pub fn quoted_while_loop(
+        span: Span,
+        label: Option<String>,
+        id: LoopId,
+        condition: AstExpression,
+        block: AstBlock,
+        else_block: AstBlock,
+    ) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::While {
+                id,
                 label,
                 condition: Box::new(condition),
                 block,
@@ -1027,7 +1058,7 @@ impl AstExpression {
         }
     }
 
-    pub fn identifier_with_id(
+    pub fn quoted_identifier(
         span: Span,
         identifier: String,
         variable_id: VariableId,
@@ -1042,12 +1073,10 @@ impl AstExpression {
         }
     }
 
-    pub fn global_variable(span: Span, path: Vec<String>) -> AstExpression {
+    pub fn global_variable(span: Span, name: ModuleRef) -> AstExpression {
         AstExpression {
             span,
-            data: AstExpressionData::GlobalVariable {
-                name: ModuleRef::Denormalized(path),
-            },
+            data: AstExpressionData::GlobalVariable { name },
             ty: AstType::infer(),
         }
     }
@@ -1089,7 +1118,7 @@ impl AstExpression {
                 return_ty,
                 expr: Box::new(expr),
                 captured: None,
-                variables: None,
+                scope: None,
             },
             ty: AstType::infer(),
         }
@@ -1158,6 +1187,33 @@ impl AstExpression {
                 args,
                 associated_trait: None,
                 impl_signature: None,
+            },
+            ty: AstType::infer(),
+        }
+    }
+
+    pub fn quoted_static_call(
+        span: Span,
+        call_type: AstType,
+        associated_trait: AstTraitTypeWithAssocs,
+        fn_name: String,
+        fn_generics: Vec<AstType>,
+        args: Vec<AstExpression>,
+        impl_id: ImplId,
+        impl_generics: Vec<AstType>,
+    ) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::StaticCall {
+                call_type,
+                fn_name,
+                fn_generics,
+                args,
+                associated_trait: Some(associated_trait),
+                impl_signature: Some(AstImplSignature {
+                    impl_id,
+                    generics: impl_generics,
+                }),
             },
             ty: AstType::infer(),
         }
@@ -1371,10 +1427,42 @@ impl AstExpression {
         }
     }
 
+    pub fn quoted_break_stmt(
+        span: Span,
+        value: AstExpression,
+        label: Option<String>,
+        id: Option<usize>,
+    ) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::Break {
+                value: Box::new(value),
+                label,
+                id: id.map(|i| LoopId(i)),
+            },
+            ty: AstType::infer(),
+        }
+    }
+
     pub fn continue_stmt(span: Span, label: Option<String>) -> AstExpression {
         AstExpression {
             span,
             data: AstExpressionData::Continue { label, id: None },
+            ty: AstType::infer(),
+        }
+    }
+
+    pub fn quoted_continue_stmt(
+        span: Span,
+        label: Option<String>,
+        id: Option<usize>,
+    ) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::Continue {
+                label,
+                id: id.map(|i| LoopId(i)),
+            },
             ty: AstType::infer(),
         }
     }
@@ -1446,11 +1534,12 @@ impl AstExpression {
     }
 }
 
-#[Adapter("crate::ast::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::visitor::AstAdapter")]
 #[derive(Debug, Clone, Eq, PartialEq, Visit)]
 pub struct AstMatchBranch {
     pub pattern: AstMatchPattern,
     pub expression: AstExpression,
+    pub scope: Option<HashMap<VariableId, AstNamedVariable>>,
 }
 
 impl AstMatchBranch {
@@ -1458,11 +1547,12 @@ impl AstMatchBranch {
         AstMatchBranch {
             pattern,
             expression,
+            scope: None,
         }
     }
 }
 
-#[Adapter("crate::ast::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::visitor::AstAdapter")]
 #[derive(Debug, Clone, Eq, PartialEq, Visit)]
 pub struct AstMatchPattern {
     pub span: Span,
@@ -1470,7 +1560,7 @@ pub struct AstMatchPattern {
     pub ty: AstType,
 }
 
-#[Adapter("crate::ast::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::visitor::AstAdapter")]
 #[derive(Debug, Clone, Eq, PartialEq, VisitAnonymous)]
 pub enum AstMatchPatternData {
     Underscore,
@@ -1512,6 +1602,14 @@ impl AstMatchPattern {
             data: AstMatchPatternData::Identifier(AstNamedVariable::new(span, name, ty.clone())),
             ty,
             span,
+        }
+    }
+
+    pub fn quoted_named_variable(v: AstNamedVariable) -> AstMatchPattern {
+        AstMatchPattern {
+            ty: v.ty.clone(),
+            span: v.span,
+            data: AstMatchPatternData::Identifier(v),
         }
     }
 
@@ -1602,7 +1700,7 @@ impl AstMatchPattern {
     }
 }
 
-#[Adapter("crate::ast::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::visitor::AstAdapter")]
 #[derive(Debug, Clone, Eq, PartialEq, Visit)]
 pub enum AstLiteral {
     True,
@@ -1613,7 +1711,7 @@ pub enum AstLiteral {
     Char(char),
 }
 
-#[Adapter("crate::ast::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::visitor::AstAdapter")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, VisitAnonymous)]
 /// The kind of binary operation
 pub enum BinOpKind {
@@ -1653,7 +1751,7 @@ impl BinOpKind {
     }
 }
 
-#[Adapter("crate::ast::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::visitor::AstAdapter")]
 #[derive(Debug, Clone, Eq, PartialEq, Visit)]
 pub struct AstObject {
     pub name_span: Span,
@@ -1688,7 +1786,7 @@ impl AstObject {
     }
 }
 
-#[Adapter("crate::ast::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::visitor::AstAdapter")]
 #[derive(Debug, Clone, Eq, PartialEq, Visit)]
 pub struct AstObjectFunction {
     pub name_span: Span,
@@ -1711,7 +1809,7 @@ pub struct AstObjectFunction {
     pub definition: Option<AstBlock>,
 
     /// Used during analysis...
-    pub variables: HashMap<VariableId, AstNamedVariable>,
+    pub scope: Option<HashMap<VariableId, AstNamedVariable>>,
 }
 
 impl AstObjectFunction {
@@ -1734,12 +1832,12 @@ impl AstObjectFunction {
             return_type,
             restrictions,
             definition,
-            variables: HashMap::new(),
+            scope: None,
         }
     }
 }
 
-#[Adapter("crate::ast::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::visitor::AstAdapter")]
 #[derive(Debug, Clone, Eq, PartialEq, Visit)]
 pub struct AstObjectMember {
     pub span: Span,
@@ -1762,7 +1860,7 @@ pub enum AstTraitMember {
     Function(AstObjectFunction),
 }
 
-#[Adapter("crate::ast::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::visitor::AstAdapter")]
 #[derive(Debug, Clone, Eq, PartialEq, Visit)]
 pub struct AstTrait {
     pub name_span: Span,
@@ -1840,14 +1938,14 @@ impl AstTrait {
     }
 }
 
-#[Adapter("crate::ast::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::visitor::AstAdapter")]
 #[derive(Debug, Clone, Eq, PartialEq, Visit)]
 pub struct AstAssociatedType {
     pub name: String,
     pub restrictions: Vec<AstTraitTypeWithAssocs>,
 }
 
-#[Adapter("crate::ast::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::visitor::AstAdapter")]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Visit)]
 pub struct AstTypeRestriction {
     pub ty: AstType,
@@ -1883,11 +1981,11 @@ pub enum AstImplMember {
     Function(AstObjectFunction),
 }
 
-#[Adapter("crate::ast::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::visitor::AstAdapter")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, VisitAnonymous)]
 pub struct ImplId(pub usize);
 
-#[Adapter("crate::ast::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::visitor::AstAdapter")]
 #[derive(Debug, Clone, Eq, PartialEq, Visit)]
 pub struct AstImpl {
     pub impl_id: ImplId,
@@ -1901,6 +1999,8 @@ pub struct AstImpl {
 
     pub fns: HashMap<String, AstObjectFunction>,
     pub associated_types: HashMap<String, AstType>,
+
+    pub is_stub: bool,
 }
 
 lazy_static! {
@@ -1917,6 +2017,7 @@ impl AstImpl {
         fns: HashMap<String, AstObjectFunction>,
         restrictions: Vec<AstTypeRestriction>,
         associated_types: HashMap<String, AstType>,
+        is_stub: bool,
     ) -> AstImpl {
         let mut id_ref = IMPL_ID_COUNTER.write().unwrap();
         *id_ref += 1;
@@ -1930,6 +2031,7 @@ impl AstImpl {
             restrictions,
             fns,
             associated_types,
+            is_stub,
         }
     }
 
@@ -1971,6 +2073,7 @@ impl AstImpl {
             functions,
             restrictions,
             associated_types,
+            false,
         ))
     }
 
@@ -1982,7 +2085,7 @@ impl AstImpl {
     }
 }
 
-#[Adapter("crate::ast::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::visitor::AstAdapter")]
 #[derive(Debug, Clone, Eq, PartialEq, Visit)]
 pub struct AstGlobalVariable {
     pub name_span: Span,
@@ -2012,7 +2115,7 @@ impl AstGlobalVariable {
     }
 }
 
-#[Adapter("crate::ast::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::visitor::AstAdapter")]
 #[derive(Debug, Clone, Eq, PartialEq, Visit)]
 pub struct AstEnum {
     pub name_span: Span,
@@ -2045,7 +2148,7 @@ impl AstEnum {
     }
 }
 
-#[Adapter("crate::ast::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::visitor::AstAdapter")]
 #[derive(Debug, Clone, Eq, PartialEq, Visit)]
 pub struct AstEnumVariant {
     pub name_span: Span,
@@ -2100,7 +2203,7 @@ impl AstEnumVariant {
 }
 
 /// Used in tyck
-#[Adapter("crate::ast::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::visitor::AstAdapter")]
 #[derive(Debug, Clone, PartialEq, Eq, Visit)]
 pub struct AstImplSignature {
     pub impl_id: ImplId,

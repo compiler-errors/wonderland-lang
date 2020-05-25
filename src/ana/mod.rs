@@ -14,14 +14,19 @@ use crate::{
         analyze_generics::AnalyzeGenerics, analyze_generics_parity::AnalyzeGenericsParity,
         analyze_global_names::AnalyzeGlobalNames, analyze_illegal_globals::AnalyzeIllegalGlobals,
         analyze_illegal_infers::AnalyzeIllegalInfers, analyze_impls::AnalyzeImpls,
-        analyze_infallible_enums::AnalyzeInfallibleEnums, analyze_names::AnalyzeNames,
-        analyze_object_indices::AnalyzeObjectIndices, analyze_operators::AnalyzeOperators,
-        analyze_positional_enums::AnalyzePositionalEnums, analyze_returns::AnalyzeReturns,
-        analyze_self::AnalyzeSelf, analyze_variables::AnalyzeVariables,
+        analyze_infallible_enums::AnalyzeInfallibleEnums, analyze_module_refs::AnalyzeModuleRefs,
+        analyze_names::AnalyzeNames, analyze_object_indices::AnalyzeObjectIndices,
+        analyze_operators::AnalyzeOperators, analyze_positional_enums::AnalyzePositionalEnums,
+        analyze_returns::AnalyzeReturns, analyze_self::AnalyzeSelf,
+        analyze_variables::AnalyzeVariables,
     },
     ast::AstProgram,
     util::{Context, PResult, Visit},
 };
+
+mod analyze_info;
+mod analyze_module_refs;
+mod analyze_modules;
 
 mod analyze_argument_parity;
 mod analyze_associated_types_and_methods;
@@ -37,8 +42,6 @@ mod analyze_illegal_globals;
 mod analyze_illegal_infers;
 mod analyze_impls;
 mod analyze_infallible_enums;
-mod analyze_info;
-mod analyze_modules;
 mod analyze_names;
 mod analyze_object_indices;
 mod analyze_operators;
@@ -46,6 +49,7 @@ mod analyze_positional_enums;
 mod analyze_returns;
 mod analyze_self;
 mod analyze_variables;
+
 pub mod represent;
 pub mod represent_visitor;
 
@@ -80,14 +84,74 @@ pub fn analyze(p: AstProgram) -> PResult<(AnalyzedProgram, AstProgram)> {
     let analyzed_uses_modules = analyze_uses.modules;
 
     let mut analyze_info = AnalyzeInfo::new(mm, analyzed_uses_modules);
+    let p = p.visit(&mut analyze_info)?;
+    let a = analyze_info.analyzed_program;
 
-    let mut p = p.visit(&mut analyze_info)?;
-    let mut a = analyze_info.analyzed_program;
+    analyze_item(a, p)
+}
 
-    let passes: Vec<(&str, AnalysisPassFn)> = vec![
+pub fn analyze_item_inplace<T>(a: &mut AnalyzedProgram, t: T) -> PResult<T>
+where
+    T: 'static
+        + Visit<AnalyzeModuleRefs>
+        + Visit<AnalyzeNames>
+        + Visit<AnalyzeForLoops>
+        + Visit<AnalyzeElaborations>
+        + Visit<AnalyzeConstructorFields>
+        + Visit<AnalyzeObjectIndices>
+        + Visit<AnalyzePositionalEnums>
+        + Visit<AnalyzeAssociatedTypesAndMethods>
+        + Visit<AnalyzeGenerics>
+        + Visit<AnalyzeInfallibleEnums>
+        + Visit<AnalyzeVariables>
+        + Visit<AnalyzeFnCalls>
+        + Visit<AnalyzeGlobalNames>
+        + Visit<AnalyzeOperators>
+        + Visit<AnalyzeControlFlow>
+        + Visit<AnalyzeImpls>
+        + Visit<AnalyzeSelf>
+        + Visit<AnalyzeArgumentParity>
+        + Visit<AnalyzeGenericsParity>
+        + Visit<AnalyzeIllegalGlobals>
+        + Visit<AnalyzeReturns>
+        + Visit<AnalyzeIllegalInfers>,
+{
+    let a_clone = std::mem::replace(a, AnalyzedProgram::empty());
+    let (a_clone, t) = analyze_item(a_clone, t)?;
+    let _ = std::mem::replace(a, a_clone);
+
+    Ok(t)
+}
+
+pub fn analyze_item<T>(mut a: AnalyzedProgram, mut t: T) -> PResult<(AnalyzedProgram, T)>
+where
+    T: 'static
+        + Visit<AnalyzeModuleRefs>
+        + Visit<AnalyzeNames>
+        + Visit<AnalyzeForLoops>
+        + Visit<AnalyzeElaborations>
+        + Visit<AnalyzeConstructorFields>
+        + Visit<AnalyzeObjectIndices>
+        + Visit<AnalyzePositionalEnums>
+        + Visit<AnalyzeAssociatedTypesAndMethods>
+        + Visit<AnalyzeGenerics>
+        + Visit<AnalyzeInfallibleEnums>
+        + Visit<AnalyzeVariables>
+        + Visit<AnalyzeFnCalls>
+        + Visit<AnalyzeGlobalNames>
+        + Visit<AnalyzeOperators>
+        + Visit<AnalyzeControlFlow>
+        + Visit<AnalyzeImpls>
+        + Visit<AnalyzeSelf>
+        + Visit<AnalyzeArgumentParity>
+        + Visit<AnalyzeGenericsParity>
+        + Visit<AnalyzeIllegalGlobals>
+        + Visit<AnalyzeReturns>
+        + Visit<AnalyzeIllegalInfers>,
+{
+    let passes: Vec<(&str, AnalysisPassFn<T>)> = vec![
+        ("analyze_module_refs", Box::new(AnalyzeModuleRefs::analyze)),
         ("analyze_names", Box::new(AnalyzeNames::analyze)),
-        // All the syntactic sugar needs to go first.
-        ("analyze_for_loops", Box::new(AnalyzeForLoops::analyze)),
         (
             "analyze_elaborations",
             Box::new(AnalyzeElaborations::analyze),
@@ -144,14 +208,16 @@ pub fn analyze(p: AstProgram) -> PResult<(AnalyzedProgram, AstProgram)> {
             Box::new(AnalyzeIllegalGlobals::analyze),
         ),
         ("analyze_returns", Box::new(AnalyzeReturns::analyze)),
+        // All the syntactic sugar needs to go first.
+        ("analyze_for_loops", Box::new(AnalyzeForLoops::analyze)),
     ];
 
     for (name, pass) in passes {
-        let (a_new, p_new) = pass(a, p).with_comment(|| format!("In analysis pass: {}", name))?;
+        let (a_new, p_new) = pass(a, t).with_comment(|| format!("In analysis pass: {}", name))?;
 
         a = a_new;
-        p = p_new;
+        t = p_new;
     }
 
-    Ok((a, p))
+    Ok((a, t))
 }

@@ -273,7 +273,7 @@ fn read_stdin() -> PResult<FileId> {
     file.write_all(&buf)
         .map_err(|e| PError::new(format!("Error writing to temporary file: {}", e)))?;
 
-    Ok(FileRegistry::register_temporary(file))
+    Ok(FileRegistry::register_temporary("stdin", file))
 }
 
 fn help(fail: bool) -> ! {
@@ -341,7 +341,7 @@ cheshire (-c | --compile) [--llvm-ir | -L] FILE... [-S | --tempdir DIR] [-O OUTP
 fn try_lex(files: Vec<FileId>) -> PResult<()> {
     for file in files {
         let contents = FileRegistry::open(file)?;
-        let lex = Lexer::new(file, &contents);
+        let lex = Lexer::new(file, &contents, false);
 
         for t in lex {
             let (_, t, _) = t?;

@@ -393,6 +393,7 @@ impl LookingGlass {
                 for AstMatchBranch {
                     pattern,
                     expression,
+                    ..
                 } in branches
                 {
                     scope.push();

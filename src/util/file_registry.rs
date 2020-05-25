@@ -1,15 +1,14 @@
 use crate::util::result::PResult;
 
-use std::{
-    collections::{HashMap, HashSet},
-    path::{Path, PathBuf},
-    sync::{Arc, RwLock, Weak},
-};
-
+use super::PError;
 use crate::util::Span;
 use std::{
+    collections::{HashMap, HashSet},
     ffi::{OsStr, OsString},
     fs,
+    io::Write,
+    path::{Path, PathBuf},
+    sync::{Arc, RwLock, Weak},
 };
 use tempfile::NamedTempFile;
 
@@ -196,13 +195,25 @@ impl FileRegistry {
         reg.mod_paths[&file_id].last().unwrap().clone()
     }
 
-    pub fn register_temporary(file: NamedTempFile) -> FileId {
-        let id = FileRegistry::seek_module(file.path().into(), vec!["stdin".into()]);
+    pub fn register_temporary(from: &str, file: NamedTempFile) -> FileId {
+        let id = FileRegistry::seek_module(file.path().into(), vec![from.to_string()]);
 
         let mut reg = FILE_REGISTRY.write().unwrap();
         reg.temporary_files.push(file);
 
         id
+    }
+
+    pub fn register_formatted_string(
+        from: &str,
+        contents: std::fmt::Arguments<'_>,
+    ) -> PResult<FileId> {
+        let mut file = NamedTempFile::new()
+            .map_err(|e| PError::new(format!("Error creating temporary file: {}", e)))?;
+        file.write_fmt(contents)
+            .map_err(|e| PError::new(format!("Error writing to temporary file: {}", e)))?;
+
+        Ok(Self::register_temporary(from, file))
     }
 
     pub fn location_info(span: Span) -> PResult<(String, usize, usize, usize, usize, String)> {

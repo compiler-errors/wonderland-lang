@@ -69,3 +69,42 @@ impl Hash for Char {
 impl Hash for Bool {
   fn hash(self) -> Int = if self { 0 } else { 1 }.
 }
+
+trait Call<_Args> {
+  type Return.
+  fn call(self, args: _Args) -> <Self as Call<_Args>>::Return.
+}
+
+trait AllocateArray {
+  fn allocate_array(n: Int) -> [Self].
+}
+
+impl<_T> AllocateArray for _T where _T: Default {
+  fn allocate_array(n: Int) -> [_T] {
+      let a = allocate_empty_array_internal:<_T>(n).
+
+      for i in Range!Finite(0, n) {
+        a[i] = <_T>:default().
+      }
+
+      a
+  }
+}
+
+trait Into<_T> {
+  fn into(self) -> _T.
+}
+
+impl<_T> Into<_T> for _T {
+  fn into(self) -> _T = self.
+}
+
+impl Into<Float> for Int {
+  fn into(self) -> Float {
+    impl "llvm" {
+      instruction "sitofp" (self) -> Float
+    } else impl "looking_glass" {
+      instruction "int_to_float" (self) -> Float
+    }
+  }
+}

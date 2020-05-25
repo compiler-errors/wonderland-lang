@@ -1,18 +1,25 @@
+use super::represent::AnalyzedProgram;
 use crate::{
-    ana::represent_visitor::AstAnalysisPass,
+    ana::represent_visitor::PureAnalysisPass,
     ast::{
-        ast_visitor::AstAdapter, AstBlock, AstExpression, AstExpressionData, AstMatchPattern,
-        AstStatement, AstType,
+        visitor::AstAdapter, AstExpression, AstExpressionData, AstLabel, AstMatchPattern, AstType,
     },
+    cheshire_quote,
     util::PResult,
 };
 use std::sync::RwLock;
 
-pub struct AnalyzeForLoops;
+pub struct AnalyzeForLoops {
+    program: AnalyzedProgram,
+}
 
-impl AstAnalysisPass for AnalyzeForLoops {
-    fn new() -> Self {
-        AnalyzeForLoops
+impl PureAnalysisPass for AnalyzeForLoops {
+    fn new(program: AnalyzedProgram) -> PResult<Self> {
+        Ok(AnalyzeForLoops { program })
+    }
+
+    fn drop(self) -> AnalyzedProgram {
+        self.program
     }
 }
 
@@ -25,111 +32,57 @@ impl AstAdapter for AnalyzeForLoops {
                         label,
                         pattern,
                         iterable,
-                        mut block,
+                        block,
                         else_block,
                     },
                 ty: _,
                 span,
             } => {
-                let mut id_ref = FOR_LOOP_ID_COUNTER.write().unwrap();
-                *id_ref += 1;
+                let id = {
+                    let mut id_ref = FOR_LOOP_ID_COUNTER.write().unwrap();
+                    *id_ref += 1;
+                    *id_ref
+                };
 
-                let iter_name = format!("$iter{}", id_ref);
-                let item_name = format!("$item{}", id_ref);
-                let next_name = format!("$next{}", id_ref);
+                let label = AstLabel(label.unwrap_or_else(|| format!("dummy_label{}", id)));
+                let iter_expr = AstExpression::identifier(span, format!("iter{}", id));
+                let item_expr = AstExpression::identifier(span, format!("item{}", id));
+                let next_expr = AstExpression::identifier(span, format!("next{}", id));
+                let iter_pat =
+                    AstMatchPattern::identifier(span, format!("iter{}", id), AstType::infer());
+                let item_pat =
+                    AstMatchPattern::identifier(span, format!("item{}", id), AstType::infer());
+                let next_pat =
+                    AstMatchPattern::identifier(span, format!("next{}", id), AstType::infer());
 
-                let iter_object = AstExpression::identifier(span, iter_name.clone());
-                let item_object = AstExpression::identifier(span, item_name.clone());
-                let next_object = AstExpression::identifier(span, next_name.clone());
-
-                block.statements.insert(
-                    0,
-                    AstStatement::let_statement(
-                        pattern,
-                        AstExpression::object_call(
-                            span,
-                            item_object.clone(),
-                            "unwrap".into(),
-                            vec![],
-                            vec![],
-                        ),
-                    ),
+                let for_loop = cheshire_quote!(
+                    &mut self.program,
+                    "{{
+                        let ({item_pat}, {iter_pat}) = {iterable}:iterator():next().
+                        {label} while {item_expr}:is_some() {{
+                            let {pattern} = {item_expr}:unwrap().
+                            {block}
+                            let {next_pat} = {iter_expr}:next().
+                            {item_expr} = {next_expr}:0.
+                            {iter_expr} = {next_expr}:1.
+                        }} else {else_block}
+                    }}",
+                    iterable = *iterable,
+                    label = label,
+                    iter_expr = iter_expr,
+                    item_expr = item_expr,
+                    next_expr = next_expr,
+                    iter_pat = iter_pat,
+                    item_pat = item_pat,
+                    next_pat = next_pat,
+                    pattern = pattern,
+                    block = block,
+                    else_block = else_block,
                 );
 
-                block.statements.extend(vec![
-                    AstStatement::let_statement(
-                        AstMatchPattern::identifier(span, next_name.clone(), AstType::infer()),
-                        AstExpression::object_call(
-                            span,
-                            iter_object.clone(),
-                            "next".into(),
-                            vec![],
-                            vec![],
-                        ),
-                    ),
-                    AstStatement::expression_statement(AstExpression::assign(
-                        span,
-                        item_object.clone(),
-                        AstExpression::tuple_access(span, next_object.clone(), 0),
-                    )),
-                    AstStatement::expression_statement(AstExpression::assign(
-                        span,
-                        iter_object.clone(),
-                        AstExpression::tuple_access(span, next_object, 1),
-                    )),
-                ]);
-
-                Ok(AstExpression::block(
-                    span,
-                    AstBlock::new(
-                        vec![AstStatement::let_statement(
-                            AstMatchPattern::tuple(
-                                span,
-                                vec![
-                                    AstMatchPattern::identifier(
-                                        span,
-                                        item_name.clone(),
-                                        AstType::infer(),
-                                    ),
-                                    AstMatchPattern::identifier(
-                                        span,
-                                        iter_name.clone(),
-                                        AstType::infer(),
-                                    ),
-                                ],
-                                AstType::infer(),
-                            ),
-                            AstExpression::object_call(
-                                span,
-                                AstExpression::object_call(
-                                    span,
-                                    *iterable,
-                                    "iterator".into(),
-                                    vec![],
-                                    vec![],
-                                ),
-                                "next".into(),
-                                vec![],
-                                vec![],
-                            ),
-                        )],
-                        AstExpression::while_loop(
-                            span,
-                            label,
-                            AstExpression::object_call(
-                                span,
-                                item_object.clone(),
-                                "is_some".into(),
-                                vec![],
-                                vec![],
-                            ),
-                            block,
-                            else_block,
-                        ),
-                    ),
-                ))
+                Ok(for_loop)
             },
-            s => Ok(s),
+            e => Ok(e),
         }
     }
 }

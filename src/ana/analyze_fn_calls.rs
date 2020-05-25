@@ -1,6 +1,6 @@
 use crate::{
     ana::represent_visitor::AstAnalysisPass,
-    ast::{ast_visitor::AstAdapter, AstExpression, AstExpressionData},
+    ast::{visitor::AstAdapter, AstExpression, AstExpressionData},
     util::PResult,
 };
 

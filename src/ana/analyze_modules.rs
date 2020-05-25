@@ -1,5 +1,5 @@
 use crate::{
-    ast::{ast_visitor::AstAdapter, *},
+    ast::{visitor::AstAdapter, *},
     util::{Context, FileId, FileRegistry, PError, PResult, Visit},
 };
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
@@ -62,7 +62,7 @@ impl ModuleMap {
     }
 }
 
-fn get_module(module: &SharedModule, mod_path: &[String]) -> PResult<SharedModule> {
+pub fn get_module(module: &SharedModule, mod_path: &[String]) -> PResult<SharedModule> {
     let mut module = module.clone();
 
     for child_name in mod_path {
@@ -373,6 +373,7 @@ impl<'a> AstAdapter for AnalyzeUses<'a> {
 
         self.current_mod = Some(current_mod_ref);
         self.current_mod_name = Some(FileRegistry::mod_path(m.id).join("::"));
+
         Ok(m)
     }
 

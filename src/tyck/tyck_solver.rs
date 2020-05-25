@@ -3,14 +3,14 @@ use crate::{
         represent::{AnImplData, AnalyzedProgram},
         represent_visitor::AnAdapter,
     },
-    ast::{ast_visitor::AstAdapter, *},
+    ast::{visitor::AstAdapter, *},
     tyck::{
         tyck_instantiation::*, TyckAdapter, TyckInstantiatedImpl, TyckInstantiatedObjectFunction,
         TYCK_MAX_DEPTH,
     },
     util::{PError, PResult, Visit, ZipExact, ZipKeys},
 };
-use ast_display::DisplayTraitTypes;
+use display::DisplayTraitTypes;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     fmt::Debug,
@@ -1146,9 +1146,11 @@ impl AstAdapter for TyckSolver {
 
         self.return_type.push(f.return_type.clone());
         self.variables = f
-            .variables
+            .scope
+            .as_ref()
+            .unwrap()
             .iter()
-            .map(|(&k, v)| (k, v.ty.clone()))
+            .map(|(_, v)| (v.id, v.ty.clone()))
             .collect();
 
         if let Some(block) = &f.definition {
@@ -1160,18 +1162,16 @@ impl AstAdapter for TyckSolver {
 
     fn enter_ast_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
         if let AstExpressionData::Closure {
-            variables,
-            return_ty,
-            ..
+            scope, return_ty, ..
         } = &e.data
         {
             self.return_type.push(return_ty.clone());
             self.variables.extend(
-                variables
+                scope
                     .as_ref()
                     .unwrap()
                     .iter()
-                    .map(|(&k, v)| (k, v.ty.clone())),
+                    .map(|(_, v)| (v.id, v.ty.clone())),
             );
         }
 
@@ -1180,6 +1180,32 @@ impl AstAdapter for TyckSolver {
         }
 
         Ok(e)
+    }
+
+    fn enter_ast_block(&mut self, b: AstBlock) -> PResult<AstBlock> {
+        if let Some(scope) = &b.scope {
+            // TODO: Once I replace everything with quotes, I should not need to do this.
+
+            self.variables
+                .extend(scope.iter().map(|(_, v)| (v.id, v.ty.clone())));
+        } else {
+            return perror_at!(b.expression.span, "Uhh?");
+        }
+
+        Ok(b)
+    }
+
+    fn enter_ast_match_branch(&mut self, b: AstMatchBranch) -> PResult<AstMatchBranch> {
+        if let Some(scope) = &b.scope {
+            // TODO: Once I replace everything with quotes, I should not need to do this.
+
+            self.variables
+                .extend(scope.iter().map(|(_, v)| (v.id, v.ty.clone())));
+        } else {
+            return perror_at!(b.pattern.span, "Uhh?");
+        }
+
+        Ok(b)
     }
 
     fn enter_ast_object(&mut self, o: AstObject) -> PResult<AstObject> {
@@ -1194,9 +1220,11 @@ impl AstAdapter for TyckSolver {
 
         self.return_type.push(o.return_type.clone());
         self.variables = o
-            .variables
+            .scope
+            .as_ref()
+            .unwrap()
             .iter()
-            .map(|(&k, v)| (k, v.ty.clone()))
+            .map(|(_, v)| (v.id, v.ty.clone()))
             .collect();
 
         if let Some(block) = &o.definition {
@@ -1318,6 +1346,7 @@ impl AstAdapter for TyckSolver {
                 for AstMatchBranch {
                     pattern,
                     expression,
+                    ..
                 } in branches
                 {
                     self.unify_pattern(true, pattern, match_expr_ty)?;
@@ -1353,6 +1382,15 @@ impl AstAdapter for TyckSolver {
                 },
             },
             AstExpressionData::Identifier { variable_id, .. } => {
+                if !self.variables.contains_key(variable_id.as_ref().unwrap()) {
+                    return perror_at!(
+                        span,
+                        "Cannot find {:?} in {:?}",
+                        variable_id,
+                        self.variables
+                    );
+                }
+
                 let variable_ty = self.variables[variable_id.as_ref().unwrap()].clone();
                 self.unify(true, &ty, &variable_ty)?;
             },
@@ -1702,14 +1740,15 @@ impl AstAdapter for TyckSolver {
             AstExpressionData::Return { value } => {
                 self.unify(true, &ty, &AstType::none())?;
 
-                let return_ty = self.return_type.pop().ok_or_else(|| {
-                    PError::new_at(span, format!("Unexpected `return` in non-function context"))
-                })?;
+                let return_ty = self
+                    .return_type
+                    .last()
+                    .ok_or_else(|| {
+                        PError::new_at(span, format!("Unexpected `return` in non-function context"))
+                    })?
+                    .clone();
 
                 self.unify(true, &value.ty, &return_ty)?;
-                self.return_type.push(return_ty); // FIXME: I can't borrow
-                                                  // .last(), so I pop/push
-                                                  // while I use it.
             },
 
             AstExpressionData::Assert { condition } => {

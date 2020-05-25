@@ -1,14 +1,14 @@
 use crate::{
     ana::{represent::AnalyzedProgram, represent_visitor::PureAnalysisPass},
-    ast::{ast_visitor::AstAdapter, *},
+    ast::{visitor::AstAdapter, *},
     util::{Expect, FileId, PResult, StackMap, Visit},
 };
 use std::collections::{HashMap, HashSet};
 
 pub struct AnalyzeVariables {
     analyzed_program: AnalyzedProgram,
-    all_variables: StackMap<VariableId, AstNamedVariable>,
-    scope: StackMap<String, VariableId>,
+    names: StackMap<String, AstNamedVariable>,
+    scope: StackMap<VariableId, AstNamedVariable>,
 
     global_variables: HashMap<String, FileId>,
 }
@@ -17,8 +17,8 @@ impl PureAnalysisPass for AnalyzeVariables {
     fn new(analyzed_program: AnalyzedProgram) -> PResult<AnalyzeVariables> {
         Ok(AnalyzeVariables {
             analyzed_program,
-            all_variables: StackMap::new(),
             scope: StackMap::new(),
+            names: StackMap::new(),
             global_variables: HashMap::new(),
         })
     }
@@ -29,16 +29,9 @@ impl PureAnalysisPass for AnalyzeVariables {
 }
 
 impl AnalyzeVariables {
-    /**
-     ** Assigns an index to the AstNamedVariable, then inserts it into the
-     ** scope and into the `variables` map.
-     **/
     fn assign_index(&mut self, a: &AstNamedVariable) -> PResult<()> {
-        let AstNamedVariable { name, id, .. } = a;
-
-        self.all_variables.add(*id, a.clone());
-        self.scope.add(name.clone(), *id);
-
+        self.scope.add(a.id, a.clone());
+        self.names.add(a.name.clone(), a.clone());
         Ok(())
     }
 }
@@ -60,9 +53,9 @@ impl<'a> AstAdapter for AnalyzeVariables {
 
     fn enter_ast_function(&mut self, f: AstFunction) -> PResult<AstFunction> {
         self.scope.push();
-        self.all_variables.push();
+        self.names.push();
 
-        if !f.variables.is_empty() {
+        if f.scope.is_some() {
             return perror_at!(
                 f.name_span,
                 "Function `{}` has already been analyzed...",
@@ -79,6 +72,7 @@ impl<'a> AstAdapter for AnalyzeVariables {
 
     fn enter_ast_block(&mut self, b: AstBlock) -> PResult<AstBlock> {
         self.scope.push();
+        self.names.push();
         Ok(b)
     }
 
@@ -112,10 +106,10 @@ impl<'a> AstAdapter for AnalyzeVariables {
                 name,
                 variable_id: None,
             } =>
-                if let Some(id) = self.scope.get(&name) {
+                if let Some(var) = self.names.get(&name) {
                     AstExpressionData::Identifier {
                         name,
-                        variable_id: Some(id),
+                        variable_id: Some(var.id),
                     }
                 } else if let Some(id) = self.global_variables.get(&name) {
                     AstExpressionData::GlobalVariable {
@@ -131,7 +125,7 @@ impl<'a> AstAdapter for AnalyzeVariables {
                 captured: None,
                 ..
             } => {
-                let names = self.scope.keys();
+                let names = self.names.keys();
                 debug!("");
                 debug!("Candidates: {:?}", names);
                 let mut i = CaptureIdentifier::new(names);
@@ -144,17 +138,14 @@ impl<'a> AstAdapter for AnalyzeVariables {
                 let mut captured = vec![];
 
                 self.scope.push();
-                self.all_variables.push();
+                self.names.push();
 
                 // Now visit with the Self (AnalyzeVariables). This will call assign_index on
                 // all of these parameters.
                 let params = params.visit(self)?;
 
                 for c in i.captured {
-                    let old = self
-                        .all_variables
-                        .get(&self.scope.get(&c).unwrap())
-                        .unwrap();
+                    let old = self.names.get(&c).unwrap();
                     let new = AstNamedVariable::new(old.span, old.name.clone(), old.ty.clone());
 
                     self.assign_index(&new)?;
@@ -168,18 +159,18 @@ impl<'a> AstAdapter for AnalyzeVariables {
                     expr,
                     return_ty,
                     captured: Some(captured),
-                    variables: None,
+                    scope: None,
                 }
             },
             AstExpressionData::SelfRef => {
-                let variable_id = Some(
-                    self.scope
-                        .get("self" /* <- TODO: ew */)
-                        .as_expected(e.span, "variable", "self")?,
-                );
+                let variable_id = self
+                    .names
+                    .get("self" /* <- TODO: ew */)
+                    .as_expected(e.span, "variable", "self")?
+                    .id;
                 AstExpressionData::Identifier {
                     name: "self".into(),
-                    variable_id,
+                    variable_id: Some(variable_id),
                 }
             },
             e => e,
@@ -197,17 +188,17 @@ impl<'a> AstAdapter for AnalyzeVariables {
                 return_ty,
                 expr,
                 captured,
-                variables: None,
+                scope: None,
             } => {
-                let variables = Some(self.all_variables.pop());
-                self.scope.pop();
+                let scope = self.scope.pop();
+                self.names.pop();
 
                 AstExpressionData::Closure {
                     params,
                     return_ty,
                     expr,
                     captured,
-                    variables,
+                    scope: Some(scope),
                 }
             },
             e => e,
@@ -218,9 +209,9 @@ impl<'a> AstAdapter for AnalyzeVariables {
 
     fn enter_ast_object_function(&mut self, f: AstObjectFunction) -> PResult<AstObjectFunction> {
         self.scope.push();
-        self.all_variables.push();
+        self.names.push();
 
-        if !f.variables.is_empty() {
+        if f.scope.is_some() {
             return perror_at!(
                 f.name_span,
                 "Method `{}` has already been analyzed...",
@@ -240,35 +231,41 @@ impl<'a> AstAdapter for AnalyzeVariables {
         Ok(a)
     }
 
-    fn exit_ast_function(&mut self, f: AstFunction) -> PResult<AstFunction> {
-        let variables = self.all_variables.pop();
-        self.analyzed_program.variable_ids.extend(variables.clone());
-        self.scope.pop();
-
-        Ok(AstFunction { variables, ..f })
+    fn exit_ast_function(&mut self, mut f: AstFunction) -> PResult<AstFunction> {
+        f.scope
+            .get_or_insert_with(|| HashMap::new())
+            .extend(self.scope.pop());
+        self.names.pop();
+        Ok(f)
     }
 
-    fn exit_ast_block(&mut self, b: AstBlock) -> PResult<AstBlock> {
-        self.scope.pop();
-
+    fn exit_ast_block(&mut self, mut b: AstBlock) -> PResult<AstBlock> {
+        b.scope
+            .get_or_insert_with(|| HashMap::new())
+            .extend(self.scope.pop());
+        self.names.pop();
         Ok(b)
     }
 
-    fn exit_ast_object_function(&mut self, o: AstObjectFunction) -> PResult<AstObjectFunction> {
-        let variables = self.all_variables.pop();
-        self.analyzed_program.variable_ids.extend(variables.clone());
-
-        self.scope.pop();
-        Ok(AstObjectFunction { variables, ..o })
+    fn exit_ast_object_function(&mut self, mut o: AstObjectFunction) -> PResult<AstObjectFunction> {
+        o.scope
+            .get_or_insert_with(|| HashMap::new())
+            .extend(self.scope.pop());
+        self.names.pop();
+        Ok(o)
     }
 
     fn enter_ast_match_branch(&mut self, b: AstMatchBranch) -> PResult<AstMatchBranch> {
         self.scope.push();
+        self.names.push();
         Ok(b)
     }
 
-    fn exit_ast_match_branch(&mut self, b: AstMatchBranch) -> PResult<AstMatchBranch> {
-        self.scope.pop();
+    fn exit_ast_match_branch(&mut self, mut b: AstMatchBranch) -> PResult<AstMatchBranch> {
+        b.scope
+            .get_or_insert_with(|| HashMap::new())
+            .extend(self.scope.pop());
+        self.names.pop();
         Ok(b)
     }
 }

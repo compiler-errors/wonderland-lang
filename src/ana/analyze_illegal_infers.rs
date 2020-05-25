@@ -1,7 +1,7 @@
 use crate::{
     ana::represent_visitor::AstAnalysisPass,
     ast::{
-        ast_visitor::AstAdapter, AstEnum, AstFunction, AstGlobalVariable, AstImpl, AstObject,
+        visitor::AstAdapter, AstEnum, AstFunction, AstGlobalVariable, AstImpl, AstObject,
         AstObjectFunction, AstTrait, AstType,
     },
     util::{PResult, Visit},

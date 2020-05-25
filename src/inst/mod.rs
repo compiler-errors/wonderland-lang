@@ -1,7 +1,8 @@
 pub use crate::inst::represent::*;
 use crate::{
-    ana::represent::*,
-    ast::{ast_visitor::AstAdapter, *},
+    ana::{analyze_item_inplace, represent::*},
+    ast::{visitor::AstAdapter, *},
+    cheshire_quote,
     tyck::*,
     util::{Context, Expect, PResult, Span, Visit},
 };
@@ -20,6 +21,7 @@ mod represent;
 
 struct InstantiationAdapter {
     analyzed_program: Rc<AnalyzedProgram>,
+    program_for_analysis: AnalyzedProgram,
     base_solver: TyckSolver,
 
     fns: HashMap<ModuleRef, AstFunction>,
@@ -95,10 +97,12 @@ pub fn instantiate(
         }
     }
 
+    let program_for_analysis = analyzed_program.clone();
     let analyzed_program = Rc::new(analyzed_program);
 
     let mut i = InstantiationAdapter {
         base_solver: TyckSolver::new(analyzed_program.clone()),
+        program_for_analysis,
         analyzed_program,
 
         fns,
@@ -348,7 +352,7 @@ impl InstantiationAdapter {
 
                 self.instantiate_dynamic_object_functions(span, call_type, &trt.generics[0])?;
 
-                let f = self.get_dyn_coersion_function(span, call_type, trt)?;
+                let f = self.get_dyn_coersion_function(call_type, trt)?;
                 let f = typecheck_impl_fn(&self.base_solver, f, call_type, Some(trt), fn_generics)?;
 
                 self.instantiated_object_fns.insert(sig, Some(f));
@@ -359,7 +363,7 @@ impl InstantiationAdapter {
                 let trt =
                     trt.expect("ICE: We should always have a backing trait in a dynamic impl");
 
-                let f = self.get_dyn_downcast_function(span, call_type, trt)?;
+                let f = self.get_dyn_downcast_function(call_type, trt)?;
                 let f = typecheck_impl_fn(&self.base_solver, f, call_type, Some(trt), fn_generics)?;
 
                 self.instantiated_object_fns.insert(sig, Some(f));
@@ -430,18 +434,22 @@ impl InstantiationAdapter {
             } in trait_tys
             {
                 if dynamic_trt == trt {
-                    return Ok(AstImpl::new(
-                        span,
-                        vec![],
-                        Some(trt.clone()),
-                        ty.clone(),
-                        HashMap::new(),
-                        vec![],
-                        assoc_bindings
-                            .iter()
-                            .map(|(k, v)| (k.clone(), v.clone()))
-                            .collect(),
-                    ));
+                    return analyze_item_inplace(
+                        &mut self.program_for_analysis,
+                        AstImpl::new(
+                            span,
+                            vec![],
+                            Some(trt.clone()),
+                            ty.clone(),
+                            HashMap::new(),
+                            vec![],
+                            assoc_bindings
+                                .iter()
+                                .map(|(k, v)| (k.clone(), v.clone()))
+                                .collect(),
+                            true,
+                        ),
+                    );
                 }
             }
 
@@ -482,7 +490,7 @@ impl InstantiationAdapter {
         let mut dispatch_arguments: Vec<_> = parameter_list
             .iter()
             .map(|p| {
-                InstructionArgument::Expression(AstExpression::identifier_with_id(
+                InstructionArgument::Expression(AstExpression::quoted_identifier(
                     p.span,
                     p.name.clone(),
                     p.id,
@@ -510,7 +518,7 @@ impl InstantiationAdapter {
             ),
         );
 
-        let mut f = AstObjectFunction::new(
+        let f = AstObjectFunction::new(
             span,
             fn_name.to_string(),
             vec![],
@@ -521,102 +529,53 @@ impl InstantiationAdapter {
             Some(definition),
         );
 
-        let variables = f.parameter_list.iter().map(|p| (p.id, p.clone())).collect();
-        f.variables = variables;
-
-        Ok(f)
+        analyze_item_inplace(&mut self.program_for_analysis, f)
     }
 
     fn get_dyn_coersion_function(
         &mut self,
-        span: Span,
         ty: &AstType,
         trt: &AstTraitType,
     ) -> PResult<AstObjectFunction> {
-        let dynamic_ty = trt.generics[0].clone();
-
-        let self_param = AstNamedVariable::new(span, "self".to_string(), ty.clone());
-        let self_expression =
-            AstExpression::identifier_with_id(span, "self".to_string(), self_param.id);
-
+        let dyn_ty = &trt.generics[0];
         let instruction_name = match ty {
             AstType::DynamicType { .. } => "ch_dynamic_transmute",
             _ => "ch_dynamic_box",
-        }
-        .to_string();
+        };
 
-        let definition = AstBlock::new(
-            vec![],
-            AstExpression::instruction(
-                span,
-                instruction_name,
-                vec![
-                    InstructionArgument::Expression(self_expression),
-                    InstructionArgument::Type(ty.clone()),
-                    InstructionArgument::Type(dynamic_ty.clone()),
-                ],
-                InstructionOutput::Type(dynamic_ty.clone()),
-            ),
+        let mut i: AstImpl = cheshire_quote!(
+            &mut self.program_for_analysis,
+            "
+            impl std::operators::lang::Into<{dyn_ty}> for <{concrete_ty}> {{
+                fn into(self) -> {dyn_ty} {{
+                    instruction {instruction} (self, _: Self, _: {dyn_ty}) -> {dyn_ty}
+                }}
+            }}",
+            instruction = AstLiteral::String(instruction_name.to_string()),
+            dyn_ty = dyn_ty,
+            concrete_ty = ty,
         );
 
-        let mut f = AstObjectFunction::new(
-            span,
-            "into".to_string(),
-            vec![],
-            true,
-            vec![self_param.clone()],
-            dynamic_ty,
-            vec![],
-            Some(definition),
-        );
-
-        f.variables.insert(self_param.id, self_param);
-
-        Ok(f)
+        Ok(i.fns.remove("into").unwrap())
     }
 
     fn get_dyn_downcast_function(
         &mut self,
-        span: Span,
         dyn_ty: &AstType,
         _: &AstTraitType,
     ) -> PResult<AstObjectFunction> {
-        let option_trt = self.analyzed_program.construct_enum_ref("option::Option")?;
-        let generic = AstGeneric::new("T".to_string());
-
-        let self_param = AstNamedVariable::new(span, "self".to_string(), dyn_ty.clone());
-        let self_expression =
-            AstExpression::identifier_with_id(span, "self".to_string(), self_param.id);
-
-        let definition = AstBlock::new(
-            vec![],
-            AstExpression::instruction(
-                span,
-                "ch_dynamic_unbox".to_string(),
-                vec![
-                    InstructionArgument::Expression(self_expression),
-                    InstructionArgument::Type(generic.clone().into()),
-                ],
-                InstructionOutput::Type(AstType::Enum(option_trt.clone(), vec![generic
-                    .clone()
-                    .into()])),
-            ),
+        let mut i: AstImpl = cheshire_quote!(
+            &mut self.program_for_analysis,
+            "
+            impl std::any::Downcast for <{dyn_ty}> {{
+                fn try_downcast<_T>(self) -> std::option::Option<_T> {{
+                    instruction \"ch_dynamic_unbox\" (self, _: _T) -> std::option::Option<_T>
+                }}
+            }}",
+            dyn_ty = dyn_ty,
         );
 
-        let mut f = AstObjectFunction::new(
-            span,
-            "try_downcast".to_string(),
-            vec![generic.clone()],
-            true,
-            vec![self_param.clone()],
-            AstType::Enum(option_trt, vec![generic.into()]),
-            vec![],
-            Some(definition),
-        );
-
-        f.variables.insert(self_param.id, self_param);
-
-        Ok(f)
+        Ok(i.fns.remove("try_downcast").unwrap())
     }
 
     fn process_simple<T>(&mut self, t: T, ids: &[AstGeneric], tys: &[AstType]) -> PResult<T>
@@ -708,15 +667,14 @@ impl InstantiationAdapter {
             AstType::Enum(name, generics) => {
                 let sig = InstEnumSignature(name, generics);
 
-                if let Some(instantiated_enum) = self.instantiated_enums[&sig]
-                .as_ref() {
+                if let Some(instantiated_enum) = self.instantiated_enums[&sig].as_ref() {
                     Ok(instantiated_enum.fields.clone())
                 } else {
                     let span = self.enums[&sig.0 /* == name */].name_span;
                     perror_at!(
                         span,
-                        "Enum `{}` is self-referential, and \
-                         therefore cannot be represented in memory!",
+                        "Enum `{}` is self-referential, and therefore cannot be represented in \
+                         memory!",
                         &AstType::Enum(sig.0 /* == name */, sig.1 /* == generics */)
                     )
                 }

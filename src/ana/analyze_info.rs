@@ -7,7 +7,7 @@ use crate::{
             AnalyzedProgram,
         },
     },
-    ast::{ast_visitor::AstAdapter, *},
+    ast::{visitor::AstAdapter, *},
     util::{Expect, FileId, PResult},
 };
 use std::collections::{HashMap, HashSet};
@@ -20,7 +20,6 @@ impl AnalyzeInfo {
     pub fn new(mod_map: ModuleMap, analyzed_modules: HashMap<FileId, SharedModule>) -> AnalyzeInfo {
         AnalyzeInfo {
             analyzed_program: AnalyzedProgram {
-                variable_ids: HashMap::new(),
                 analyzed_functions: HashMap::new(),
                 analyzed_traits: HashMap::new(),
                 analyzed_objects: HashMap::new(),
@@ -31,7 +30,7 @@ impl AnalyzeInfo {
                 methods_to_traits: HashMap::new(),
                 methods_to_anonymous_impls: HashMap::new(),
                 analyzed_modules,
-                top_module: mod_map.top,
+                top_module: Some(mod_map.top),
             },
         }
     }

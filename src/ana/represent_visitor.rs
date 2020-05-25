@@ -1,19 +1,18 @@
 use crate::{
     ana::represent::*,
-    ast::{ast_visitor::AstAdapter, AstProgram},
+    ast::visitor::AstAdapter,
     util::{PResult, Visit},
 };
 
-pub type AnalysisPassFn =
-    Box<dyn FnOnce(AnalyzedProgram, AstProgram) -> PResult<(AnalyzedProgram, AstProgram)>>;
+pub type AnalysisPassFn<T> = Box<dyn FnOnce(AnalyzedProgram, T) -> PResult<(AnalyzedProgram, T)>>;
 
 pub trait AstAnalysisPass: AstAdapter + Sized {
     fn new() -> Self;
 
-    fn analyze(a: AnalyzedProgram, p: AstProgram) -> PResult<(AnalyzedProgram, AstProgram)> {
-        let p = p.visit(&mut Self::new())?;
+    fn analyze<T: Visit<Self>>(a: AnalyzedProgram, t: T) -> PResult<(AnalyzedProgram, T)> {
+        let t = t.visit(&mut Self::new())?;
 
-        Ok((a, p))
+        Ok((a, t))
     }
 }
 
@@ -23,12 +22,12 @@ pub trait PureAnalysisPass: AstAdapter + Sized {
     // Recovers the analyzed program which is contained in this analysis pass
     fn drop(self) -> AnalyzedProgram;
 
-    fn analyze(a: AnalyzedProgram, p: AstProgram) -> PResult<(AnalyzedProgram, AstProgram)> {
+    fn analyze<T: Visit<Self>>(a: AnalyzedProgram, t: T) -> PResult<(AnalyzedProgram, T)> {
         let mut pass = Self::new(a)?;
-        let p = p.visit(&mut pass)?;
+        let t = t.visit(&mut pass)?;
         let a = pass.drop();
 
-        Ok((a, p))
+        Ok((a, t))
     }
 }
 
@@ -36,12 +35,12 @@ pub trait PureAnalysisPass: AstAdapter + Sized {
 pub trait DirtyAnalysisPass: AnAdapter + Sized {
     fn new(a: &AnalyzedProgram) -> PResult<Self>;
 
-    fn analyze(a: AnalyzedProgram, p: AstProgram) -> PResult<(AnalyzedProgram, AstProgram)> {
+    fn analyze<T: Visit<Self>>(a: AnalyzedProgram, t: T) -> PResult<(AnalyzedProgram, T)> {
         let mut pass = Self::new(&a)?;
         let a = a.visit(&mut pass)?;
-        let p = p.visit(&mut pass)?;
+        let t = t.visit(&mut pass)?;
 
-        Ok((a, p))
+        Ok((a, t))
     }
 }
 

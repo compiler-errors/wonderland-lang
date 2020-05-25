@@ -1,6 +1,6 @@
 use crate::{
     ana::{represent::AnalyzedProgram, represent_visitor::PureAnalysisPass},
-    ast::{ast_visitor::AstAdapter, AstExpression, AstExpressionData},
+    ast::{visitor::AstAdapter, AstExpression, AstExpressionData},
     util::PResult,
 };
 

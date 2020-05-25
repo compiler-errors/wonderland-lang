@@ -1,7 +1,7 @@
 use crate::{
     ana::represent::AnalyzedProgram,
     ast::{
-        ast_visitor::AstAdapter, AstGeneric, AstTraitType, AstTraitTypeWithAssocs, AstType,
+        visitor::AstAdapter, AstGeneric, AstTraitType, AstTraitTypeWithAssocs, AstType,
         AstTypeRestriction, GenericId, ImplId, ModuleRef,
     },
     tyck::TyckAdapter,

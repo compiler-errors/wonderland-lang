@@ -1,6 +1,6 @@
 use crate::{
     ana::represent::*,
-    ast::{ast_visitor::AstAdapter, *},
+    ast::{visitor::AstAdapter, *},
     tyck::{tyck_instantiation::instantiate_associated_ty_restrictions, TYCK_MAX_DEPTH},
     util::{PError, PResult},
 };
@@ -210,7 +210,7 @@ impl TyckDynamicAssumptionAdapter {
         if let AstType::DynamicType { trait_tys } = ty {
             let into_trait = self
                 .analyzed_program
-                .construct_trt_ref("operators::sugar::Into")?;
+                .construct_trt_ref("operators::lang::Into")?;
 
             let trt_data = self
                 .analyzed_program

@@ -1,7 +1,7 @@
 use crate::{
     ana::{represent::AnalyzedProgram, represent_visitor::PureAnalysisPass},
     ast::{
-        ast_visitor::AstAdapter, AstExpression, AstExpressionData, AstFunction, AstImpl,
+        visitor::AstAdapter, AstExpression, AstExpressionData, AstFunction, AstImpl,
         AstObjectFunction, AstType,
     },
     util::{PResult, Visit},
@@ -91,7 +91,8 @@ impl AstAdapter for AnalyzeAssociatedTypesAndMethods {
                     .contains_key(&fn_name);
 
                 if !in_trait && !in_impl {
-                    return perror!(
+                    return perror_at!(
+                        span,
                         "There are no traits or impls with the given method `{}`",
                         fn_name
                     );

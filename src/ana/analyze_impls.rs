@@ -1,6 +1,6 @@
 use crate::{
     ana::{represent::AnalyzedProgram, represent_visitor::PureAnalysisPass},
-    ast::{ast_visitor::AstAdapter, AstImpl},
+    ast::{visitor::AstAdapter, AstImpl},
     util::{PResult, Span, ZipKeys},
 };
 use std::collections::HashSet;
@@ -19,6 +19,10 @@ impl PureAnalysisPass for AnalyzeImpls {
 
 impl AstAdapter for AnalyzeImpls {
     fn enter_ast_impl(&mut self, i: AstImpl) -> PResult<AstImpl> {
+        if i.is_stub {
+            return Ok(i);
+        }
+
         if let Some(trait_ty) = &i.trait_ty {
             let info = &self.0.analyzed_traits[&trait_ty.name];
 

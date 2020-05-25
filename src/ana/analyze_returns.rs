@@ -1,7 +1,7 @@
 use crate::{
     ana::represent_visitor::AstAnalysisPass,
     ast::{
-        ast_visitor::AstAdapter, AstBlock, AstExpression, AstExpressionData, AstFunction,
+        visitor::AstAdapter, AstBlock, AstExpression, AstExpressionData, AstFunction,
         AstObjectFunction, AstStatement,
     },
     util::PResult,
@@ -37,7 +37,11 @@ fn lift_returns(block: AstBlock) -> AstBlock {
         is_unit(&block.expression) && block.statements.last().map(is_return).unwrap_or(false);
 
     if should_lift_return {
-        let AstBlock { mut statements, .. } = block;
+        let AstBlock {
+            mut statements,
+            scope,
+            ..
+        } = block;
 
         let last = statements.pop().unwrap();
         let expression = get_return_value(last);
@@ -45,6 +49,7 @@ fn lift_returns(block: AstBlock) -> AstBlock {
         AstBlock {
             statements,
             expression: Box::new(expression),
+            scope,
         }
     } else {
         block

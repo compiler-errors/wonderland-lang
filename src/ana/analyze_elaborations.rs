@@ -3,7 +3,7 @@ use crate::{
         represent::AnalyzedProgram,
         represent_visitor::{AnAdapter, DirtyAnalysisPass},
     },
-    ast::{ast_visitor::AstAdapter, AstExpression, AstExpressionData, AstType},
+    ast::{visitor::AstAdapter, AstExpression, AstExpressionData, AstType},
     util::PResult,
 };
 

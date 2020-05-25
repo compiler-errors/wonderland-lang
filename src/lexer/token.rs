@@ -1,5 +1,22 @@
 use std::fmt::{Display, Formatter, Result};
 
+pub const QUOTE_BLOCK: &'static str = "Block";
+pub const QUOTE_BREAK: &'static str = "Break";
+pub const QUOTE_CONTINUE: &'static str = "Continue";
+pub const QUOTE_DUMMY: &'static str = "Dummy";
+pub const QUOTE_DUMMYGENERIC: &'static str = "DummyGeneric";
+pub const QUOTE_GENERICPLACEHOLDER: &'static str = "GenericPlaceholder";
+pub const QUOTE_IDENTIFIER: &'static str = "Identifier";
+pub const QUOTE_INFER: &'static str = "Infer";
+pub const QUOTE_FOR: &'static str = "For";
+pub const QUOTE_WHILE: &'static str = "While";
+pub const QUOTE_MATCHBRANCH: &'static str = "MatchBranch";
+pub const QUOTE_MODULEREF: &'static str = "ModuleRef";
+pub const QUOTE_NAMEDVARIABLE: &'static str = "NamedVariable";
+pub const QUOTE_SPANNEDEXPR: &'static str = "SpannedExpr";
+pub const QUOTE_SPANNEDPATTERN: &'static str = "SpannedPattern";
+pub const QUOTE_STATICCALL: &'static str = "StaticCall";
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Token {
     // Language symbols
@@ -95,6 +112,10 @@ pub enum Token {
     TypeName(String),
     GenericName(String),
 
+    // Quotation
+    QuotationStart(&'static str),
+    QuotationEnd,
+
     /// End of file
     EOF,
 }
@@ -183,6 +204,8 @@ impl Display for Token {
             Token::Identifier(_) => write!(f, "Identifier"),
             Token::TypeName(_) => write!(f, "TypeName"),
             Token::GenericName(_) => write!(f, "GenericName"),
+            Token::QuotationStart(kind) => write!(f, "$[{}](", kind),
+            Token::QuotationEnd => write!(f, ")$"),
             Token::EOF => write!(f, "EOF"),
         }
     }

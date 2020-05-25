@@ -3,7 +3,7 @@ use crate::{
         represent::AnalyzedProgram,
         represent_visitor::{AnAdapter, DirtyAnalysisPass},
     },
-    ast::{ast_visitor::AstAdapter, *},
+    ast::{visitor::AstAdapter, *},
     util::{PResult, Span},
 };
 use std::collections::HashMap;

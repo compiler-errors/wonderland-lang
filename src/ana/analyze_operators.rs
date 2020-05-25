@@ -1,8 +1,8 @@
 use crate::{
     ana::represent::AnalyzedProgram,
     ast::{
-        ast_visitor::AstAdapter, AstExpression, AstExpressionData, AstLiteral, AstProgram,
-        AstTraitTypeWithAssocs, AstType, BinOpKind, ModuleRef,
+        visitor::AstAdapter, AstExpression, AstExpressionData, AstLiteral, AstTraitTypeWithAssocs,
+        AstType, BinOpKind, ModuleRef,
     },
     util::{FileRegistry, PResult, Span, Visit},
 };
@@ -13,15 +13,15 @@ pub struct AnalyzeOperators {
 }
 
 impl AnalyzeOperators {
-    pub fn analyze(
+    pub fn analyze<T: Visit<Self>>(
         analyzed_program: AnalyzedProgram,
-        p: AstProgram,
-    ) -> PResult<(AnalyzedProgram, AstProgram)> {
+        t: T,
+    ) -> PResult<(AnalyzedProgram, T)> {
         let mut pass = AnalyzeOperators { analyzed_program };
 
-        let p = p.visit(&mut pass)?;
+        let t = t.visit(&mut pass)?;
 
-        Ok((pass.analyzed_program, p))
+        Ok((pass.analyzed_program, t))
     }
 
     fn verify_fn(&self, trt: &ModuleRef, fn_name: &str) -> PResult<()> {

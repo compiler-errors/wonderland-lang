@@ -4,7 +4,7 @@ use crate::{
         represent_visitor::{AnAdapter, DirtyAnalysisPass},
     },
     ast::{
-        ast_visitor::AstAdapter, AstExpression, AstExpressionData, AstTraitType, AstType, ModuleRef,
+        visitor::AstAdapter, AstExpression, AstExpressionData, AstTraitType, AstType, ModuleRef,
     },
     util::PResult,
 };

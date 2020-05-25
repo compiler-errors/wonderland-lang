@@ -1,5 +1,5 @@
 mod token;
-pub use self::token::Token;
+pub use self::token::*;
 use crate::util::{FileId, PResult, Span};
 use std::str::Chars;
 
@@ -11,6 +11,7 @@ pub type SpanToken = (usize, Token, usize);
 pub struct Lexer<'input> {
     file: FileId,
     stream: Chars<'input>,
+    quotable: bool,
 
     current_pos: usize,
     current_char: char,
@@ -26,7 +27,7 @@ pub enum LexStringChar {
 }
 
 impl<'input> Lexer<'input> {
-    pub fn new(file: FileId, input: &'input str) -> Lexer<'input> {
+    pub fn new(file: FileId, input: &'input str, quotable: bool) -> Lexer<'input> {
         let mut lex = Lexer {
             file,
             stream: input.chars(),
@@ -34,6 +35,7 @@ impl<'input> Lexer<'input> {
             current_char: EOF,
             next_char: EOF,
             interp_parenthetical: vec![],
+            quotable,
         };
 
         lex.bump(2);
@@ -129,7 +131,11 @@ impl<'input> Lexer<'input> {
         } else if c == '\'' {
             self.scan_char_literal()
         } else if c == '$' {
-            self.scan_instruction_literal()
+            if self.quotable && self.next_char == '[' {
+                self.scan_quotation_start()
+            } else {
+                self.scan_instruction_literal()
+            }
         } else if is_numeric(c) {
             self.scan_numeric_literal()
         } else if is_identifier_start(c) {
@@ -215,7 +221,10 @@ impl<'input> Lexer<'input> {
                     Ok(Token::LParen)
                 },
                 ')' =>
-                    if let Some(0) = self.interp_parenthetical.last() {
+                    if self.quotable && self.next_char == '$' {
+                        self.bump(2);
+                        Ok(Token::QuotationEnd)
+                    } else if let Some(0) = self.interp_parenthetical.last() {
                         self.scan_interp_continue()
                     } else {
                         if let Some(n) = self.interp_parenthetical.last_mut() {
@@ -442,6 +451,63 @@ impl<'input> Lexer<'input> {
         return Ok(Token::CharLiteral(c));
     }
 
+    fn scan_quotation_start(&mut self) -> PResult<Token> {
+        self.bump(2);
+
+        if !is_identifier_start(self.current_char) {
+            return perror_at!(
+                Span::new(self.file, self.current_pos, self.current_pos + 1),
+                "Expected start of identifier for quotation"
+            );
+        }
+
+        let string_start = self.current_pos;
+        let mut string = String::new();
+        string.push(self.current_char);
+        self.bump(1);
+
+        while is_identifier_continuer(self.current_char) {
+            string.push(self.current_char);
+            self.bump(1);
+        }
+
+        let token = match string.as_str() {
+            "ModuleRef" => Token::QuotationStart("ModuleRef"),
+            "SpannedExpr" => Token::QuotationStart("SpannedExpr"),
+            "Identifier" => Token::QuotationStart("Identifier"),
+            "For" => Token::QuotationStart("For"),
+            "While" => Token::QuotationStart("While"),
+            "Break" => Token::QuotationStart("Break"),
+            "Block" => Token::QuotationStart("Block"),
+            "Continue" => Token::QuotationStart("Continue"),
+            "SpannedPattern" => Token::QuotationStart("SpannedPattern"),
+            "MatchBranch" => Token::QuotationStart("MatchBranch"),
+            "NamedVariable" => Token::QuotationStart("NamedVariable"),
+            "Infer" => Token::QuotationStart("Infer"),
+            "GenericPlaceholder" => Token::QuotationStart("GenericPlaceholder"),
+            "DummyGeneric" => Token::QuotationStart("DummyGeneric"),
+            "Dummy" => Token::QuotationStart("Dummy"),
+            "StaticCall" => Token::QuotationStart("StaticCall"),
+            other => {
+                return perror_at!(
+                    Span::new(self.file, string_start, self.current_pos),
+                    "Unknown quotation mode `$[{}]`",
+                    other
+                );
+            },
+        };
+
+        if self.current_char != ']' || self.next_char != '(' {
+            return perror_at!(
+                Span::new(self.file, self.current_pos, self.current_pos + 1),
+                "Expected `](` after beginning of quotation"
+            );
+        }
+
+        self.bump(2);
+        Ok(token)
+    }
+
     fn scan_instruction_literal(&mut self) -> PResult<Token> {
         let mut string = String::new();
         self.bump(1);
@@ -522,7 +588,7 @@ impl<'input> Lexer<'input> {
             self.bump(1);
         }
 
-        let token = match &*string {
+        let token = match string.as_str() {
             "_" => Token::Underscore,
 
             "use" => Token::Use,

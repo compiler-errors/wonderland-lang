@@ -8,7 +8,6 @@ use std::collections::{HashMap, VecDeque};
 #[Adapter("crate::ana::represent_visitor::AnAdapter")]
 #[derive(Debug, Clone, Visit)]
 pub struct AnalyzedProgram {
-    pub variable_ids: HashMap<VariableId, AstNamedVariable>,
     pub analyzed_functions: HashMap<ModuleRef, AnFunctionData>,
     pub analyzed_traits: HashMap<ModuleRef, AnTraitData>,
     pub analyzed_enums: HashMap<ModuleRef, AnEnumData>,
@@ -21,10 +20,28 @@ pub struct AnalyzedProgram {
     pub methods_to_anonymous_impls: HashMap<String, Vec<ImplId>>,
 
     pub analyzed_modules: HashMap<FileId, SharedModule>,
-    pub top_module: SharedModule,
+    pub top_module: Option<SharedModule>,
 }
 
 impl AnalyzedProgram {
+    pub fn empty() -> AnalyzedProgram {
+        AnalyzedProgram {
+            analyzed_functions: HashMap::new(),
+            analyzed_traits: HashMap::new(),
+            analyzed_enums: HashMap::new(),
+            analyzed_objects: HashMap::new(),
+            analyzed_impls: HashMap::new(),
+            analyzed_globals: HashMap::new(),
+
+            associated_types_to_traits: HashMap::new(),
+            methods_to_traits: HashMap::new(),
+            methods_to_anonymous_impls: HashMap::new(),
+
+            analyzed_modules: HashMap::new(),
+            top_module: None,
+        }
+    }
+
     pub fn construct_trt_ref(&self, trt_path: &str) -> PResult<ModuleRef> {
         let r = self.get_module_ref("trait", trt_path)?;
 
@@ -35,7 +52,7 @@ impl AnalyzedProgram {
         }
     }
 
-    pub fn construct_enum_ref(&self, obj_path: &str) -> PResult<ModuleRef> {
+    /*pub fn construct_enum_ref(&self, obj_path: &str) -> PResult<ModuleRef> {
         let r = self.get_module_ref("enum", obj_path)?;
 
         if !self.analyzed_enums.contains_key(&r) {
@@ -43,7 +60,7 @@ impl AnalyzedProgram {
         } else {
             Ok(r)
         }
-    }
+    }*/
 
     pub fn construct_fn_ref(&self, fn_path: &str) -> PResult<ModuleRef> {
         let r = self.get_module_ref("function", fn_path)?;
@@ -60,7 +77,7 @@ impl AnalyzedProgram {
         let name = path.pop_back().unwrap();
 
         let mut traversed_path = vec![];
-        let mut submodule = self.top_module.clone();
+        let mut submodule = self.top_module.clone().unwrap();
 
         path.push_front("std");
         for name in path {
@@ -152,7 +169,7 @@ pub struct AnFunctionData {
     pub has_self: bool,
 }
 
-#[Adapter("crate::ast::ast_visitor::AstAdapter")]
+#[Adapter("crate::ast::visitor::AstAdapter")]
 #[derive(Debug, Clone, Eq, PartialEq, VisitAnonymous)]
 pub enum AnImplKind {
     Regular,

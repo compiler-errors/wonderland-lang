@@ -1,5 +1,5 @@
 use crate::{
-    ast::{ast_visitor::AstAdapter, AstImplSignature, AstObjectFunction, AstTraitType, AstType},
+    ast::{visitor::AstAdapter, AstImplSignature, AstObjectFunction, AstTraitType, AstType},
     util::PResult,
 };
 
