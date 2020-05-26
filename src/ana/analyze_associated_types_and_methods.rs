@@ -56,7 +56,7 @@ impl AstAdapter for AnalyzeAssociatedTypesAndMethods {
             } => {
                 if !self.inside_method {
                     return perror!(
-                        "In type `{}`, must fully specify trait type outside of method",
+                        "Must fully specify trait of type `{}`",
                         t
                     );
                 }

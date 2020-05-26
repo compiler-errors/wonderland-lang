@@ -9,7 +9,7 @@ trait DowncastExt {
 
 impl<_S> DowncastExt for _S where _S: Downcast {
     fn downcast<_T>(self) -> _T {
-        self:try_downcast():unwrap()
+        self:try_downcast():expect("Could not unwrap \(type_string:<_S>()) as \(type_string:<_T>())")
     }
 
 

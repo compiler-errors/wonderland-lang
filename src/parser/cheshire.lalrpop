@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, BTreeSet};
 use std::str::FromStr;
 
 use crate::ast::*;
@@ -201,8 +201,8 @@ AssociableType<C>: AstType = {
     "<" <Type> "as" <TraitTypeWithAssocs> ">" =>
         AstType::elaborated_type(<>),
 
-    "Dyn" "<" <PlusSeparated<TraitTypeWithAssocs>> ">" =>?
-        Ok(AstType::dynamic_type(dedup_set("dynamic traits", <>)?)),
+    "Dyn" <MaybeDynTraits<C>> =>
+        AstType::dynamic_type(<>),
 
     // Object or enum types, with optional generic. E.g. `Option<Int>`
     // NOTE: Only plain typenames are allowed in the RHS of a "expr as Ty".
@@ -243,6 +243,12 @@ MaybeExprGenerics = {
     "<" <CommaTrailing<Type>> ">",
     () => vec![],
 };
+
+MaybeDynTraits<C>: BTreeSet<AstTraitTypeWithAssocs> = {
+    "<" <PlusSeparated<TraitTypeWithAssocs>> ">" =>? 
+        Ok(dedup_set("dynamic traits", <>)?),
+    () if C != "transmute" => BTreeSet::new(),
+}
 
 TraitTypeWithAssocs: AstTraitTypeWithAssocs = {
     <TypeNamePath> <MaybeExprGenericsOrAssoc> =>? Ok(AstTraitTypeWithAssocs::try_flatten(<>)?),
@@ -563,6 +569,15 @@ MaybeElseOrIfBlock: AstBlock = {
 IfStatement: AstExpression = {
     <l:@L> "if" <c:PreblockExpression> <b:Block> <e:MaybeElseOrIfBlock> <h:@R> =>
         AstExpression::if_statement(Span::new(file, l, h), c, b, e),
+    <l:@L> "if" "let" <p:Pattern> "=" <c:PreblockExpression> <il:@L> <b:Block> <ih:@R> <el:@L> <e:MaybeElseOrIfBlock> <h:@R> => {
+        let then_span = Span::new(file, il, ih);
+        let else_span = Span::new(file, el, h);
+
+        AstExpression::match_statement(Span::new(file, l, h), c, vec![
+            AstMatchBranch::new(p, AstExpression::block(then_span, b)),
+            AstMatchBranch::new(AstMatchPattern::underscore(else_span, AstType::infer()), AstExpression::block(else_span, e)),
+        ])
+    },
 };
 
 MaybeElseBlock: AstBlock = {

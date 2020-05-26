@@ -285,12 +285,14 @@ impl TyckDynamicAssumptionAdapter {
 impl AstAdapter for TyckDynamicAssumptionAdapter {
     fn enter_ast_type(&mut self, t: AstType) -> PResult<AstType> {
         match &t {
-            AstType::DynamicType { trait_tys } =>
+            AstType::DynamicType { trait_tys } => {
+                self.add_dyn_into(&t)?;
+                self.add_dyn_downcast(&t)?;
+                
                 for trait_ty in trait_tys {
                     self.assume(&t, trait_ty)?;
-                    self.add_dyn_into(&t)?;
-                    self.add_dyn_downcast(&t)?;
-                },
+                }
+            },
             _ => {},
         }
 
