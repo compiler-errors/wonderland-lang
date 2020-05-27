@@ -475,6 +475,7 @@ impl CheshireFormattable for BinOpKind {
             BinOpKind::Or => write!(f, "|")?,
             BinOpKind::AndShort => write!(f, "&?")?,
             BinOpKind::OrShort => write!(f, "|?")?,
+            BinOpKind::Range => write!(f, "..")?,
         }
 
         Ok(())

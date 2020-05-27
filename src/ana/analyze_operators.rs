@@ -73,6 +73,7 @@ impl AnalyzeOperators {
             BinOpKind::NotEqual => ("Equals", "ne"),
             BinOpKind::And => ("And", "and"),
             BinOpKind::Or => ("Or", "or"),
+            BinOpKind::Range => ("Range", "range"),
             BinOpKind::AndShort | BinOpKind::OrShort => unreachable!(),
         };
 

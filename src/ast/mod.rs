@@ -1730,6 +1730,7 @@ pub enum BinOpKind {
     Or,
     AndShort,
     OrShort,
+    Range,
 }
 
 impl BinOpKind {
@@ -1750,6 +1751,7 @@ impl BinOpKind {
             Token::Pipe => BinOpKind::Or,
             Token::AndShort => BinOpKind::AndShort,
             Token::PipeShort => BinOpKind::OrShort,
+            Token::DotDot => BinOpKind::Range,
             _ => unreachable!("Unknown token {}", op),
         }
     }

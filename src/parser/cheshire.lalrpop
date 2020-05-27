@@ -15,6 +15,7 @@ extern {
 
     enum Token {
         "." => Token::Dot,
+        ".." => Token::DotDot,
         "..." => Token::Ellipsis,
         "," => Token::Comma,
         ",,," => Token::Commalipses,
@@ -168,9 +169,9 @@ IdentifierPath: ModuleRef = {
     "$[ModuleRef](" <id:QuotedId> "," <e:Identifier> ")$" => ModuleRef::Normalized(FileId(id), e),
 };
 
-Type = BaseType<"all">;
-ClosureParameterType = BaseType<"closureparameter">;
-TransmuteType = BaseType<"transmute">;
+Type = BaseType<"">;
+ClosureParameterType = BaseType<"C">;
+TransmuteType = BaseType<"T">;
 
 BaseType<C>: AstType = {
     <AssociableType<C>>,
@@ -179,11 +180,11 @@ BaseType<C>: AstType = {
     "[" <Type> "]" => AstType::array(<>),
 
     // This is not allowed to be in the RHS of an "expr as Ty"
-    "fn" "(" <CommaTrailingOrEmpty<Type>> ")" <MaybeReturn> if  C != "transmute" =>
+    "fn" "(" <CommaTrailingOrEmpty<Type>> ")" <MaybeReturn> if  C !~ ".*T.*" =>
         AstType::fn_ptr_type(<>),
 
     // This is not allowed to be in the RHS of an "expr as Ty" or the argument of a closure
-    "|" <CommaTrailingOrEmpty<ClosureParameterType>> "|" <MaybeReturn> if C == "all" =>
+    "|" <CommaTrailingOrEmpty<ClosureParameterType>> "|" <MaybeReturn> if C !~ ".*(C|T).*" =>
         AstType::closure_type(<>),
 };
 
@@ -209,7 +210,7 @@ AssociableType<C>: AstType = {
     // Object or enum types, with optional generic. E.g. `Option<Int>`
     // NOTE: Only plain typenames are allowed in the RHS of a "expr as Ty".
     // That is, `as Ty<_T>` is disallowed. Instead, use "as <Ty<_T>>".
-    <TypeNamePath> <MaybeExprGenerics> if C != "transmute" =>
+    <TypeNamePath> <MaybeExprGenerics> if C !~ ".*T.*" =>
         AstType::object_or_enum(<>),
     <TypeNamePath> if C == "transmute" =>
         AstType::object_or_enum(<>, vec![]),
@@ -247,9 +248,9 @@ MaybeExprGenerics = {
 };
 
 MaybeDynTraits<C>: BTreeSet<AstTraitTypeWithAssocs> = {
-    "<" <PlusSeparated<TraitTypeWithAssocs>> ">" =>? 
+    "<" <PlusSeparated<TraitTypeWithAssocs>> ">" =>?
         Ok(dedup_set("dynamic traits", <>)?),
-    () if C != "transmute" => BTreeSet::new(),
+    () if C !~ ".*T.*" => BTreeSet::new(),
 }
 
 TraitTypeWithAssocs: AstTraitTypeWithAssocs = {
@@ -359,7 +360,7 @@ LBinOp<Operators, Term>: AstExpression = {
     <Term>,
 };
 
-// Prec0 = { "=" };
+// Prec0 = { "..", "=" };
 Prec1 = { "|?" };
 Prec2 = { "&?" };
 Prec3 = { "|" };
@@ -369,17 +370,19 @@ Prec6 = { "+", "-" };
 Prec7 = { "*", "/", "%" };
 // Prec8 = { unary "!", unary "-" }
 
-pub Expression = Expression0<"all">;
+pub Expression = Expression0<"">;
 // Expressions that can precede a block, e.g. ```if <PreblockExpression> {```
-PreblockExpression = Expression0<"preblock">;
+PreblockExpression = Expression0<"P">;
 
 Expression0<PB>: AstExpression = {
     <l:@L> <a:Expression1<PB>> "=" <b:Expression0<PB>> <h:@R> =>
         AstExpression::assign(Span::new(file, l, h), a, b),
-    Expression1<PB>,
+    <l:@L> <a:Expression1<PB>> <t:".."> <b:RangeEnder<PB>> <h:@R> =>
+        AstExpression::binop_from_token(Span::new(file, l, h), a, t, b),
+    <Expression1<PB>>,
 };
 Expression1<PB> = {
-    <UndottableExpression>,
+    <UndottableExpression> if PB !~ ".*R.*",
     <ClosureExpression<PB>>,
     <ControlFlowExpression<PB>>,
     <InstructionExpression>,
@@ -397,6 +400,13 @@ Expression8<PB> = {
     <Expression9<PB>>,
 };
 Expression9<PB> = BaseExpression<PB>;
+
+RangeEnder<PB>: AstExpression = {
+    // TODO: These cases can get out of hand... I wish there were a way of appending "R" to `PB`
+    <Expression1<"PR">> if PB ~~ "PR?" => <>,
+    <Expression1<"R">> if PB == "" => <>,
+    <l:@L> <h:@R> => AstExpression::nothing(Span::new(file, l, h)),
+}
 
 InstructionExpression: AstExpression = {
     <l:@L> "instruction" <i:String> "(" <p:CommaTrailingOrEmpty<InstructionArgument>> ")" "->" <o:InstructionOutput> <h:@R> =>
@@ -457,9 +467,9 @@ BaseExpression<PB>: AstExpression = {
     // Object allocation, e.g. `allocate Box { item: 1 }`
     // NOTE: This cannot exist in a position preceding a block,
     // e.g. `if allocate Box { item: 1 }` is illegal.
-    <l:@L> "allocate" <o:TypeNamePath> <g:MaybeExprGenerics> "{" "}" <h:@R> if PB != "preblock" =>
+    <l:@L> "allocate" <o:TypeNamePath> <g:MaybeExprGenerics> "{" "}" <h:@R> if PB !~ ".*P.*" =>
         AstExpression::allocate_object(Span::new(file, l, h), o, g, HashMap::new()),
-    <l:@L> "allocate" <o:TypeNamePath> <g:MaybeExprGenerics> <f:NamedExpressionFields> <h:@R> if PB != "preblock" =>
+    <l:@L> "allocate" <o:TypeNamePath> <g:MaybeExprGenerics> <f:NamedExpressionFields> <h:@R> if PB !~ ".*P.*" =>
         AstExpression::allocate_object(Span::new(file, l, h), o, g, f),
     // A transmute operator. This desugars into `<_ as Into<T>>::into(e)`
     <l:@L> <e:BaseExpression<PB>> "as" <t:TransmuteType> <h:@R> =>
@@ -497,7 +507,7 @@ NamedExpressionField: (String, AstExpression) = {
 };
 
 EnumConstructorArguments<PB>: AstEnumConstructorArguments = {
-    NamedExpressionFields if PB != "preblock" => AstEnumConstructorArguments::Named(<>),
+    NamedExpressionFields if PB !~ ".*P.*" => AstEnumConstructorArguments::Named(<>),
     "(" <CommaTrailing<Expression>> ")" => AstEnumConstructorArguments::Positional(<>),
     () => AstEnumConstructorArguments::Plain,
 };
@@ -512,7 +522,7 @@ CallableExpression: AstExpression = {
     <l:@L> "allocate" "[" <t:Type> ";" <n:Expression> "]" <h:@R> => AstExpression::allocate_array(Span::new(file, l, h), t, n),
     <l:@L> "[" <e:CommaTrailingOrEmpty<Expression>> "]" <h:@R> => AstExpression::array_literal(Span::new(file, l, h), e),
     <l:@L> <c:CallableExpression> "(" <p:CommaTrailingOrEmpty<Expression>> ")" <h:@R> => AstExpression::expr_call(Span::new(file, l, h), c, p),
-    <l:@L> <t:AssociableType<"all">> ":" <f:Identifier> <g:MaybeColonExprGenerics> "(" <p:CommaTrailingOrEmpty<Expression>> ")" <h:@R> => AstExpression::static_call(Span::new(file, l, h), t, f, g, p),
+    <l:@L> <t:AssociableType<"">> ":" <f:Identifier> <g:MaybeColonExprGenerics> "(" <p:CommaTrailingOrEmpty<Expression>> ")" <h:@R> => AstExpression::static_call(Span::new(file, l, h), t, f, g, p),
     <l:@L> <s:InterpolateBegin> <s2:InterpolateBody> <h:@R> => AstExpression::string_interpolation_begin(Span::new(file, l, h), s, s2),
 
     <l:@L> "$[Identifier](" <i:Identifier> "," <id:QuotedId> ")$" <h:@R> =>

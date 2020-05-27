@@ -144,19 +144,14 @@ impl<'input> Lexer<'input> {
             match c {
                 '.' => {
                     self.bump(1);
-
                     if self.current_char == '.' {
                         self.bump(1);
-
-                        if self.current_char != '.' {
-                            return perror_at!(
-                                Span::new(self.file, self.current_pos, self.current_pos + 1),
-                                "Expected a third dot for ellipsis..."
-                            );
+                        if self.current_char == '.' {
+                            self.bump(1);
+                            Ok(Token::Ellipsis)
+                        } else {
+                            Ok(Token::DotDot)
                         }
-
-                        self.bump(1);
-                        Ok(Token::Ellipsis)
                     } else {
                         Ok(Token::Dot)
                     }

@@ -162,7 +162,16 @@ fn main() {
     let permanent_temp_dir = matches.opt_str("S");
 
     let mut files = matches.free;
-    files.push("std".to_string());
+
+    match mode {
+        Mode::Lex | Mode::Parse => {
+            // Don't process `std` in these modes..
+        },
+        _ => {
+            files.push("std".to_string());
+        },
+    }
+
     let files = get_files(mode, &files).unwrap_or_else(|e| report_err(e));
 
     println!("Mode: {:#?}", mode);

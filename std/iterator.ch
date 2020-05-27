@@ -24,37 +24,37 @@ trait FromIterator<_I> {
   fn from_iterator<_It>(it: _It) -> Self where _It: Iterator<::Item=_I>.
 }
 
-enum Range {
+enum RangeIterator {
   Finite(Int, Int),
   Infinite(Int),
 }
 
-impl Iterator for Range {
+impl Iterator for RangeIterator {
   type Item = Int.
 
-  fn next(self) -> (Option<Int>, Range) {
+  fn next(self) -> (Option<Int>, RangeIterator) {
       match self {
-        Range!Finite(a, b) =>
+        RangeIterator!Finite(a, b) =>
           if a < b {
-            (Option!Some(a), Range!Finite(a + 1, b))
+            (Option!Some(a), RangeIterator!Finite(a + 1, b))
           } else {
             (Option!None, self)
           },
-        Range!Infinite(a) => (Option!Some(a), Range!Infinite(a + 1)),
+        RangeIterator!Infinite(a) => (Option!Some(a), RangeIterator!Infinite(a + 1)),
       }
   }
 
   fn has_next(self) -> Bool {
     match self {
-      Range!Finite(a, b) => a < b,
-      Range!Infinite(_) => true,
+      RangeIterator!Finite(a, b) => a < b,
+      RangeIterator!Infinite(_) => true,
     }
   }
 
   fn size_hint(self) -> Int {
     match self {
-      Range!Finite(a, b) => b - a,
-      Range!Infinite(_) => -1,
+      RangeIterator!Finite(a, b) => b - a,
+      RangeIterator!Infinite(_) => -1,
     }
   }
 }

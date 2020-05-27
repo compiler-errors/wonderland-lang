@@ -83,7 +83,7 @@ impl<_T> AllocateArray for _T where _T: Default {
   fn allocate_array(n: Int) -> [_T] {
       let a = allocate_empty_array_internal:<_T>(n).
 
-      for i in Range!Finite(0, n) {
+      for i in 0..n {
         a[i] = <_T>:default().
       }
 
@@ -107,4 +107,21 @@ impl Into<Float> for Int {
       instruction "int_to_float" (self) -> Float
     }
   }
+}
+
+trait Range<_T> {
+  type RangeKind.
+  fn range(self, t: _T) -> <Self as Range<_T>>::RangeKind.
+}
+
+impl Range<()> for Int {
+  type RangeKind = RangeIterator.
+  fn range(self, t: ()) -> RangeIterator =
+    RangeIterator!Infinite(self).
+}
+
+impl Range<Int> for Int {
+  type RangeKind = RangeIterator.
+  fn range(self, t: Int) -> RangeIterator =
+    RangeIterator!Finite(self, t).
 }

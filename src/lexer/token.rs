@@ -21,6 +21,7 @@ pub const QUOTE_STATICCALL: &'static str = "StaticCall";
 pub enum Token {
     // Language symbols
     Dot,         //    .
+    DotDot,      //    ..
     Ellipsis,    //    ...
     Comma,       //    ,
     Commalipses, //    ,,,
@@ -126,6 +127,7 @@ impl Display for Token {
     fn fmt(&self, f: &mut Formatter) -> Result {
         match self {
             Token::Dot => write!(f, "."),
+            Token::DotDot => write!(f, ".."),
             Token::Ellipsis => write!(f, "..."),
             Token::Comma => write!(f, ","),
             Token::Commalipses => write!(f, ",,,"),
