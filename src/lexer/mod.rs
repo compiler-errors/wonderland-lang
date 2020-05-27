@@ -284,12 +284,17 @@ impl<'input> Lexer<'input> {
                         self.bump(1);
                         Ok(Token::Equals)
                     },
-                '+' => {
-                    self.bump(1);
-                    Ok(Token::Plus)
-                },
+                '+' =>
+                    if is_numeric(self.next_char) {
+                        self.scan_numeric_literal()
+                    } else {
+                        self.bump(1);
+                        Ok(Token::Plus)
+                    },
                 '-' =>
-                    if self.next_char == '>' {
+                    if is_numeric(self.next_char) {
+                        self.scan_numeric_literal()
+                    } else if self.next_char == '>' {
                         self.bump(2);
                         Ok(Token::RArrow)
                     } else {
@@ -528,6 +533,18 @@ impl<'input> Lexer<'input> {
     fn scan_numeric_literal(&mut self) -> PResult<Token> {
         let mut string = String::new();
 
+        if self.current_char == '-' || self.current_char == '+' {
+            if self.current_char == '-' {
+                string.push(self.current_char);
+            }
+
+            self.bump(1);
+
+            if !is_numeric(self.current_char) {
+                unreachable!("ICE: Tried to parse a numeric literal, but this is a plain number!");
+            }
+        }
+
         while is_numeric(self.current_char) {
             string.push(self.current_char);
             self.bump(1);
@@ -537,9 +554,9 @@ impl<'input> Lexer<'input> {
             string += ".";
             self.bump(1);
 
-            while let c @ '0'..='9' = self.current_char {
+            while is_numeric(self.current_char) {
+                string.push(self.current_char);
                 self.bump(1);
-                string.push(c);
             }
 
             if self.current_char == 'e' || self.current_char == 'E' {
@@ -547,17 +564,16 @@ impl<'input> Lexer<'input> {
                 string.push('e');
 
                 if self.current_char == '+' || self.current_char == '-' {
-                    let c = self.current_char;
+                    string.push(self.current_char);
                     self.bump(1);
-                    string.push(c);
                 }
 
                 let mut expect_number = false;
 
-                while let c @ '0'..='9' = self.current_char {
+                while is_numeric(self.current_char) {
                     expect_number = true;
+                    string.push(self.current_char);
                     self.bump(1);
-                    string.push(c);
                 }
 
                 if !expect_number {
@@ -568,6 +584,7 @@ impl<'input> Lexer<'input> {
                 }
             }
 
+            debug!("Scanned Float `{}`", string);
             Ok(Token::FloatLiteral(string))
         }
         /* else if self.current_char == 'u' {
@@ -575,6 +592,7 @@ impl<'input> Lexer<'input> {
             Ok(Token::UIntLiteral(string))
         } */
         else {
+            debug!("Scanned Int `{}`", string);
             Ok(Token::IntLiteral(string))
         }
     }

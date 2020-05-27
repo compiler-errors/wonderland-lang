@@ -63,6 +63,7 @@ impl<_It> for _It where _It: Iterator {
   fn map<_F>(self, fun: _F) -> Map<_It, _F> = Map!Iterator { fun, iterator: self }.
   fn enumerate(self) -> Enumerate<_It> = Enumerate!Iterator { idx: 0, iterator: self }.
   fn limit(self, limit: Int) -> Limit<_It> = Limit!Iterator { remaining: limit, iterator: self }.
+  fn zip<_It2>(self, other: _It2) -> Zip<_It, _It2> = Zip!Iterator(self, other).
 
   fn collect<_C>(self) -> _C where _C: FromIterator<<Self as Iterator>::Item> {
       <_C>:from_iterator(self)
@@ -188,6 +189,42 @@ impl<_It> Iterator for Limit<_It> where _It: Iterator {
       remaining
     } else {
       min(remaining, hint)
+    }
+  }
+}
+
+enum Zip<_I1, _I2> {
+  Iterator(_I1, _I2),
+}
+
+impl<_I1, _I2> Iterator for Zip<_I1, _I2> where _I1: Iterator, _I2:Iterator {
+  type Item = (<_I1 as Iterator>::Item, <_I2 as Iterator>::Item).
+
+  fn next(self) -> (Option<<Self as Iterator>::Item>, Self) {
+    let Zip!Iterator(i1, i2) = self.
+
+    if i1:has_next() &? i2:has_next() {
+      let (n1, i1) = i1:next().
+      let (n2, i2) = i2:next().
+
+      (Option!Some((n1:unwrap(), n2:unwrap())), Zip!Iterator(i1, i2))
+    } else {
+      (Option!None, Zip!Iterator(i1, i2))
+    }
+  }
+
+  fn has_next(self) -> Bool {
+    let Zip!Iterator(i1, i2) = self.
+    i1:has_next() &? i2:has_next()
+  }
+
+  fn size_hint(self) -> Int {
+    let Zip!Iterator(i1, i2) = self.
+    match (i1:size_hint(), i2:size_hint()) {
+      (-1, -1) => -1,
+      (-1, b)  => b,
+      (a, -1)  => a,
+      (a, b)   => min(a, b),
     }
   }
 }

@@ -102,6 +102,23 @@ impl<'a> AstAdapter for AnalyzeVariables {
         let AstExpression { data, ty, span } = e;
 
         let data = match data {
+            AstExpressionData::For {
+                label,
+                pattern,
+                iterable,
+                block,
+                else_block,
+            } => {
+                let iterable = iterable.visit(self)?;
+
+                AstExpressionData::For {
+                    label,
+                    pattern,
+                    iterable,
+                    block,
+                    else_block,
+                }
+            },
             AstExpressionData::Identifier {
                 name,
                 variable_id: None,
