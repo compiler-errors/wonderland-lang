@@ -96,11 +96,7 @@ impl And<Bool> for Bool {
   type Result = Bool.
 
   fn and(self, other: Bool) -> Bool {
-      if self {
-          other
-      } else {
-          self
-      }
+      self &? other
   }
 }
 
@@ -113,11 +109,7 @@ impl Or<Bool> for Bool {
   type Result = Bool.
 
   fn or(self, other: Bool) -> Bool {
-      if self {
-          self
-      } else {
-          other
-      }
+      self |? other
   }
 }
 

@@ -288,7 +288,7 @@ impl AstAdapter for TyckDynamicAssumptionAdapter {
             AstType::DynamicType { trait_tys } => {
                 self.add_dyn_into(&t)?;
                 self.add_dyn_downcast(&t)?;
-                
+
                 for trait_ty in trait_tys {
                     self.assume(&t, trait_ty)?;
                 }

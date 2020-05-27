@@ -1728,6 +1728,8 @@ pub enum BinOpKind {
     NotEqual,
     And,
     Or,
+    AndShort,
+    OrShort,
 }
 
 impl BinOpKind {
@@ -1746,6 +1748,8 @@ impl BinOpKind {
             Token::EqualsEquals => BinOpKind::EqualsEquals,
             Token::And => BinOpKind::And,
             Token::Pipe => BinOpKind::Or,
+            Token::AndShort => BinOpKind::AndShort,
+            Token::PipeShort => BinOpKind::OrShort,
             _ => unreachable!("Unknown token {}", op),
         }
     }

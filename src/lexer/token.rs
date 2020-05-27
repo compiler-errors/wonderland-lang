@@ -47,6 +47,8 @@ pub enum Token {
     NotEquals,    //    !=
     And,          //    &
     Pipe,         //    |
+    AndShort,     //    &?
+    PipeShort,    //    |?
     Equals,       //    =
     Bang,         //    !
     Plus,         //    +
@@ -148,6 +150,8 @@ impl Display for Token {
             Token::NotEquals => write!(f, "!="),
             Token::And => write!(f, "&"),
             Token::Pipe => write!(f, "|"),
+            Token::AndShort => write!(f, "&?"),
+            Token::PipeShort => write!(f, "|?"),
             Token::Equals => write!(f, "="),
             Token::Bang => write!(f, "!"),
             Token::Plus => write!(f, "+"),

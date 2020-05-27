@@ -67,7 +67,7 @@ impl AstAdapter for AnalyzeForLoops {
                             {iter_expr} = {next_expr}:1.
                         }} else {else_block}
                     }}",
-                    iterable = *iterable,
+                    iterable = iterable,
                     label = label,
                     iter_expr = iter_expr,
                     item_expr = item_expr,

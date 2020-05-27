@@ -262,14 +262,22 @@ impl<'input> Lexer<'input> {
                         self.bump(1);
                         Ok(Token::Bang)
                     },
-                '&' => {
-                    self.bump(1);
-                    Ok(Token::And)
-                },
-                '|' => {
-                    self.bump(1);
-                    Ok(Token::Pipe)
-                },
+                '&' =>
+                    if self.next_char == '?' {
+                        self.bump(2);
+                        Ok(Token::AndShort)
+                    } else {
+                        self.bump(1);
+                        Ok(Token::And)
+                    },
+                '|' =>
+                    if self.next_char == '?' {
+                        self.bump(2);
+                        Ok(Token::PipeShort)
+                    } else {
+                        self.bump(1);
+                        Ok(Token::Pipe)
+                    },
                 '=' =>
                     if self.next_char == '=' {
                         self.bump(2);

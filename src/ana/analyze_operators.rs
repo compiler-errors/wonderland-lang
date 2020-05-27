@@ -4,6 +4,7 @@ use crate::{
         visitor::AstAdapter, AstExpression, AstExpressionData, AstLiteral, AstTraitTypeWithAssocs,
         AstType, BinOpKind, ModuleRef,
     },
+    cheshire_quote,
     util::{FileRegistry, PResult, Span, Visit},
 };
 use std::collections::BTreeMap;
@@ -72,6 +73,7 @@ impl AnalyzeOperators {
             BinOpKind::NotEqual => ("Equals", "ne"),
             BinOpKind::And => ("And", "and"),
             BinOpKind::Or => ("Or", "or"),
+            BinOpKind::AndShort | BinOpKind::OrShort => unreachable!(),
         };
 
         let associated_trait = self.analyzed_program.construct_trt_ref(trt_name)?;
@@ -97,6 +99,34 @@ impl AstAdapter for AnalyzeOperators {
         let AstExpression { data, ty, span } = e;
 
         let data = match data {
+            AstExpressionData::BinOp {
+                kind: BinOpKind::AndShort,
+                lhs,
+                rhs,
+            } => {
+                let e: AstExpression = cheshire_quote!(
+                    &mut self.analyzed_program,
+                    "if {lhs} {{ {rhs} }} else {{ false }}",
+                    lhs = lhs,
+                    rhs = rhs,
+                );
+                e.data
+            },
+            AstExpressionData::BinOp {
+                kind: BinOpKind::OrShort,
+                lhs,
+                rhs,
+            } => {
+                let e: AstExpression = cheshire_quote!(
+                    &mut self.analyzed_program,
+                    "if {lhs} {{ true }} else {{ {rhs} }}",
+                    lhs = lhs,
+                    rhs = rhs,
+                );
+                e.data
+            },
+            AstExpressionData::BinOp { kind, lhs, rhs } => self.get_binop_call(kind, lhs, rhs)?,
+
             AstExpressionData::Negate(expr) => AstExpressionData::StaticCall {
                 call_type: AstType::infer(),
                 fn_name: "negate".into(),
@@ -164,7 +194,6 @@ impl AstAdapter for AnalyzeOperators {
                 )),
                 impl_signature: None,
             },
-            AstExpressionData::BinOp { kind, lhs, rhs } => self.get_binop_call(kind, lhs, rhs)?,
             AstExpressionData::ExprCall { expr, args } => {
                 let arg_tys = args.iter().map(|a| a.ty.clone()).collect();
                 let args = AstExpression::tuple_literal(span, args);

@@ -3,20 +3,17 @@ use std::fmt::{Display, Formatter, Result as FResult};
 
 pub trait CheshireFormattable {
     fn cheshire_fmt(&self, f: &mut Formatter<'_>) -> FResult;
-}
-
-impl<T> CheshireFormattable for Box<T>
-where
-    T: CheshireFormattable,
-{
-    fn cheshire_fmt(&self, f: &mut Formatter<'_>) -> FResult {
-        (**self).cheshire_fmt(f)
+    fn cheshire_display(&self) -> CheshireDisplay<'_, Self>
+    where
+        Self: Sized,
+    {
+        CheshireDisplay(self)
     }
 }
 
 /// --------------------------------------------------------------------- ///
 
-pub struct CheshireDisplay<'a, T: 'a>(pub &'a T);
+pub struct CheshireDisplay<'a, T: 'a + CheshireFormattable>(pub &'a T);
 
 impl<'a, T: CheshireFormattable + 'a> Display for CheshireDisplay<'a, T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
@@ -84,10 +81,10 @@ impl CheshireFormattable for AstBlock {
                 write!(f, "{{ ")?;
 
                 for s in statements {
-                    write!(f, "{} ", CheshireDisplay(s))?;
+                    write!(f, "{} ", s.cheshire_display())?;
                 }
 
-                write!(f, "{} }} ", CheshireDisplay(expression))?;
+                write!(f, "{} }} ", expression.cheshire_display())?;
             },
             AstBlock {
                 statements,
@@ -97,10 +94,10 @@ impl CheshireFormattable for AstBlock {
                 write!(f, "$[Block]( {{ ")?;
 
                 for s in statements {
-                    write!(f, "{} ", CheshireDisplay(s))?;
+                    write!(f, "{} ", s.cheshire_display())?;
                 }
 
-                write!(f, "{} }}, (", CheshireDisplay(expression))?;
+                write!(f, "{} }}, (", expression.cheshire_display())?;
 
                 for (idx, (_, AstNamedVariable { span, name, ty, id })) in scope.iter().enumerate()
                 {
@@ -115,7 +112,7 @@ impl CheshireFormattable for AstBlock {
                         span.start,
                         span.end,
                         name,
-                        CheshireDisplay(ty),
+                        ty.cheshire_display(),
                         id.0
                     )?;
                 }
@@ -133,11 +130,11 @@ impl CheshireFormattable for AstStatement {
             AstStatement::Let { pattern, value } => write!(
                 f,
                 "let {} = {} . ",
-                CheshireDisplay(pattern),
-                CheshireDisplay(value)
+                pattern.cheshire_display(),
+                value.cheshire_display()
             ),
             AstStatement::Expression { expression } =>
-                write!(f, "{} . ", CheshireDisplay(expression)),
+                write!(f, "{} . ", expression.cheshire_display()),
         }
     }
 }
@@ -150,12 +147,12 @@ impl CheshireFormattable for AstExpression {
             self.span.file.0,
             self.span.start,
             self.span.end,
-            CheshireDisplay(&self.ty),
+            self.ty.cheshire_display(),
         )?;
         match &self.data {
             AstExpressionData::Unimplemented => write!(f, ",,,")?,
             AstExpressionData::SelfRef => write!(f, "self")?,
-            AstExpressionData::Literal(literal) => write!(f, "{}", CheshireDisplay(literal))?,
+            AstExpressionData::Literal(literal) => write!(f, "{}", literal.cheshire_display())?,
             AstExpressionData::Identifier {
                 name,
                 variable_id: Some(variable_id),
@@ -177,8 +174,8 @@ impl CheshireFormattable for AstExpression {
                 f,
                 "|{}| -> {} {{ {} }}",
                 CheshireDisplayMany(&params),
-                CheshireDisplay(return_ty),
-                CheshireDisplay(expr)
+                return_ty.cheshire_display(),
+                expr.cheshire_display()
             )?,
             AstExpressionData::FnCall {
                 fn_name,
@@ -187,14 +184,14 @@ impl CheshireFormattable for AstExpression {
             } => write!(
                 f,
                 "{}{}({})",
-                CheshireDisplay(fn_name),
+                fn_name.cheshire_display(),
                 CheshireDisplayGenerics(generics, ":<"),
                 CheshireDisplayMany(&args)
             )?,
             AstExpressionData::ExprCall { expr, args } => write!(
                 f,
                 "{}({})",
-                CheshireDisplay(expr),
+                expr.cheshire_display(),
                 CheshireDisplayMany(&args)
             )?,
             AstExpressionData::ObjectCall {
@@ -205,7 +202,7 @@ impl CheshireFormattable for AstExpression {
             } => write!(
                 f,
                 "{}:{}{}({})",
-                CheshireDisplay(object),
+                object.cheshire_display(),
                 fn_name,
                 CheshireDisplayGenerics(generics, ":<"),
                 CheshireDisplayMany(&args)
@@ -220,7 +217,7 @@ impl CheshireFormattable for AstExpression {
             } => write!(
                 f,
                 "<{}>:{}{}({})",
-                CheshireDisplay(call_type),
+                call_type.cheshire_display(),
                 fn_name,
                 CheshireDisplayGenerics(fn_generics, ":<"),
                 CheshireDisplayMany(&args)
@@ -235,8 +232,8 @@ impl CheshireFormattable for AstExpression {
             } => write!(
                 f,
                 "<{} as {}>:{}{}({})",
-                CheshireDisplay(call_type),
-                CheshireDisplay(associated_trait),
+                call_type.cheshire_display(),
+                associated_trait.cheshire_display(),
                 fn_name,
                 CheshireDisplayGenerics(fn_generics, ":<"),
                 CheshireDisplayMany(&args)
@@ -251,8 +248,8 @@ impl CheshireFormattable for AstExpression {
             } => write!(
                 f,
                 "$[StaticCall]({}, {}, {}, ({}), ({}), {}, ({}))$",
-                CheshireDisplay(call_type),
-                CheshireDisplay(associated_trait),
+                call_type.cheshire_display(),
+                associated_trait.cheshire_display(),
                 fn_name,
                 CheshireDisplayMany(&fn_generics),
                 CheshireDisplayMany(&args),
@@ -262,16 +259,16 @@ impl CheshireFormattable for AstExpression {
             AstExpressionData::ArrayAccess { accessible, idx } => write!(
                 f,
                 "{}[{}]",
-                CheshireDisplay(accessible),
-                CheshireDisplay(idx)
+                accessible.cheshire_display(),
+                idx.cheshire_display()
             )?,
             AstExpressionData::TupleAccess { accessible, idx } =>
-                write!(f, "{}:{}", CheshireDisplay(accessible), *idx)?,
+                write!(f, "{}:{}", accessible.cheshire_display(), *idx)?,
             AstExpressionData::ObjectAccess {
                 object,
                 mem_name,
                 mem_idx: None,
-            } => write!(f, "{}:{}", CheshireDisplay(object), mem_name)?,
+            } => write!(f, "{}:{}", object.cheshire_display(), mem_name)?,
             AstExpressionData::AllocateObject {
                 object,
                 generics,
@@ -281,32 +278,32 @@ impl CheshireFormattable for AstExpression {
                 write!(
                     f,
                     "allocate {}{} {{ ",
-                    CheshireDisplay(object),
+                    object.cheshire_display(),
                     CheshireDisplayGenerics(generics, "<")
                 )?;
                 for (child, expr) in children {
-                    write!(f, "{}: {}, ", child, CheshireDisplay(expr))?;
+                    write!(f, "{}: {}, ", child, expr.cheshire_display())?;
                 }
                 write!(f, " }}")?;
             },
             AstExpressionData::AllocateArray { object, size } => write!(
                 f,
                 "allocate [{}; {}]",
-                CheshireDisplay(object),
-                CheshireDisplay(size)
+                object.cheshire_display(),
+                size.cheshire_display()
             )?,
-            AstExpressionData::Not(expr) => write!(f, "!{}", CheshireDisplay(expr))?,
-            AstExpressionData::Negate(expr) => write!(f, "-{}", CheshireDisplay(expr))?,
+            AstExpressionData::Not(expr) => write!(f, "!{}", expr.cheshire_display())?,
+            AstExpressionData::Negate(expr) => write!(f, "-{}", expr.cheshire_display())?,
             AstExpressionData::Assign { lhs, rhs } =>
-                write!(f, "{} = {}", CheshireDisplay(lhs), CheshireDisplay(rhs))?,
+                write!(f, "{} = {}", lhs.cheshire_display(), rhs.cheshire_display())?,
             AstExpressionData::BinOp { kind, lhs, rhs } => write!(
                 f,
                 "{} {} {}",
-                CheshireDisplay(lhs),
-                CheshireDisplay(kind),
-                CheshireDisplay(rhs)
+                lhs.cheshire_display(),
+                kind.cheshire_display(),
+                rhs.cheshire_display()
             )?,
-            AstExpressionData::Block { block } => write!(f, "{}", CheshireDisplay(block))?,
+            AstExpressionData::Block { block } => write!(f, "{}", block.cheshire_display())?,
             AstExpressionData::If {
                 condition,
                 block,
@@ -314,9 +311,9 @@ impl CheshireFormattable for AstExpression {
             } => write!(
                 f,
                 "if {} {} else {}",
-                CheshireDisplay(condition),
-                CheshireDisplay(block),
-                CheshireDisplay(else_block)
+                condition.cheshire_display(),
+                block.cheshire_display(),
+                else_block.cheshire_display()
             )?,
             AstExpressionData::Match {
                 expression,
@@ -324,7 +321,7 @@ impl CheshireFormattable for AstExpression {
             } => write!(
                 f,
                 "match {} {{ {} }}",
-                CheshireDisplay(expression),
+                expression.cheshire_display(),
                 CheshireDisplayMany(&branches)
             )?,
             AstExpressionData::While {
@@ -338,9 +335,9 @@ impl CheshireFormattable for AstExpression {
                 "$[While]({}, {}, {}, {}, {})$",
                 label.as_deref().unwrap_or("_"),
                 id.0,
-                CheshireDisplay(condition),
-                CheshireDisplay(block),
-                CheshireDisplay(else_block)
+                condition.cheshire_display(),
+                block.cheshire_display(),
+                else_block.cheshire_display()
             )?,
             AstExpressionData::For {
                 label,
@@ -352,10 +349,10 @@ impl CheshireFormattable for AstExpression {
                 f,
                 "$[For]({}, {}, {}, {}, {})$",
                 label.as_deref().unwrap_or("_"),
-                CheshireDisplay(pattern),
-                CheshireDisplay(iterable),
-                CheshireDisplay(block),
-                CheshireDisplay(else_block)
+                pattern.cheshire_display(),
+                iterable.cheshire_display(),
+                block.cheshire_display(),
+                else_block.cheshire_display()
             )?,
             AstExpressionData::PlainEnum {
                 enumerable,
@@ -364,7 +361,7 @@ impl CheshireFormattable for AstExpression {
             } => write!(
                 f,
                 "{}{}!{}",
-                CheshireDisplay(enumerable),
+                enumerable.cheshire_display(),
                 CheshireDisplayGenerics(&generics, "<"),
                 variant
             )?,
@@ -376,7 +373,7 @@ impl CheshireFormattable for AstExpression {
             } => write!(
                 f,
                 "{}{}!{}({})",
-                CheshireDisplay(enumerable),
+                enumerable.cheshire_display(),
                 CheshireDisplayGenerics(&generics, "<"),
                 variant,
                 CheshireDisplayMany(&children)
@@ -390,13 +387,13 @@ impl CheshireFormattable for AstExpression {
                 write!(
                     f,
                     "{}{}!{} {{ ",
-                    CheshireDisplay(enumerable),
+                    enumerable.cheshire_display(),
                     CheshireDisplayGenerics(&generics, "<"),
                     variant
                 )?;
 
                 for (child, expr) in children {
-                    write!(f, "{}: {}, ", child, CheshireDisplay(expr))?;
+                    write!(f, "{}: {}, ", child, expr.cheshire_display())?;
                 }
 
                 write!(f, "}}")?;
@@ -404,8 +401,8 @@ impl CheshireFormattable for AstExpression {
             AstExpressionData::As { expression, ty } => write!(
                 f,
                 "{} as {}",
-                CheshireDisplay(expression),
-                CheshireDisplay(ty)
+                expression.cheshire_display(),
+                ty.cheshire_display()
             )?,
             AstExpressionData::Instruction {
                 instruction,
@@ -416,7 +413,7 @@ impl CheshireFormattable for AstExpression {
                 "instruction \"{}\" ({}) -> {}",
                 instruction,
                 CheshireDisplayMany(&arguments),
-                CheshireDisplay(output)
+                output.cheshire_display()
             )?,
             AstExpressionData::Break { label, id, value } => write!(
                 f,
@@ -424,7 +421,7 @@ impl CheshireFormattable for AstExpression {
                 label.as_deref().unwrap_or("_"),
                 id.map(|i| format!("{}", i.0))
                     .unwrap_or_else(|| "_".to_string()),
-                CheshireDisplay(value)
+                value.cheshire_display()
             )?,
             AstExpressionData::Continue { label, id } => write!(
                 f,
@@ -433,15 +430,16 @@ impl CheshireFormattable for AstExpression {
                 id.map(|i| format!("{}", i.0))
                     .unwrap_or_else(|| "_".to_string())
             )?,
-            AstExpressionData::Return { value } => write!(f, "return {}", CheshireDisplay(value))?,
+            AstExpressionData::Return { value } =>
+                write!(f, "return {}", value.cheshire_display())?,
             AstExpressionData::Assert { condition } =>
-                write!(f, "assert {}", CheshireDisplay(condition))?,
+                write!(f, "assert {}", condition.cheshire_display())?,
             AstExpressionData::ConditionalCompilation { branches } => {
                 for (idx, (name, block)) in branches.iter().enumerate() {
                     if idx != 0 {
                         write!(f, " else ")?;
                     }
-                    write!(f, "impl \"{}\" {}", name, CheshireDisplay(block))?;
+                    write!(f, "impl \"{}\" {}", name, block.cheshire_display())?;
                 }
             },
 
@@ -475,6 +473,8 @@ impl CheshireFormattable for BinOpKind {
             BinOpKind::NotEqual => write!(f, "!=")?,
             BinOpKind::And => write!(f, "&")?,
             BinOpKind::Or => write!(f, "|")?,
+            BinOpKind::AndShort => write!(f, "&?")?,
+            BinOpKind::OrShort => write!(f, "|?")?,
         }
 
         Ok(())
@@ -523,8 +523,8 @@ impl CheshireFormattable for AstLiteral {
 impl CheshireFormattable for InstructionArgument {
     fn cheshire_fmt(&self, f: &mut Formatter<'_>) -> FResult {
         match self {
-            InstructionArgument::Expression(e) => write!(f, "{}", CheshireDisplay(e))?,
-            InstructionArgument::Type(t) => write!(f, "_: {}", CheshireDisplay(t))?,
+            InstructionArgument::Expression(e) => write!(f, "{}", e.cheshire_display())?,
+            InstructionArgument::Type(t) => write!(f, "_: {}", t.cheshire_display())?,
             InstructionArgument::Anonymous(a) => write!(f, "${}", a)?,
         }
 
@@ -535,7 +535,7 @@ impl CheshireFormattable for InstructionArgument {
 impl CheshireFormattable for InstructionOutput {
     fn cheshire_fmt(&self, f: &mut Formatter<'_>) -> FResult {
         match self {
-            InstructionOutput::Type(t) => write!(f, "{}", CheshireDisplay(t))?,
+            InstructionOutput::Type(t) => write!(f, "{}", t.cheshire_display())?,
             InstructionOutput::Anonymous(a) => write!(f, "${}", a)?,
         }
 
@@ -551,7 +551,7 @@ impl CheshireFormattable for AstMatchPattern {
             self.span.file.0,
             self.span.start,
             self.span.end,
-            CheshireDisplay(&self.ty),
+            self.ty.cheshire_display(),
         )?;
 
         match &self.data {
@@ -563,11 +563,11 @@ impl CheshireFormattable for AstMatchPattern {
                 span.start,
                 span.end,
                 name,
-                CheshireDisplay(ty),
+                ty.cheshire_display(),
                 id.0
             )?,
             AstMatchPatternData::Tuple(t) => write!(f, "({})", CheshireDisplayMany(&t))?,
-            AstMatchPatternData::Literal(l) => write!(f, "{}", CheshireDisplay(l))?,
+            AstMatchPatternData::Literal(l) => write!(f, "{}", l.cheshire_display())?,
             AstMatchPatternData::PlainEnum {
                 enumerable,
                 generics,
@@ -575,7 +575,7 @@ impl CheshireFormattable for AstMatchPattern {
             } => write!(
                 f,
                 "{}{}!{}",
-                CheshireDisplay(enumerable),
+                enumerable.cheshire_display(),
                 CheshireDisplayGenerics(&generics, "<"),
                 variant
             )?,
@@ -588,7 +588,7 @@ impl CheshireFormattable for AstMatchPattern {
             } => write!(
                 f,
                 "{}{}!{}({}{})",
-                CheshireDisplay(enumerable),
+                enumerable.cheshire_display(),
                 CheshireDisplayGenerics(&generics, "<"),
                 variant,
                 CheshireDisplayMany(&children),
@@ -604,13 +604,13 @@ impl CheshireFormattable for AstMatchPattern {
                 write!(
                     f,
                     "{}{}!{} {{",
-                    CheshireDisplay(enumerable),
+                    enumerable.cheshire_display(),
                     CheshireDisplayGenerics(&generics, "<"),
                     variant,
                 )?;
 
                 for (child, pattern) in children {
-                    write!(f, "{}: {}, ", child, CheshireDisplay(pattern))?;
+                    write!(f, "{}: {}, ", child, pattern.cheshire_display())?;
                 }
 
                 write!(f, "{} }}", if *ignore_rest { ".." } else { "" })?;
@@ -633,8 +633,8 @@ impl CheshireFormattable for AstMatchBranch {
                 write!(
                     f,
                     "{} => {}",
-                    CheshireDisplay(pattern),
-                    CheshireDisplay(expression)
+                    pattern.cheshire_display(),
+                    expression.cheshire_display()
                 )?;
             },
             AstMatchBranch {
@@ -645,8 +645,8 @@ impl CheshireFormattable for AstMatchBranch {
                 write!(
                     f,
                     "$[MatchBranch]( {} => {} , (",
-                    CheshireDisplay(pattern),
-                    CheshireDisplay(expression)
+                    pattern.cheshire_display(),
+                    expression.cheshire_display()
                 )?;
 
                 for (idx, (_, AstNamedVariable { span, name, ty, id })) in scope.iter().enumerate()
@@ -662,7 +662,7 @@ impl CheshireFormattable for AstMatchBranch {
                         span.start,
                         span.end,
                         name,
-                        CheshireDisplay(ty),
+                        ty.cheshire_display(),
                         id.0
                     )?;
                 }
@@ -687,38 +687,38 @@ impl CheshireFormattable for AstType {
             AstType::String => write!(f, "String")?,
             AstType::SelfType => write!(f, "Self")?,
             AstType::Generic(generic) => write!(f, "_{}", generic)?,
-            AstType::Array { ty } => write!(f, "[{}]", CheshireDisplay(ty))?,
+            AstType::Array { ty } => write!(f, "[{}]", ty.cheshire_display())?,
             AstType::Tuple { types } => write!(f, "({})", CheshireDisplayMany(&types))?,
             AstType::ObjectEnum(name, generics) => write!(
                 f,
                 "{}{}",
-                CheshireDisplay(name),
+                name.cheshire_display(),
                 CheshireDisplayGenerics(&generics, "<")
             )?,
             AstType::Object(name, generics) => write!(
                 f,
                 "{}{}",
-                CheshireDisplay(name),
+                name.cheshire_display(),
                 CheshireDisplayGenerics(&generics, "<")
             )?,
             AstType::Enum(name, generics) => write!(
                 f,
                 "{}{}",
-                CheshireDisplay(name),
+                name.cheshire_display(),
                 CheshireDisplayGenerics(&generics, "<")
             )?,
             AstType::ClosureType { args, ret_ty } => write!(
                 f,
                 "|{}| -> {}",
                 CheshireDisplayMany(&args),
-                CheshireDisplay(ret_ty)
+                ret_ty.cheshire_display()
             )?,
             AstType::ClosureEnvType => write!(f, "ClosureEnvType")?,
             AstType::FnPointerType { args, ret_ty } => write!(
                 f,
                 "fn({}) -> {}",
                 CheshireDisplayMany(&args),
-                CheshireDisplay(ret_ty)
+                ret_ty.cheshire_display()
             )?,
             AstType::AssociatedType {
                 obj_ty,
@@ -727,20 +727,20 @@ impl CheshireFormattable for AstType {
             } => write!(
                 f,
                 "<{} as {}>::{}",
-                CheshireDisplay(obj_ty),
-                CheshireDisplay(trait_ty),
+                obj_ty.cheshire_display(),
+                trait_ty.cheshire_display(),
                 name
             )?,
             AstType::AssociatedType {
                 obj_ty,
                 trait_ty: None,
                 name,
-            } => write!(f, "{}::{}", CheshireDisplay(obj_ty), name)?,
+            } => write!(f, "{}::{}", obj_ty.cheshire_display(), name)?,
             AstType::ElaboratedType { obj_ty, trait_ty } => write!(
                 f,
                 "<{} as {}>",
-                CheshireDisplay(obj_ty),
-                CheshireDisplay(trait_ty)
+                obj_ty.cheshire_display(),
+                trait_ty.cheshire_display()
             )?,
             AstType::DynamicType { trait_tys } =>
                 if trait_tys.is_empty() {
@@ -751,7 +751,7 @@ impl CheshireFormattable for AstType {
                         if idx != 0 {
                             write!(f, " + ")?;
                         }
-                        write!(f, "{}", CheshireDisplay(trait_ty))?;
+                        write!(f, "{}", trait_ty.cheshire_display())?;
                     }
                     write!(f, ">")?;
                 },
@@ -773,7 +773,7 @@ impl CheshireFormattable for AstTraitType {
         write!(
             f,
             "{}{}",
-            CheshireDisplay(name),
+            name.cheshire_display(),
             CheshireDisplayGenerics(generics, "<")
         )?;
 
@@ -788,7 +788,7 @@ impl CheshireFormattable for AstTraitTypeWithAssocs {
             assoc_bindings,
         } = self;
 
-        write!(f, "{}", CheshireDisplay(name))?;
+        write!(f, "{}", name.cheshire_display())?;
 
         if !generics.is_empty() || !assoc_bindings.is_empty() {
             write!(f, "<")?;
@@ -798,7 +798,7 @@ impl CheshireFormattable for AstTraitTypeWithAssocs {
                     write!(f, ", ")?;
                 }
 
-                write!(f, "{}", CheshireDisplay(generic))?;
+                write!(f, "{}", generic.cheshire_display())?;
             }
 
             for (idx, (name, binding)) in assoc_bindings.iter().enumerate() {
@@ -806,7 +806,7 @@ impl CheshireFormattable for AstTraitTypeWithAssocs {
                     write!(f, ", ")?;
                 }
 
-                write!(f, "::{} = {}", name, CheshireDisplay(binding))?;
+                write!(f, "::{} = {}", name, binding.cheshire_display())?;
             }
 
             write!(f, ">")?;

@@ -40,6 +40,8 @@ extern {
         "!=" => Token::NotEquals,
         "&" => Token::And,
         "|" => Token::Pipe,
+        "&?" => Token::AndShort,
+        "|?" => Token::PipeShort,
         "=" => Token::Equals,
         "!" => Token::Bang,
         "+" => Token::Plus,
@@ -358,12 +360,14 @@ LBinOp<Operators, Term>: AstExpression = {
 };
 
 // Prec0 = { "=" };
-Prec1 = { "|" };
-Prec2 = { "&" };
-Prec3 = { "<", ">", "<=", ">=", "==", "!=" };
-Prec4 = { "+", "-" };
-Prec5 = { "*", "/", "%" };
-// Prec6 = { unary "!", unary "-" }
+Prec1 = { "|?" };
+Prec2 = { "&?" };
+Prec3 = { "|" };
+Prec4 = { "&" };
+Prec5 = { "<", ">", "<=", ">=", "==", "!=" };
+Prec6 = { "+", "-" };
+Prec7 = { "*", "/", "%" };
+// Prec8 = { unary "!", unary "-" }
 
 pub Expression = Expression0<"all">;
 // Expressions that can precede a block, e.g. ```if <PreblockExpression> {```
@@ -376,21 +380,23 @@ Expression0<PB>: AstExpression = {
 };
 Expression1<PB> = {
     <UndottableExpression>,
-    LBinOp<Prec1, Expression2<PB>>,
     <ClosureExpression<PB>>,
     <ControlFlowExpression<PB>>,
     <InstructionExpression>,
+    <LBinOp<Prec1, Expression2<PB>>>,
 };
 Expression2<PB> = LBinOp<Prec2, Expression3<PB>>;
 Expression3<PB> = LBinOp<Prec3, Expression4<PB>>;
 Expression4<PB> = LBinOp<Prec4, Expression5<PB>>;
 Expression5<PB> = LBinOp<Prec5, Expression6<PB>>;
-Expression6<PB> = {
-    <l:@L> "!" <e:Expression7<PB>> <h:@R> => AstExpression::not(Span::new(file, l, h), e),
-    <l:@L> "-" <e:Expression7<PB>> <h:@R> => AstExpression::neg(Span::new(file, l, h), e),
-    <Expression7<PB>>,
+Expression6<PB> = LBinOp<Prec6, Expression7<PB>>;
+Expression7<PB> = LBinOp<Prec7, Expression8<PB>>;
+Expression8<PB> = {
+    <l:@L> "!" <e:Expression8<PB>> <h:@R> => AstExpression::not(Span::new(file, l, h), e),
+    <l:@L> "-" <e:Expression8<PB>> <h:@R> => AstExpression::neg(Span::new(file, l, h), e),
+    <Expression9<PB>>,
 };
-Expression7<PB> = BaseExpression<PB>;
+Expression9<PB> = BaseExpression<PB>;
 
 InstructionExpression: AstExpression = {
     <l:@L> "instruction" <i:String> "(" <p:CommaTrailingOrEmpty<InstructionArgument>> ")" "->" <o:InstructionOutput> <h:@R> =>
