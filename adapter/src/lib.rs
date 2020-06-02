@@ -167,29 +167,29 @@ fn get_adapter_name(attrs: &[Attribute]) -> Path {
             Ok(Meta::List(list)) =>
                 if list.path.get_ident() == Some(&format_ident!("Adapter")) {
                     if adapter_name.is_some() {
-                        panic!("Conflicting adapter names in derive(Visit)");
+                        unreachable!("ICE: Conflicting adapter names in derive(Visit)");
                     }
 
                     if list.nested.len() == 1 {
                         if let NestedMeta::Lit(Lit::Str(name)) = list.nested.first().unwrap() {
                             adapter_name = Some(name.parse::<Path>().unwrap_or_else(|_| {
-                                panic!(
-                                    "Could not parse a Path out of \"{}\"",
+                                unreachable!(
+                                    "ICE: Could not parse a Path out of \"{}\"",
                                     name.to_token_stream().to_string()
                                 )
                             }));
                         } else {
-                            panic!("Expected a string literal for Adapter")
+                            unreachable!("ICE: Expected a string literal for Adapter")
                         }
                     } else {
-                        panic!("Expected one literal argument for Adapter")
+                        unreachable!("ICE: Expected one literal argument for Adapter")
                     }
                 },
             _ => {},
         }
     }
 
-    adapter_name.unwrap_or_else(|| panic!("No associated Adapter macro found for derive(Visit)"))
+    adapter_name.unwrap_or_else(|| unreachable!("ICE: No associated Adapter macro found for derive(Visit)"))
 }
 
 fn get_deconstruct_self<T: ToTokens>(ty: &T, fields: &Fields) -> TokenStream {

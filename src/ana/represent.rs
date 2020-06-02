@@ -46,7 +46,7 @@ impl AnalyzedProgram {
         let r = self.get_module_ref("trait", trt_path)?;
 
         if !self.analyzed_traits.contains_key(&r) {
-            return perror!("ICE: `{}` is not a trait", r.full_name());
+            unreachable!("ICE: `{}` is not a trait", r.full_name());
         } else {
             Ok(r)
         }
@@ -56,7 +56,7 @@ impl AnalyzedProgram {
         let r = self.get_module_ref("enum", obj_path)?;
 
         if !self.analyzed_enums.contains_key(&r) {
-            return perror!("ICE: `{}` is not an enum", r.full_name());
+            return unreachable!("ICE: `{}` is not an enum", r.full_name());
         } else {
             Ok(r)
         }
@@ -66,7 +66,7 @@ impl AnalyzedProgram {
         let r = self.get_module_ref("function", fn_path)?;
 
         if !self.analyzed_functions.contains_key(&r) {
-            return perror!("ICE: `{}` is not a trait", r.full_name());
+            unreachable!("ICE: `{}` is not a trait", r.full_name());
         } else {
             Ok(r)
         }
@@ -89,7 +89,7 @@ impl AnalyzedProgram {
             if let ModuleItem::Submodule(new_submodule) = child {
                 submodule = new_submodule;
             } else {
-                return perror!(
+                unreachable!(
                     "ICE: submodule `{}` does not exist in module `{}`",
                     name,
                     traversed_path.join("::"),
@@ -106,7 +106,7 @@ impl AnalyzedProgram {
         {
             ModuleRef::Normalized(file_id, name.to_string())
         } else {
-            return perror!(
+            unreachable!(
                 "ICE: {} {} does not exist in module `{}`",
                 what,
                 name,

@@ -166,7 +166,7 @@ impl TyckSolver {
                         .insert(id, ty.clone())
                         .is_some()
                     {
-                        panic!(
+                        unreachable!(
                             "ICE: Duplicated inference, normalization should not let this happen!"
                         );
                     }
@@ -445,13 +445,14 @@ impl TyckSolver {
 
     fn rollback_epoch(&mut self) -> TyckEpoch {
         self.epochs.pop().unwrap_or_else(|| {
-            panic!("ICE: Cannot roll back when there are no epochs on the stack!")
+            unreachable!("ICE: Cannot roll back when there are no epochs on the stack!")
         })
     }
 
     fn push_new_epoch(&mut self) {
         if self.epochs.len() > TYCK_MAX_DEPTH {
-            panic!("ICE: OVERFLOW");
+            // TODO: Should this just be a perror?
+            unreachable!("ICE: OVERFLOW");
         }
 
         let top = top_epoch!(self);
@@ -589,7 +590,7 @@ impl TyckSolver {
             (Some(expected_trt), Some(trt)) =>
                 self.unify_all(false, &expected_trt.generics, &trt.generics)?,
             (Some(_), None) | (None, Some(_)) => {
-                return perror!(
+                unreachable!(
                     "ICE: Tried to unify an expected trait with no given trait. This should NEVER \
                      happen."
                 );
@@ -971,7 +972,7 @@ impl TyckSolver {
                 self.unify_all(false, &expected_trt.generics, &trt.generics)?,
             (Some(_), None) => { /* This is okay! */ },
             (None, Some(_)) => {
-                return perror!(
+                unreachable!(
                     "ICE: Tried to unify an expected trait with no given trait. This should NEVER \
                      happen."
                 );
@@ -1144,7 +1145,7 @@ impl AstAdapter for TyckSolver {
     fn enter_ast_function(&mut self, f: AstFunction) -> PResult<AstFunction> {
         self.satisfy_restrictions(&f.restrictions)?;
 
-        self.return_type.push(f.return_type.clone());
+        self.return_type.push(f.return_type.inner.clone());
         self.variables = f
             .scope
             .as_ref()
@@ -1154,7 +1155,7 @@ impl AstAdapter for TyckSolver {
             .collect();
 
         if let Some(block) = &f.definition {
-            self.unify(true, &f.return_type, &block.expression.ty)?;
+            self.unify(true, &f.return_type.inner, &block.expression.ty)?;
         }
 
         Ok(f)
@@ -1184,12 +1185,10 @@ impl AstAdapter for TyckSolver {
 
     fn enter_ast_block(&mut self, b: AstBlock) -> PResult<AstBlock> {
         if let Some(scope) = &b.scope {
-            // TODO: Once I replace everything with quotes, I should not need to do this.
-
             self.variables
                 .extend(scope.iter().map(|(_, v)| (v.id, v.ty.clone())));
         } else {
-            return perror_at!(b.expression.span, "Uhh?");
+            unreachable!()
         }
 
         Ok(b)
@@ -1197,12 +1196,10 @@ impl AstAdapter for TyckSolver {
 
     fn enter_ast_match_branch(&mut self, b: AstMatchBranch) -> PResult<AstMatchBranch> {
         if let Some(scope) = &b.scope {
-            // TODO: Once I replace everything with quotes, I should not need to do this.
-
             self.variables
                 .extend(scope.iter().map(|(_, v)| (v.id, v.ty.clone())));
         } else {
-            return perror_at!(b.pattern.span, "Uhh?");
+            unreachable!()
         }
 
         Ok(b)

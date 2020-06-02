@@ -44,6 +44,8 @@ impl ModuleMap {
                 if let ModuleItem::Submodule(submodule) = &module_mut.children[child_name] {
                     submodule.clone()
                 } else {
+                    // TODO: Put where the symbols are declared into the symbol enum variant.
+                    // Then I can say where it is declared at least...
                     return perror!(
                         "Expected `{}` to be a module, instead it is a symbol!",
                         mod_path.join("::")
@@ -315,7 +317,7 @@ impl<'a> AstAdapter for AnalyzeUses<'a> {
         }
 
         if self.current_mod.is_some() {
-            return perror!("ICE: Previous module wasn't cleaned up!");
+            unreachable!("ICE: Previous module wasn't cleaned up!");
         }
 
         let current_mod_ref = self.mod_map.get_module_clone(m.id);

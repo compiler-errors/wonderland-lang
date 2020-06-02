@@ -30,7 +30,7 @@ impl AnalyzeOperators {
             .methods
             .contains_key(fn_name)
         {
-            perror!(
+            unreachable!(
                 "ICE: Error realizing operator: trait {} does not contain function `{}`",
                 trt.full_name(),
                 fn_name
@@ -74,7 +74,7 @@ impl AnalyzeOperators {
             BinOpKind::And => ("And", "and"),
             BinOpKind::Or => ("Or", "or"),
             BinOpKind::Range => ("Range", "range"),
-            BinOpKind::AndShort | BinOpKind::OrShort => unreachable!(),
+            BinOpKind::AndShort | BinOpKind::OrShort => unreachable!("ICE: Unexpected operator `{:?}` when lifting operator to trait", kind),
         };
 
         let associated_trait = self.analyzed_program.construct_trt_ref(trt_name)?;

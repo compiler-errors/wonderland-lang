@@ -6,9 +6,11 @@ use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     sync::RwLock,
 };
+pub use self::spanned::*;
 
 pub mod display;
 pub mod visitor;
+mod spanned;
 
 pub enum AstError {
     DuplicatedMember(String),
@@ -234,7 +236,7 @@ pub struct AstFunction {
     /// The parameter list that the function receives
     pub parameter_list: Vec<AstNamedVariable>,
     /// The return type of the function, or AstType::None
-    pub return_type: AstType,
+    pub return_type: Spanned<AstType>,
     pub restrictions: Vec<AstTypeRestriction>,
 
     /// The implementation, maybe.
@@ -251,7 +253,7 @@ impl AstFunction {
         name: String,
         generics: Vec<AstGeneric>,
         parameter_list: Vec<AstNamedVariable>,
-        return_type: AstType,
+        return_type: Spanned<AstType>,
         restrictions: Vec<AstTypeRestriction>,
     ) -> AstFunction {
         AstFunction {
@@ -273,7 +275,7 @@ impl AstFunction {
         name: String,
         generics: Vec<AstGeneric>,
         parameter_list: Vec<AstNamedVariable>,
-        return_type: AstType,
+        return_type: Spanned<AstType>,
         restrictions: Vec<AstTypeRestriction>,
         definition: AstBlock,
     ) -> AstFunction {
@@ -296,7 +298,7 @@ impl AstFunction {
         name: String,
         generics: Vec<AstGeneric>,
         parameter_list: Vec<AstNamedVariable>,
-        return_type: AstType,
+        return_type: Spanned<AstType>,
         restrictions: Vec<AstTypeRestriction>,
         definition: AstExpression,
     ) -> AstFunction {
@@ -629,8 +631,8 @@ pub struct LoopId(pub usize);
 #[derive(Debug, Clone, Eq, PartialEq, Visit)]
 pub enum AstStatement {
     Let {
-        pattern: AstMatchPattern,
         value: AstExpression,
+        pattern: AstMatchPattern,
     },
     Expression {
         expression: AstExpression,
@@ -783,8 +785,8 @@ pub enum AstExpressionData {
     },
     For {
         label: Option<String>,
-        pattern: AstMatchPattern,
         iterable: SubExpression,
+        pattern: AstMatchPattern,
         block: AstBlock,
         else_block: AstBlock,
     },
@@ -1752,7 +1754,7 @@ impl BinOpKind {
             Token::AndShort => BinOpKind::AndShort,
             Token::PipeShort => BinOpKind::OrShort,
             Token::DotDot => BinOpKind::Range,
-            _ => unreachable!("Unknown token {}", op),
+            _ => unreachable!("ICE: Unknown token {}", op),
         }
     }
 }

@@ -126,6 +126,10 @@ extern {
     }
 }
 
+S<T>: Spanned<T> = {
+    <l:@L> <t:T> <h:@R> => Spanned::new(Span::new(file, l, h), t),
+}
+
 CommaTrailingOrEmpty<T>: Vec<T> = {
     <v:(<T> ",")*> <e:T?> => append_maybe(v, e),
 };
@@ -295,11 +299,11 @@ Global: AstGlobalVariable = {
 /// --- Function --- ///
 
 Function: AstFunction = {
-    "export" "fn" <l:@L> <i:Identifier> <h:@R> <g:MaybeDeclGenerics> <p:DeclParams> <r:MaybeReturn> <w:MaybeRestrictions> "." =>
+    "export" "fn" <l:@L> <i:Identifier> <h:@R> <g:MaybeDeclGenerics> <p:DeclParams> <r:SMaybeReturn> <w:MaybeRestrictions> "." =>
         AstFunction::new_declaration(file, Span::new(file, l, h), i, g, p, r, w),
-    "fn" <l:@L> <i:Identifier> <h:@R> <g:MaybeDeclGenerics> <p:DeclParams> <r:MaybeReturn> <w:MaybeRestrictions> <b:Block> =>
+    "fn" <l:@L> <i:Identifier> <h:@R> <g:MaybeDeclGenerics> <p:DeclParams> <r:SMaybeReturn> <w:MaybeRestrictions> <b:Block> =>
         AstFunction::new_definition(file, Span::new(file, l, h), i, g, p, r, w, b),
-    "fn" <l:@L> <i:Identifier> <h:@R> <g:MaybeDeclGenerics> <p:DeclParams> <r:MaybeReturn> <w:MaybeRestrictions> "=" <e:Expression> =>
+    "fn" <l:@L> <i:Identifier> <h:@R> <g:MaybeDeclGenerics> <p:DeclParams> <r:SMaybeReturn> <w:MaybeRestrictions> "=" <e:Expression> "." =>
         AstFunction::new_definition_from_expr(file, Span::new(file, l, h), i, g, p, r, w, e),
 };
 
@@ -319,6 +323,11 @@ DeclParam: AstNamedVariable = <l:@L> <i:Identifier> ":" <t:Type> <h:@R> => AstNa
 MaybeReturn: AstType = {
     "->" <Type>,
     () => AstType::none(),
+};
+
+SMaybeReturn: Spanned<AstType> = {
+    "->" <S<Type>>,
+    <l:@L> () <h:@R> => Spanned::new(Span::new(file, l, h), AstType::none()),
 };
 
 MaybeRestrictions: Vec<AstTypeRestriction> = {

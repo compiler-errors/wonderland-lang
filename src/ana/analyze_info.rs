@@ -54,7 +54,7 @@ impl AstAdapter for AnalyzeInfo {
                 name: Some(fun.module_ref.clone()),
                 generics: fun.generics.clone(),
                 parameters: fun.parameter_list.iter().map(|p| p.ty.clone()).collect(),
-                return_type: fun.return_type.clone(),
+                return_type: fun.return_type.inner.clone(),
                 restrictions: fun.restrictions.clone(),
                 has_self: false,
             };

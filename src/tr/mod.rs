@@ -33,7 +33,7 @@ lazy_static! {
     } else if cfg!(target_os = "macos") {
         OsStr::new("/lib/libc.dylib")
     } else {
-        panic!("Unsupported OS")
+        error!("Unsupported OS")
     };
 }
 

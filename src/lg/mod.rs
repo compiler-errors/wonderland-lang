@@ -170,8 +170,8 @@ impl LookingGlass {
             Ok(value) => value,
             Err(LError::Return(value)) => value,
             Err(LError::Continue(_)) =>
-                unreachable!("Uncaught `continue` in LookingGlass evaluation"),
-            Err(LError::Break(..)) => unreachable!("Uncaught `break` in LookingGlass evaluation"),
+                unreachable!("ICE: Uncaught `continue` in LookingGlass evaluation"),
+            Err(LError::Break(..)) => unreachable!("ICE: Uncaught `break` in LookingGlass evaluation"),
             Err(other) => {
                 return Err(other);
             },
@@ -205,7 +205,7 @@ impl LookingGlass {
 
         for (param, arg) in ZipExact::zip_exact(parameters, args, "arguments")? {
             if !self.apply_pattern(param, &arg, &mut scope)? {
-                unreachable!();
+                unreachable!("ICE: Unexpected pattern-match failure when applying closure argument (should be infallible)");
             }
         }
 
@@ -214,8 +214,8 @@ impl LookingGlass {
             Ok(value) => value,
             Err(LError::Return(value)) => value,
             Err(LError::Continue(_)) =>
-                unreachable!("Uncaught `continue` in LookingGlass evaluation"),
-            Err(LError::Break(..)) => unreachable!("Uncaught `break` in LookingGlass evaluation"),
+                unreachable!("ICE: Uncaught `continue` in LookingGlass evaluation"),
+            Err(LError::Break(..)) => unreachable!("ICE: Uncaught `break` in LookingGlass evaluation"),
             Err(other) => {
                 return Err(other);
             },
@@ -254,7 +254,7 @@ impl LookingGlass {
             | AstExpressionData::ObjectCall { .. }
             | AstExpressionData::Not(_)
             | AstExpressionData::Negate(_)
-            | AstExpressionData::BinOp { .. } => unreachable!(),
+            | AstExpressionData::BinOp { .. } => unreachable!("ICE: Unexpected expression kind: {:?}..... should've been desugared.", expr.data),
 
             AstExpressionData::Literal(AstLiteral::True) => CheshireValue::Int(1),
             AstExpressionData::Literal(AstLiteral::False) => CheshireValue::Int(0),
@@ -757,7 +757,7 @@ impl LookingGlass {
                             CheshireValue::enum_variant("None".to_string(), vec![])
                         }
                     } else {
-                        unreachable!("Can only downcast a Dyn type");
+                        unreachable!("ICE: Can only downcast a Dyn type");
                     }
                 },
                 ("gc", []) => {
@@ -833,7 +833,7 @@ impl LookingGlass {
                 table,
             ))
         } else {
-            unreachable!("Can only box if given a dynamic type")
+            unreachable!("ICE: Can only box if given a dynamic type")
         }
     }
 

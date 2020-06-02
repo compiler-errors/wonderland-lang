@@ -276,7 +276,7 @@ impl InstantiationAdapter {
                 // Do nothing.
             },
             AnImplKind::Dummy =>
-                unreachable!("Dummy impls should not leak into the Instantiation phase"),
+                unreachable!("ICE: Dummy impls should not leak into the Instantiation phase"),
         }
 
         Ok(())
@@ -369,7 +369,7 @@ impl InstantiationAdapter {
                 self.instantiated_object_fns.insert(sig, Some(f));
             },
             AnImplKind::Dummy =>
-                unreachable!("Dummy impls should not leak into the Instantiation phase"),
+                unreachable!("ICE: Dummy impls should not leak into the Instantiation phase"),
         }
 
         Ok(())
@@ -411,13 +411,13 @@ impl InstantiationAdapter {
                         )?;
                     }
                 } else {
-                    unreachable!();
+                    unreachable!("ICE: Impl signature should be given after typechecking `{} :- {:?}`", obj_ty, trt);
                 }
             }
 
             Ok(())
         } else {
-            unreachable!()
+            unreachable!("ICE: Can only instantiate dynamic calls for Dyn type, got `{}`", dyn_ty)
         }
     }
 
@@ -797,7 +797,7 @@ impl AstAdapter for MainFinder {
                 );
             }
 
-            if f.return_type != AstType::Int {
+            if f.return_type.inner != AstType::Int {
                 return perror_at!(
                     f.name_span,
                     "Main function `{}` must return `Int`.",

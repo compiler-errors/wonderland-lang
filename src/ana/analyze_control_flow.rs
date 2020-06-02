@@ -1,7 +1,7 @@
 use crate::{
     ana::represent_visitor::AstAnalysisPass,
     ast::{visitor::AstAdapter, AstExpression, AstExpressionData, LoopId},
-    util::{PResult, Visit},
+    util::{PResult, Visit, Span},
 };
 
 pub struct AnalyzeControlFlow(Vec<Option<(Option<String>, LoopId)>>);
@@ -13,7 +13,7 @@ impl AstAnalysisPass for AnalyzeControlFlow {
 }
 
 impl AnalyzeControlFlow {
-    fn find(&self, label: Option<&str>) -> PResult<LoopId> {
+    fn find(&self, span: Span, label: Option<&str>) -> PResult<LoopId> {
         for x in self.0.iter().rev() {
             if let Some((name, id)) = x {
                 if label.is_none() || label == name.as_deref() {
@@ -25,9 +25,9 @@ impl AnalyzeControlFlow {
         }
 
         if let Some(label) = label {
-            perror!("Couldn't find loop with label `[{}]`", label)
+            perror_at!(span, "Couldn't find loop with label `[{}]`", label)
         } else {
-            perror!("Couldn't find loop to break/continue")
+            perror_at!(span, "Couldn't find loop to break/continue")
         }
     }
 }
@@ -61,12 +61,12 @@ impl AstAdapter for AnalyzeControlFlow {
                 label,
                 value,
             } => AstExpressionData::Break {
-                id: Some(self.find(label.as_deref())?),
+                id: Some(self.find(span, label.as_deref())?),
                 label,
                 value,
             },
             AstExpressionData::Continue { id: None, label } => AstExpressionData::Continue {
-                id: Some(self.find(label.as_deref())?),
+                id: Some(self.find(span, label.as_deref())?),
                 label,
             },
             c @ AstExpressionData::Closure { .. } => {

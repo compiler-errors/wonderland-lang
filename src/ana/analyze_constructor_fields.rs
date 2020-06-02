@@ -116,7 +116,8 @@ impl AstAdapter for AnalyzeConstructorFields {
                     .fields
                     .is_empty()
                 {
-                    return perror!(
+                    return perror_at!(
+                        p.span,
                         "Trying to construct `{}!{}`, but the variant expects fields",
                         enumerable.full_name(),
                         variant
@@ -135,7 +136,8 @@ impl AstAdapter for AnalyzeConstructorFields {
                 let expected = var_info.fields.len();
 
                 if *ignore_rest && found >= expected {
-                    return perror!(
+                    return perror_at!(
+                        p.span,
                         "Too many fields in pattern `{}!{}`: found {}, expected < {} (due to \
                          ellipsis).",
                         enumerable.full_name(),
@@ -144,7 +146,8 @@ impl AstAdapter for AnalyzeConstructorFields {
                         expected
                     );
                 } else if !*ignore_rest && found != expected {
-                    return perror!(
+                    return perror_at!(
+                        p.span,
                         "Missing fields from pattern `{}!{}`: found {}, expected {}.",
                         enumerable.full_name(),
                         variant,
@@ -152,7 +155,8 @@ impl AstAdapter for AnalyzeConstructorFields {
                         expected
                     );
                 } else if var_info.field_names.is_some() {
-                    return perror!(
+                    return perror_at!(
+                        p.span,
                         "Trying to construct a positional enum pattern `{}!{}`, but the variant \
                          is named",
                         enumerable.full_name(),
@@ -172,7 +176,8 @@ impl AstAdapter for AnalyzeConstructorFields {
                 let expected = var_info.fields.len();
 
                 if var_info.field_names.is_none() {
-                    return perror!(
+                    return perror_at!(
+                        p.span,
                         "Trying to construct a positional enum pattern `{}!{}`, but the variant \
                          is named",
                         enumerable.full_name(),
@@ -185,7 +190,8 @@ impl AstAdapter for AnalyzeConstructorFields {
                 if !ignore_rest {
                     for field in fields.keys() {
                         if !children.contains_key(field) {
-                            return perror!(
+                            return perror_at!(
+                                p.span,
                                 "Missing field {} from pattern `{}!{}`.",
                                 field,
                                 enumerable.full_name(),
@@ -196,7 +202,8 @@ impl AstAdapter for AnalyzeConstructorFields {
                 } else if found == expected
                 /* && ignore_rest */
                 {
-                    return perror!(
+                    return perror_at!(
+                        p.span,
                         "In pattern `{}!{}`, all fields are specified, so the ellipsis is eliding \
                          0 arguments",
                         enumerable.full_name(),
@@ -206,7 +213,8 @@ impl AstAdapter for AnalyzeConstructorFields {
 
                 for field in children.keys() {
                     if !fields.contains_key(field) {
-                        return perror!(
+                        return perror_at!(
+                            p.span,
                             "Unexpected field {} in pattern `{}!{}`.",
                             field,
                             enumerable.full_name(),

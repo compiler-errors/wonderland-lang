@@ -23,6 +23,7 @@ impl AnalyzeGenerics {
     fn add_generics(&mut self, generics: &[AstGeneric]) -> PResult<()> {
         for g in generics {
             if self.scope.get(&g.1).is_some() {
+                // TODO: Give generics spans, then report the two different spans.
                 return perror!("Duplicate generic with name `_{}`", g.1);
             }
 

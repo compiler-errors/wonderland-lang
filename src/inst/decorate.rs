@@ -50,7 +50,7 @@ pub fn decorate_module(module: &ModuleRef) -> PResult<(String, String)> {
 
         Ok((decorated_module, symbol_name.clone()))
     } else {
-        unreachable!()
+        unreachable!("ICE: All modules should be normalized by now")
     }
 }
 

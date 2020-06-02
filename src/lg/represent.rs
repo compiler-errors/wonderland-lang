@@ -111,10 +111,13 @@ impl CheshireValue {
     pub fn set_heap_member(&self, idx: usize, value: CheshireValue) -> PResult<()> {
         match self {
             CheshireValue::HeapCollection { contents } => {
+                // I don't want to return a member_mut because I unwrap the GC cell here, 
+                // so I'd have to use Rental or something to return both the Gc (clone),
+                // but also the mutable member...
                 contents.borrow_mut()[idx] = value;
                 Ok(())
             },
-            _ => perror!("Cannot access member (`{}`) of the type {:?}", idx, self),
+            _ => perror!("Cannot access object member (`{}`) of the type {:?}", idx, self),
         }
     }
 
@@ -122,7 +125,7 @@ impl CheshireValue {
         match self {
             CheshireValue::ValueCollection { contents } => Ok(&mut contents[idx]),
             _ => perror!(
-                "ICE: Cannot access member (`{}`) of the type {:?}",
+                "ICE: Cannot access tuple member (`{}`) of the type {:?}",
                 idx,
                 self
             ),
@@ -132,35 +135,35 @@ impl CheshireValue {
     pub fn unwrap_int(&self) -> PResult<i64> {
         match self {
             CheshireValue::Int(i) => Ok(*i),
-            _ => perror!("ICE: Cannot unwrap value `{:?}` as Int", self),
+            _ => unreachable!("ICE: Cannot unwrap value `{:?}` as Int", self),
         }
     }
 
     pub fn unwrap_float(&self) -> PResult<f64> {
         match self {
             CheshireValue::Float(f) => Ok(*f),
-            _ => perror!("ICE: Cannot unwrap value `{:?}` as Float", self),
+            _ => unreachable!("ICE: Cannot unwrap value `{:?}` as Float", self),
         }
     }
 
     pub fn unwrap_string(&self) -> PResult<String> {
         match self {
             CheshireValue::String(s) => Ok(s.clone()),
-            _ => perror!("ICE: Cannot unwrap value `{:?}` as String", self),
+            _ => unreachable!("ICE: Cannot unwrap value `{:?}` as String", self),
         }
     }
 
     pub fn array_len(&self) -> PResult<usize> {
         match self {
             CheshireValue::HeapCollection { contents } => Ok(contents.borrow().len()),
-            _ => perror!("ICE: Cannot unwrap value `{:?}` as String", self),
+            _ => unreachable!("ICE: Cannot unwrap array length of `{:?}`", self),
         }
     }
 
     pub fn string_len(&self) -> PResult<usize> {
         match self {
             CheshireValue::String(s) => Ok(s.len()),
-            _ => perror!("ICE: Cannot unwrap value `{:?}` as String", self),
+            _ => unreachable!("ICE: Cannot unwrap string length of `{:?}`", self),
         }
     }
 }

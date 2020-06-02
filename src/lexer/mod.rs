@@ -114,7 +114,7 @@ impl<'input> Lexer<'input> {
                 }
                 self.bump(2);
             },
-            _ => unreachable!(),
+            _ => unreachable!("ICE: Expected // or /* to begin scanned comment"),
         }
 
         Ok(())

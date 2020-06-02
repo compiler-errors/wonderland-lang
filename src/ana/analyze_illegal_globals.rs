@@ -28,7 +28,8 @@ impl AstAdapter for DenyGlobal {
     fn enter_ast_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
         match &e.data {
             AstExpressionData::GlobalVariable { name } => {
-                return perror!(
+                return perror_at!(
+                    e.span,
                     "Cannot reference global variable `{}` from within initialization for global \
                      variable `{}`.",
                     name.full_name(),

@@ -90,6 +90,6 @@ fn get_return_value(s: AstStatement) -> AstExpression {
     {
         *value
     } else {
-        unreachable!()
+        unreachable!("ICE: Expected a return value in this statement")
     }
 }
