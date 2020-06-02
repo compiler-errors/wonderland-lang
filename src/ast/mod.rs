@@ -1,3 +1,4 @@
+pub use self::spanned::*;
 use crate::{
     lexer::Token,
     util::{FileId, FileRegistry, PError, Span},
@@ -6,11 +7,10 @@ use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     sync::RwLock,
 };
-pub use self::spanned::*;
 
 pub mod display;
-pub mod visitor;
 mod spanned;
+pub mod visitor;
 
 pub enum AstError {
     DuplicatedMember(String),
@@ -764,6 +764,10 @@ pub enum AstExpressionData {
         rhs: SubExpression,
     },
 
+    Throw {
+        expr: SubExpression,
+    },
+
     Block {
         block: AstBlock,
     },
@@ -808,15 +812,18 @@ pub enum AstExpressionData {
         generics: Vec<AstType>,
         variant: String,
     },
+
     As {
         expression: SubExpression,
         ty: AstType,
     },
+
     Instruction {
         instruction: String,
         arguments: Vec<InstructionArgument>,
         output: InstructionOutput,
     },
+
     Break {
         label: Option<String>,
         id: Option<LoopId>,
@@ -832,6 +839,7 @@ pub enum AstExpressionData {
     Assert {
         condition: SubExpression,
     },
+
     ConditionalCompilation {
         branches: HashMap<String, AstBlock>,
     },
@@ -1332,6 +1340,16 @@ impl AstExpression {
                 lhs: Box::new(lhs),
                 rhs: Box::new(rhs),
                 kind: BinOpKind::from_token(binop),
+            },
+            ty: AstType::infer(),
+        }
+    }
+
+    pub fn throw(span: Span, expr: AstExpression) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::Throw {
+                expr: Box::new(expr),
             },
             ty: AstType::infer(),
         }

@@ -1319,7 +1319,8 @@ impl AstAdapter for TyckSolver {
             | AstExpressionData::Negate { .. }
             | AstExpressionData::Not { .. }
             | AstExpressionData::As { .. }
-            | AstExpressionData::For { .. } => unreachable!(),
+            | AstExpressionData::For { .. }
+            | AstExpressionData::Throw { .. } => unreachable!(),
 
             AstExpressionData::Unimplemented => {},
             AstExpressionData::Block { block } => {

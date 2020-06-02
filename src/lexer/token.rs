@@ -40,6 +40,7 @@ pub enum Token {
     RArrow,      //    ->
     RBigArrow,   //    =>
     Underscore,  //    _
+    Question,    //    ?
 
     // Mathematical operators (excluding LSquare, RSquare)
     LessEqual,    //    <=
@@ -146,6 +147,7 @@ impl Display for Token {
             Token::RArrow => write!(f, "->"),
             Token::RBigArrow => write!(f, "=>"),
             Token::Underscore => write!(f, "_"),
+            Token::Question => write!(f, "?"),
             Token::LessEqual => write!(f, "<="),
             Token::GreaterEqual => write!(f, ">="),
             Token::EqualsEquals => write!(f, "=="),

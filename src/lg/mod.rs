@@ -171,7 +171,8 @@ impl LookingGlass {
             Err(LError::Return(value)) => value,
             Err(LError::Continue(_)) =>
                 unreachable!("ICE: Uncaught `continue` in LookingGlass evaluation"),
-            Err(LError::Break(..)) => unreachable!("ICE: Uncaught `break` in LookingGlass evaluation"),
+            Err(LError::Break(..)) =>
+                unreachable!("ICE: Uncaught `break` in LookingGlass evaluation"),
             Err(other) => {
                 return Err(other);
             },
@@ -205,7 +206,10 @@ impl LookingGlass {
 
         for (param, arg) in ZipExact::zip_exact(parameters, args, "arguments")? {
             if !self.apply_pattern(param, &arg, &mut scope)? {
-                unreachable!("ICE: Unexpected pattern-match failure when applying closure argument (should be infallible)");
+                unreachable!(
+                    "ICE: Unexpected pattern-match failure when applying closure argument (should \
+                     be infallible)"
+                );
             }
         }
 
@@ -215,7 +219,8 @@ impl LookingGlass {
             Err(LError::Return(value)) => value,
             Err(LError::Continue(_)) =>
                 unreachable!("ICE: Uncaught `continue` in LookingGlass evaluation"),
-            Err(LError::Break(..)) => unreachable!("ICE: Uncaught `break` in LookingGlass evaluation"),
+            Err(LError::Break(..)) =>
+                unreachable!("ICE: Uncaught `break` in LookingGlass evaluation"),
             Err(other) => {
                 return Err(other);
             },
@@ -254,7 +259,11 @@ impl LookingGlass {
             | AstExpressionData::ObjectCall { .. }
             | AstExpressionData::Not(_)
             | AstExpressionData::Negate(_)
-            | AstExpressionData::BinOp { .. } => unreachable!("ICE: Unexpected expression kind: {:?}..... should've been desugared.", expr.data),
+            | AstExpressionData::BinOp { .. }
+            | AstExpressionData::Throw { .. } => unreachable!(
+                "ICE: Unexpected expression kind: {:?}..... should've been desugared.",
+                expr.data
+            ),
 
             AstExpressionData::Literal(AstLiteral::True) => CheshireValue::Int(1),
             AstExpressionData::Literal(AstLiteral::False) => CheshireValue::Int(0),

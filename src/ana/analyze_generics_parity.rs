@@ -34,7 +34,8 @@ impl AnalyzeGenericsParity {
                 generics.len()
             )
         } else {
-            perror!( // Unspanned
+            perror!(
+                // Unspanned
                 "Incorrect number of generics for symbol `{}`. Expected {}, found {}.",
                 m.full_name(),
                 expected,

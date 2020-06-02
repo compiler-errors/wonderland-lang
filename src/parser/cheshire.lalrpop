@@ -34,6 +34,7 @@ extern {
         "->" => Token::RArrow,
         "=>" => Token::RBigArrow,
         "_" => Token::Underscore,
+        "?" => Token::Question,
 
         "<=" => Token::LessEqual,
         ">=" => Token::GreaterEqual,
@@ -408,7 +409,11 @@ Expression8<PB> = {
     <l:@L> "-" <e:Expression8<PB>> <h:@R> => AstExpression::neg(Span::new(file, l, h), e),
     <Expression9<PB>>,
 };
-Expression9<PB> = BaseExpression<PB>;
+Expression9<PB> = {
+    <l:@L> <e:Expression9<PB>> "?" <h:@R> => AstExpression::throw(Span::new(file, l, h), e),
+    <Expression10<PB>>,
+}
+Expression10<PB> = BaseExpression<PB>;
 
 RangeEnder<PB>: AstExpression = {
     // TODO: These cases can get out of hand... I wish there were a way of appending "R" to `PB`

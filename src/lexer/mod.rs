@@ -313,6 +313,10 @@ impl<'input> Lexer<'input> {
                     self.bump(1);
                     Ok(Token::Modulo)
                 },
+                '?' => {
+                    self.bump(1);
+                    Ok(Token::Question)
+                },
                 c => perror_at!(
                     Span::new(self.file, self.current_pos, self.current_pos + 1),
                     "Unknown symbol '{}'",

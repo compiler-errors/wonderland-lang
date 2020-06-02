@@ -2,6 +2,7 @@ use pub mod::any::*.
 use pub mod::operators::*.
 use pub mod::iterator::*.
 use pub mod::option::*.
+use pub mod::try::*.
 use pub mod::vector::*.
 use pub mod::list::*.
 use pub mod::hash_map::*.

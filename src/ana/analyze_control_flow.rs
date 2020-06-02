@@ -1,7 +1,7 @@
 use crate::{
     ana::represent_visitor::AstAnalysisPass,
     ast::{visitor::AstAdapter, AstExpression, AstExpressionData, LoopId},
-    util::{PResult, Visit, Span},
+    util::{PResult, Span, Visit},
 };
 
 pub struct AnalyzeControlFlow(Vec<Option<(Option<String>, LoopId)>>);

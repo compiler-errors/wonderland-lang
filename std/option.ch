@@ -48,6 +48,15 @@ impl<_T> for Option<_T> {
   }
 }
 
+impl<_T> Into<String> for Option<_T> where _T: Into<String> {
+  fn into(self) -> String {
+    match self {
+      Option!Some(s) => "Some(\(s))",
+      Option!None => "None",
+    }
+  }
+}
+
 trait Default {
   fn default() -> Self.
 }

@@ -1,4 +1,4 @@
-use crate::util::{PResult, Span, Visit, Context};
+use crate::util::{Context, PResult, Span, Visit};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Spanned<T> {
@@ -12,7 +12,10 @@ impl<T> Spanned<T> {
     }
 }
 
-impl<T, A> Visit<A> for Spanned<T> where T: Visit<A> {
+impl<T, A> Visit<A> for Spanned<T>
+where
+    T: Visit<A>,
+{
     fn visit(self, adapter: &mut A) -> PResult<Self> {
         let Spanned { span, inner } = self;
         let inner = inner.visit(adapter).with_context(span)?;

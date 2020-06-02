@@ -74,7 +74,10 @@ impl AnalyzeOperators {
             BinOpKind::And => ("And", "and"),
             BinOpKind::Or => ("Or", "or"),
             BinOpKind::Range => ("Range", "range"),
-            BinOpKind::AndShort | BinOpKind::OrShort => unreachable!("ICE: Unexpected operator `{:?}` when lifting operator to trait", kind),
+            BinOpKind::AndShort | BinOpKind::OrShort => unreachable!(
+                "ICE: Unexpected operator `{:?}` when lifting operator to trait",
+                kind
+            ),
         };
 
         let associated_trait = self.analyzed_program.construct_trt_ref(trt_name)?;
@@ -245,6 +248,24 @@ impl AstAdapter for AnalyzeOperators {
                 fn_name: self.analyzed_program.construct_fn_ref("commalipses_impl")?,
                 generics: vec![AstType::infer()],
                 args: vec![self.construct_where_at(span)?],
+            },
+            AstExpressionData::Throw { expr } => {
+                let expr_ty = expr.ty.clone();
+                let e: AstExpression = cheshire_quote!(
+                    &mut self.analyzed_program,
+                    "
+                    match <{expr_ty} as std::try::IntoResult>:into_result({expr}) {{
+                        std::try::Result!Ok(t) => t,
+                        std::try::Result!Error(e) => {{
+                            return <{expr_ty} as std::try::IntoResult>:from_error(e).
+                            std::unreachable()
+                        }}
+                    }}
+                    ",
+                    expr = expr,
+                    expr_ty = expr_ty,
+                );
+                e.data
             },
             e => e,
         };

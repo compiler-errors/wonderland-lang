@@ -27,10 +27,20 @@ impl AstAdapter for AnalyzeConstructorFields {
                 variant,
                 ..
             } => {
-                if !self.0.analyzed_enums[enumerable].variants[variant]
-                    .fields
-                    .is_empty()
-                {
+                let enum_info = &self.0.analyzed_enums[enumerable];
+
+                if !enum_info.variants.contains_key(variant) {
+                    return perror_at!(
+                        e.span,
+                        "Unknown enum variant `{}!{}`",
+                        enumerable.full_name(),
+                        variant
+                    );
+                }
+
+                let var_info = &enum_info.variants[variant];
+
+                if !var_info.fields.is_empty() || var_info.field_names.is_some() {
                     return perror_at!(
                         e.span,
                         "Trying to construct `{}!{}`, but the variant expects fields",
@@ -45,7 +55,29 @@ impl AstAdapter for AnalyzeConstructorFields {
                 children,
                 ..
             } => {
-                let var_info = &self.0.analyzed_enums[enumerable].variants[variant];
+                let enum_info = &self.0.analyzed_enums[enumerable];
+
+                if !enum_info.variants.contains_key(variant) {
+                    return perror_at!(
+                        e.span,
+                        "Unknown enum variant `{}!{}`",
+                        enumerable.full_name(),
+                        variant
+                    );
+                }
+
+                let var_info = &enum_info.variants[variant];
+
+                if var_info.field_names.is_some() {
+                    return perror_at!(
+                        e.span,
+                        "Trying to construct a positional enum variant `{}!{}`, but the variant \
+                         is named",
+                        enumerable.full_name(),
+                        variant
+                    );
+                }
+
                 let found = children.len();
                 let expected = var_info.fields.len();
 
@@ -58,14 +90,6 @@ impl AstAdapter for AnalyzeConstructorFields {
                         found,
                         expected
                     );
-                } else if var_info.field_names.is_some() {
-                    return perror_at!(
-                        e.span,
-                        "Trying to construct a positional enum variant `{}!{}`, but the variant \
-                         is named",
-                        enumerable.full_name(),
-                        variant
-                    );
                 }
             },
             AstExpressionData::NamedEnum {
@@ -74,13 +98,24 @@ impl AstAdapter for AnalyzeConstructorFields {
                 children,
                 ..
             } => {
-                let var_info = &self.0.analyzed_enums[enumerable].variants[variant];
+                let enum_info = &self.0.analyzed_enums[enumerable];
+
+                if !enum_info.variants.contains_key(variant) {
+                    return perror_at!(
+                        e.span,
+                        "Unknown enum variant `{}!{}`",
+                        enumerable.full_name(),
+                        variant
+                    );
+                }
+
+                let var_info = &enum_info.variants[variant];
 
                 if var_info.field_names.is_none() {
                     return perror_at!(
                         e.span,
-                        "Trying to construct a positional enum variant `{}!{}`, but the variant \
-                         is named",
+                        "Trying to construct a named enum variant `{}!{}`, but the variant is \
+                         positional",
                         enumerable.full_name(),
                         variant
                     );
@@ -112,10 +147,20 @@ impl AstAdapter for AnalyzeConstructorFields {
                 variant,
                 ..
             } => {
-                if !self.0.analyzed_enums[enumerable].variants[variant]
-                    .fields
-                    .is_empty()
-                {
+                let enum_info = &self.0.analyzed_enums[enumerable];
+
+                if !enum_info.variants.contains_key(variant) {
+                    return perror_at!(
+                        p.span,
+                        "Unknown enum variant `{}!{}`",
+                        enumerable.full_name(),
+                        variant
+                    );
+                }
+
+                let var_info = &enum_info.variants[variant];
+
+                if !var_info.fields.is_empty() || var_info.field_names.is_some() {
                     return perror_at!(
                         p.span,
                         "Trying to construct `{}!{}`, but the variant expects fields",
@@ -131,9 +176,30 @@ impl AstAdapter for AnalyzeConstructorFields {
                 ignore_rest,
                 ..
             } => {
-                let var_info = &self.0.analyzed_enums[enumerable].variants[variant];
+                let enum_info = &self.0.analyzed_enums[enumerable];
+
+                if !enum_info.variants.contains_key(variant) {
+                    return perror_at!(
+                        p.span,
+                        "Unknown enum variant `{}!{}`",
+                        enumerable.full_name(),
+                        variant
+                    );
+                }
+
+                let var_info = &enum_info.variants[variant];
                 let found = children.len();
                 let expected = var_info.fields.len();
+
+                if var_info.field_names.is_some() {
+                    return perror_at!(
+                        p.span,
+                        "Trying to construct a positional enum pattern `{}!{}`, but the variant \
+                         is named",
+                        enumerable.full_name(),
+                        variant
+                    );
+                }
 
                 if *ignore_rest && found >= expected {
                     return perror_at!(
@@ -171,15 +237,26 @@ impl AstAdapter for AnalyzeConstructorFields {
                 ignore_rest,
                 ..
             } => {
-                let var_info = &self.0.analyzed_enums[enumerable].variants[variant];
+                let enum_info = &self.0.analyzed_enums[enumerable];
+
+                if !enum_info.variants.contains_key(variant) {
+                    return perror_at!(
+                        p.span,
+                        "Unknown enum variant `{}!{}`",
+                        enumerable.full_name(),
+                        variant
+                    );
+                }
+
+                let var_info = &enum_info.variants[variant];
                 let found = children.len();
                 let expected = var_info.fields.len();
 
                 if var_info.field_names.is_none() {
                     return perror_at!(
                         p.span,
-                        "Trying to construct a positional enum pattern `{}!{}`, but the variant \
-                         is named",
+                        "Trying to construct a named enum pattern `{}!{}`, but the variant is \
+                         positional",
                         enumerable.full_name(),
                         variant
                     );

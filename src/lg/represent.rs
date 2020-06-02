@@ -111,13 +111,17 @@ impl CheshireValue {
     pub fn set_heap_member(&self, idx: usize, value: CheshireValue) -> PResult<()> {
         match self {
             CheshireValue::HeapCollection { contents } => {
-                // I don't want to return a member_mut because I unwrap the GC cell here, 
+                // I don't want to return a member_mut because I unwrap the GC cell here,
                 // so I'd have to use Rental or something to return both the Gc (clone),
                 // but also the mutable member...
                 contents.borrow_mut()[idx] = value;
                 Ok(())
             },
-            _ => perror!("Cannot access object member (`{}`) of the type {:?}", idx, self),
+            _ => perror!(
+                "Cannot access object member (`{}`) of the type {:?}",
+                idx,
+                self
+            ),
         }
     }
 

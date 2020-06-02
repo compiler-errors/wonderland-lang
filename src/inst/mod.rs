@@ -411,13 +411,19 @@ impl InstantiationAdapter {
                         )?;
                     }
                 } else {
-                    unreachable!("ICE: Impl signature should be given after typechecking `{} :- {:?}`", obj_ty, trt);
+                    unreachable!(
+                        "ICE: Impl signature should be given after typechecking `{} :- {:?}`",
+                        obj_ty, trt
+                    );
                 }
             }
 
             Ok(())
         } else {
-            unreachable!("ICE: Can only instantiate dynamic calls for Dyn type, got `{}`", dyn_ty)
+            unreachable!(
+                "ICE: Can only instantiate dynamic calls for Dyn type, got `{}`",
+                dyn_ty
+            )
         }
     }
 
