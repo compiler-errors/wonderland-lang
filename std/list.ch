@@ -197,8 +197,7 @@ impl<_T> Len for List<_T> {
     fn len(self) -> Int = self:size.
 }
 
-impl<_T> Deref for List<_T> {
-  type Idx = Int.
+impl<_T> Deref<Int> for List<_T> {
   type Result = _T.
 
   fn deref(self, idx: Int) -> _T {
@@ -210,8 +209,7 @@ impl<_T> Deref for List<_T> {
   }
 }
 
-impl<_T> DerefAssign for List<_T> {
-  type Idx = Int.
+impl<_T> DerefAssign<Int> for List<_T> {
   type Value = _T.
 
   fn deref_assign(self, idx: Int, value: _T) -> _T {

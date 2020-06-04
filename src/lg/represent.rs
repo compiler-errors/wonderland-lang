@@ -19,6 +19,8 @@ pub enum CheshireValue {
     },
     /// Representative of structs and arrays ("by-reference" types)
     HeapCollection {
+        offset: usize,
+        limit: usize,
         contents: Gc<GcCell<Vec<CheshireValue>>>,
     },
     EnumVariant {
@@ -68,6 +70,8 @@ impl CheshireValue {
 
     pub fn heap_collection(contents: Vec<CheshireValue>) -> CheshireValue {
         CheshireValue::HeapCollection {
+            offset: 0,
+            limit: contents.len(),
             contents: Gc::new(GcCell::new(contents)),
         }
     }
@@ -100,21 +104,77 @@ impl CheshireValue {
         }))
     }
 
+    pub fn get_array_slice(self, start: usize, end: usize) -> CheshireValue {
+        if let CheshireValue::HeapCollection {
+            contents,
+            offset,
+            limit,
+        } = &self
+        {
+            let adj_start = start + *offset;
+            let adj_end = end + *offset;
+
+            if adj_end < adj_start {
+                unreachable!(
+                    "ICE: Start of array slice ({}) cannot be greater than end ({}).",
+                    adj_start, adj_end
+                );
+            }
+
+            if *limit < adj_end {
+                unreachable!(
+                    "ICE: End of array slice ({}) cannot be past end of array ({})",
+                    adj_end, limit
+                );
+            }
+
+            CheshireValue::HeapCollection {
+                contents: contents.clone(),
+                offset: adj_start,
+                limit: adj_end,
+            }
+        } else {
+            unreachable!("ICE: Can only take a slice of an array, got `{:?}`", self);
+        }
+    }
+
     pub fn get_member(&self, idx: usize) -> PResult<CheshireValue> {
         match self {
             CheshireValue::ValueCollection { contents } => Ok(contents[idx].clone()),
-            CheshireValue::HeapCollection { contents } => Ok(contents.borrow()[idx].clone()),
+            CheshireValue::HeapCollection {
+                contents,
+                offset,
+                limit,
+            } => {
+                let adj_idx = *offset + idx;
+
+                if adj_idx >= *limit {
+                    unreachable!("ICE: Index ({}) is out of bounds ({}).", adj_idx, limit);
+                }
+
+                Ok(contents.borrow()[adj_idx].clone())
+            },
             _ => perror!("Cannot access member (`{}`) of the type {:?}", idx, self),
         }
     }
 
     pub fn set_heap_member(&self, idx: usize, value: CheshireValue) -> PResult<()> {
         match self {
-            CheshireValue::HeapCollection { contents } => {
+            CheshireValue::HeapCollection {
+                contents,
+                offset,
+                limit,
+            } => {
+                let adj_idx = *offset + idx;
+
+                if adj_idx >= *limit {
+                    unreachable!("ICE: Index ({}) is out of bounds ({}).", adj_idx, limit);
+                }
+
                 // I don't want to return a member_mut because I unwrap the GC cell here,
                 // so I'd have to use Rental or something to return both the Gc (clone),
                 // but also the mutable member...
-                contents.borrow_mut()[idx] = value;
+                contents.borrow_mut()[adj_idx] = value;
                 Ok(())
             },
             _ => perror!(
@@ -159,7 +219,7 @@ impl CheshireValue {
 
     pub fn array_len(&self) -> PResult<usize> {
         match self {
-            CheshireValue::HeapCollection { contents } => Ok(contents.borrow().len()),
+            CheshireValue::HeapCollection { offset, limit, .. } => Ok(*limit - *offset),
             _ => unreachable!("ICE: Cannot unwrap array length of `{:?}`", self),
         }
     }

@@ -118,8 +118,7 @@ impl<_K, _V> Len for HashMap<_K, _V> {
   fn len(self) -> Int = self:size.
 }
 
-impl<_K, _V> Deref for HashMap<_K, _V> where _K: Equals<_K> + Hash {
-  type Idx = _K.
+impl<_K, _V> Deref<_K> for HashMap<_K, _V> where _K: Equals<_K> + Hash {
   type Result = _V.
 
   fn deref(self, idx: _K) -> _V {
@@ -130,8 +129,7 @@ impl<_K, _V> Deref for HashMap<_K, _V> where _K: Equals<_K> + Hash {
   }
 }
 
-impl<_K, _V> DerefAssign for HashMap<_K, _V> where _K: Equals<_K> + Hash {
-  type Idx = _K.
+impl<_K, _V> DerefAssign<_K> for HashMap<_K, _V> where _K: Equals<_K> + Hash {
   type Value = _V.
 
   fn deref_assign(self, idx: _K, value: _V) -> _V {

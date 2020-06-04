@@ -1,0 +1,4 @@
+Error(a) + Error(b) = Error(a)
+Ok(1) + Error(b) = Error(b)
+Error(a) + Ok(1) = Error(a)
+Ok(1) + Ok(2) = Ok(3)

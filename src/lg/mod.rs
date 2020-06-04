@@ -662,18 +662,22 @@ impl LookingGlass {
                         .unwrap_int()?;
                     return Err(LError::Exit(code));
                 },
+                ("array_slice", [array, lower, upper]) => {
+                    let array = self.evaluate_instruction_argument(array, scope)?;
+                    let lower = self
+                        .evaluate_instruction_argument(lower, scope)?
+                        .unwrap_int()? as usize;
+                    let upper = self
+                        .evaluate_instruction_argument(upper, scope)?
+                        .unwrap_int()? as usize;
+
+                    array.get_array_slice(lower, upper)
+                },
                 ("array_deref", [array, idx]) => {
                     let array = self.evaluate_instruction_argument(array, scope)?;
                     let idx = self
                         .evaluate_instruction_argument(idx, scope)?
                         .unwrap_int()?;
-
-                    if idx < 0 {
-                        perror!(
-                            "Oops, cannot access an array at negative indices. Should've checked \
-                             this earlier..."
-                        )?;
-                    }
 
                     array.get_member(idx as usize)?
                 },
@@ -701,10 +705,10 @@ impl LookingGlass {
                         .unwrap_int()?;
 
                     if idx < 0 {
-                        perror!(
-                            "Oops, cannot access an array at negative indices. Should've checked \
-                             this earlier..."
-                        )?;
+                        panic!(
+                            "ICE: Oops, cannot access an array at negative indices. Should've \
+                             checked this earlier..."
+                        );
                     }
 
                     array.set_heap_member(idx as usize, value)?;
@@ -949,7 +953,7 @@ impl LookingGlass {
             } => {
                 let object = self.evaluate_expression(&object, scope)?;
 
-                if let CheshireValue::HeapCollection { contents } = &object {
+                if let CheshireValue::HeapCollection { contents, .. } = &object {
                     let mut contents = contents.borrow_mut();
                     let mut lhs = &mut contents[mem_idx.unwrap()];
 

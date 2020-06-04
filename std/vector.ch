@@ -116,8 +116,7 @@ impl<_T> Len for Vector<_T> {
     fn len(self) -> Int = self:size.
 }
 
-impl<_T> Deref for Vector<_T> {
-  type Idx = Int.
+impl<_T> Deref<Int> for Vector<_T> {
   type Result = _T.
 
   fn deref(self, idx: Int) -> _T {
@@ -129,8 +128,7 @@ impl<_T> Deref for Vector<_T> {
   }
 }
 
-impl<_T> DerefAssign for Vector<_T> {
-  type Idx = Int.
+impl<_T> DerefAssign<Int> for Vector<_T> {
   type Value = _T.
 
   fn deref_assign(self, idx: Int, value: _T) -> _T {
