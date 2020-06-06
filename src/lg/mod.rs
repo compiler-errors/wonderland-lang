@@ -1,3 +1,5 @@
+/* NOTE: This module is defunct. */
+
 use crate::{
     ast::{
         AstBlock, AstExpression, AstExpressionData, AstFunction, AstGlobalVariable, AstLiteral,
@@ -20,7 +22,7 @@ use std::{
     ops::{BitXor, Deref, Shr},
 };
 
-mod represent;
+// pub mod represent;
 
 struct LookingGlass {
     pub main_fn: ModuleRef,
@@ -530,67 +532,7 @@ impl LookingGlass {
                         _ => unreachable!(),
                     }
                 },
-                ("add", [a, b]) => CheshireValue::Int(
-                    self.evaluate_instruction_argument(a, scope)?
-                        .unwrap_int()?
-                        .wrapping_add(self.evaluate_instruction_argument(b, scope)?.unwrap_int()?),
-                ),
-                ("fadd", [a, b]) => CheshireValue::Float(
-                    self.evaluate_instruction_argument(a, scope)?
-                        .unwrap_float()?
-                        + self
-                            .evaluate_instruction_argument(b, scope)?
-                            .unwrap_float()?,
-                ),
-                ("mul", [a, b]) => CheshireValue::Int(
-                    self.evaluate_instruction_argument(a, scope)?
-                        .unwrap_int()?
-                        .wrapping_mul(self.evaluate_instruction_argument(b, scope)?.unwrap_int()?),
-                ),
-                ("fmul", [a, b]) => CheshireValue::Float(
-                    self.evaluate_instruction_argument(a, scope)?
-                        .unwrap_float()?
-                        * self
-                            .evaluate_instruction_argument(b, scope)?
-                            .unwrap_float()?,
-                ),
-                ("sdiv", [a, b]) => CheshireValue::Int(
-                    self.evaluate_instruction_argument(a, scope)?.unwrap_int()?
-                        / self.evaluate_instruction_argument(b, scope)?.unwrap_int()?,
-                ),
-                ("fdiv", [a, b]) => CheshireValue::Float(
-                    self.evaluate_instruction_argument(a, scope)?
-                        .unwrap_float()?
-                        / self
-                            .evaluate_instruction_argument(b, scope)?
-                            .unwrap_float()?,
-                ),
-                ("srem", [a, b]) => CheshireValue::Int(
-                    self.evaluate_instruction_argument(a, scope)?.unwrap_int()?
-                        % self.evaluate_instruction_argument(b, scope)?.unwrap_int()?,
-                ),
-                ("csub", [a, b]) => CheshireValue::Int(
-                    self.evaluate_instruction_argument(a, scope)?.unwrap_int()?
-                        - self.evaluate_instruction_argument(b, scope)?.unwrap_int()?,
-                ),
-                ("neg", [a]) =>
-                    CheshireValue::Int(-self.evaluate_instruction_argument(a, scope)?.unwrap_int()?),
-                ("fneg", [a]) => CheshireValue::Float(
-                    -self
-                        .evaluate_instruction_argument(a, scope)?
-                        .unwrap_float()?,
-                ),
-                ("xor", [a, b]) => CheshireValue::Int(
-                    self.evaluate_instruction_argument(a, scope)?
-                        .unwrap_int()?
-                        .bitxor(self.evaluate_instruction_argument(b, scope)?.unwrap_int()?),
-                ),
-                ("lshr", [a, b]) => {
-                    let a = self.evaluate_instruction_argument(a, scope)?.unwrap_int()?;
-                    let b = self.evaluate_instruction_argument(b, scope)?.unwrap_int()?;
-
-                    CheshireValue::Int((a as u64).shr(b as u64) as i64)
-                },
+                z
                 ("int_to_float", [a]) => CheshireValue::Float(
                     self.evaluate_instruction_argument(a, scope)?.unwrap_int()? as f64,
                 ),
@@ -1121,20 +1063,4 @@ impl LookingGlass {
 
     #[cfg_attr(build = "debug", inline(never))]
     fn breakpoint(&self) {}
-}
-
-fn is_dyn_dispatchable(fun: &AstObjectFunction) -> bool {
-    if !fun.has_self {
-        return false;
-    }
-
-    if !fun.restrictions.is_empty() {
-        return false;
-    }
-
-    if !fun.generics.is_empty() {
-        return false;
-    }
-
-    true
 }

@@ -1155,7 +1155,7 @@ impl AstAdapter for TyckSolver {
             .collect();
 
         if let Some(block) = &f.definition {
-            self.unify(true, &f.return_type.inner, &block.expression.ty)?;
+            self.unify(true, &f.return_type.inner, &block.ty)?;
         }
 
         Ok(f)
@@ -1225,7 +1225,7 @@ impl AstAdapter for TyckSolver {
             .collect();
 
         if let Some(block) = &o.definition {
-            self.unify(true, &o.return_type, &block.expression.ty)?;
+            self.unify(true, &o.return_type, &block.ty)?;
         }
 
         Ok(o)

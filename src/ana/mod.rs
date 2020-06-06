@@ -17,8 +17,7 @@ use crate::{
         analyze_infallible_enums::AnalyzeInfallibleEnums, analyze_module_refs::AnalyzeModuleRefs,
         analyze_names::AnalyzeNames, analyze_object_indices::AnalyzeObjectIndices,
         analyze_operators::AnalyzeOperators, analyze_positional_enums::AnalyzePositionalEnums,
-        analyze_returns::AnalyzeReturns, analyze_self::AnalyzeSelf,
-        analyze_variables::AnalyzeVariables,
+        analyze_self::AnalyzeSelf, analyze_variables::AnalyzeVariables,
     },
     ast::AstProgram,
     util::{Context, PResult, Visit},
@@ -46,7 +45,6 @@ mod analyze_names;
 mod analyze_object_indices;
 mod analyze_operators;
 mod analyze_positional_enums;
-mod analyze_returns;
 mod analyze_self;
 mod analyze_variables;
 
@@ -113,7 +111,6 @@ where
         + Visit<AnalyzeArgumentParity>
         + Visit<AnalyzeGenericsParity>
         + Visit<AnalyzeIllegalGlobals>
-        + Visit<AnalyzeReturns>
         + Visit<AnalyzeIllegalInfers>,
 {
     let a_clone = std::mem::replace(a, AnalyzedProgram::empty());
@@ -146,7 +143,6 @@ where
         + Visit<AnalyzeArgumentParity>
         + Visit<AnalyzeGenericsParity>
         + Visit<AnalyzeIllegalGlobals>
-        + Visit<AnalyzeReturns>
         + Visit<AnalyzeIllegalInfers>,
 {
     let passes: Vec<(&str, AnalysisPassFn<T>)> = vec![
@@ -207,7 +203,6 @@ where
             "analyze_illegal_globals",
             Box::new(AnalyzeIllegalGlobals::analyze),
         ),
-        ("analyze_returns", Box::new(AnalyzeReturns::analyze)),
         // All the syntactic sugar needs to go first.
         ("analyze_for_loops", Box::new(AnalyzeForLoops::analyze)),
     ];

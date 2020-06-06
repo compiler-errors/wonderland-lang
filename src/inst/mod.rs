@@ -514,14 +514,11 @@ impl InstantiationAdapter {
             )),
         );
 
-        let definition = AstBlock::new(
-            vec![],
-            AstExpression::instruction(
-                span,
-                "ch_dynamic_dispatch".to_string(),
-                dispatch_arguments,
-                InstructionOutput::Type(return_ty.clone()),
-            ),
+        let definition = AstExpression::instruction(
+            span,
+            "ch_dynamic_dispatch".to_string(),
+            dispatch_arguments,
+            InstructionOutput::Type(return_ty.clone()),
         );
 
         let f = AstObjectFunction::new(

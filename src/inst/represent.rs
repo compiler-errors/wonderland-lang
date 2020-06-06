@@ -25,8 +25,5 @@ pub struct InstObjectFunctionSignature(
     pub Vec<AstType>,
 );
 
-#[cfg(feature = "lg")]
-simple_empty_finalize_trace!(InstObjectFunctionSignature);
-
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct InstImplSignature(pub ImplId, pub Vec<AstType>);

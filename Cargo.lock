@@ -372,6 +372,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "itertools"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "284f18f85651fe11e8a991b2adb42cb078325c996ed026d994719efcfca1d54b"
+dependencies = [
+ "either",
+]
+
+[[package]]
 name = "lalrpop"
 version = "0.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -383,7 +392,7 @@ dependencies = [
  "diff",
  "docopt",
  "ena",
- "itertools",
+ "itertools 0.8.2",
  "lalrpop-util",
  "petgraph",
  "regex",
@@ -1052,6 +1061,7 @@ dependencies = [
  "gc_derive",
  "getopts",
  "inkwell",
+ "itertools 0.9.0",
  "lalrpop",
  "lalrpop-util",
  "lazy_static",

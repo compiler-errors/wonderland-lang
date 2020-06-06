@@ -40,16 +40,6 @@ pub enum ModuleRef {
     Normalized(FileId, String),
 }
 
-// We don't need GC on these values.
-#[cfg(feature = "lg")]
-simple_empty_finalize_trace![
-    VariableId,
-    ModuleRef,
-    AstMatchPattern,
-    AstNamedVariable,
-    AstExpression
-];
-
 impl ModuleRef {
     pub fn full_name(&self) -> String {
         match self {
@@ -240,7 +230,7 @@ pub struct AstFunction {
     pub restrictions: Vec<AstTypeRestriction>,
 
     /// The implementation, maybe.
-    pub definition: Option<AstBlock>,
+    pub definition: Option<AstExpression>,
 
     /// The collection of varialbes associated with the function
     pub scope: Option<HashMap<VariableId, AstNamedVariable>>,
@@ -277,29 +267,6 @@ impl AstFunction {
         parameter_list: Vec<AstNamedVariable>,
         return_type: Spanned<AstType>,
         restrictions: Vec<AstTypeRestriction>,
-        definition: AstBlock,
-    ) -> AstFunction {
-        AstFunction {
-            name_span,
-            generics,
-            module_ref: ModuleRef::Normalized(file, name.clone()),
-            name,
-            parameter_list,
-            return_type,
-            restrictions,
-            definition: Some(definition),
-            scope: None,
-        }
-    }
-
-    pub fn new_definition_from_expr(
-        file: FileId,
-        name_span: Span,
-        name: String,
-        generics: Vec<AstGeneric>,
-        parameter_list: Vec<AstNamedVariable>,
-        return_type: Spanned<AstType>,
-        restrictions: Vec<AstTypeRestriction>,
         definition: AstExpression,
     ) -> AstFunction {
         AstFunction {
@@ -310,7 +277,7 @@ impl AstFunction {
             parameter_list,
             return_type,
             restrictions,
-            definition: Some(AstBlock::new(vec![], definition)),
+            definition: Some(definition),
             scope: None,
         }
     }
@@ -1832,7 +1799,7 @@ pub struct AstObjectFunction {
     pub return_type: AstType,
 
     /// The collection of statements associated with the function
-    pub definition: Option<AstBlock>,
+    pub definition: Option<AstExpression>,
 
     /// Used during analysis...
     pub scope: Option<HashMap<VariableId, AstNamedVariable>>,
@@ -1847,7 +1814,7 @@ impl AstObjectFunction {
         parameter_list: Vec<AstNamedVariable>,
         return_type: AstType,
         restrictions: Vec<AstTypeRestriction>,
-        definition: Option<AstBlock>,
+        definition: Option<AstExpression>,
     ) -> AstObjectFunction {
         AstObjectFunction {
             name_span,

@@ -302,10 +302,10 @@ Global: AstGlobalVariable = {
 Function: AstFunction = {
     "export" "fn" <l:@L> <i:Identifier> <h:@R> <g:MaybeDeclGenerics> <p:DeclParams> <r:SMaybeReturn> <w:MaybeRestrictions> "." =>
         AstFunction::new_declaration(file, Span::new(file, l, h), i, g, p, r, w),
-    "fn" <l:@L> <i:Identifier> <h:@R> <g:MaybeDeclGenerics> <p:DeclParams> <r:SMaybeReturn> <w:MaybeRestrictions> <b:Block> =>
+    "fn" <l:@L> <i:Identifier> <h:@R> <g:MaybeDeclGenerics> <p:DeclParams> <r:SMaybeReturn> <w:MaybeRestrictions> <b:BlockExpression> =>
         AstFunction::new_definition(file, Span::new(file, l, h), i, g, p, r, w, b),
     "fn" <l:@L> <i:Identifier> <h:@R> <g:MaybeDeclGenerics> <p:DeclParams> <r:SMaybeReturn> <w:MaybeRestrictions> "=" <e:Expression> "." =>
-        AstFunction::new_definition_from_expr(file, Span::new(file, l, h), i, g, p, r, w, e),
+        AstFunction::new_definition(file, Span::new(file, l, h), i, g, p, r, w, e),
 };
 
 MaybeDeclGenerics = {
@@ -347,6 +347,10 @@ Block: AstBlock = {
         amend_variables(scope, &mut b.scope);
         b
     }
+};
+
+BlockExpression: AstExpression = {
+    <l:@L> <b:Block> <h:@R> => AstExpression::block(Span::new(file, l, h), b),
 };
 
 QuotedNamedVariable: AstNamedVariable =
@@ -815,12 +819,12 @@ ImplMember: AstImplMember = {
     // Associated type
     "type" <TypeName> "=" <Type> "." => AstImplMember::Type(<>),
     // Member implementation
-    <mut f:ObjectFunctionSignature> <b:Block> => {
+    <mut f:ObjectFunctionSignature> <b:BlockExpression> => {
         f.definition = Some(b);
         AstImplMember::Function(f)
     },
     <mut f:ObjectFunctionSignature> "=" <e:Expression> "." => {
-        f.definition = Some(AstBlock::new(vec![], e));
+        f.definition = Some(e);
         AstImplMember::Function(f)
     },
 };

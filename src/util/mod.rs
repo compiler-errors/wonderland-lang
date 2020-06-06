@@ -16,15 +16,3 @@ pub use self::zip::{ZipExact, ZipKeys};
 
 mod visitor;
 pub use self::visitor::Visit;
-
-// Ugh, I wish this were exported in the library. This is copypasta from
-// the `gc::trace` module.
-#[cfg(feature = "lg")]
-macro_rules! simple_empty_finalize_trace {
-    ($($T:ty),*) => {
-        $(
-            impl ::gc::Finalize for $T {}
-            unsafe impl gc::Trace for $T { gc::unsafe_empty_trace!(); }
-        )*
-    }
-}

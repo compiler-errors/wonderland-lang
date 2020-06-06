@@ -1,6 +1,7 @@
 #![deny(unused_must_use)]
 #![feature(result_cloned)]
 #![feature(option_expect_none)]
+#![feature(move_ref_pattern)]
 
 #[macro_use]
 extern crate lazy_static;
@@ -37,8 +38,8 @@ mod tr;
 #[cfg(feature = "tyck")]
 mod tyck;
 
-#[cfg(feature = "lg")]
-mod lg;
+#[cfg(feature = "vs")]
+mod vs;
 
 #[cfg(feature = "ana")]
 use crate::ana::analyze;
@@ -61,14 +62,8 @@ use crate::tr::translate;
 #[cfg(feature = "tyck")]
 use crate::tyck::typecheck;
 
-#[cfg(feature = "lg")]
-extern crate gc;
-
-#[cfg(feature = "lg")]
-extern crate gc_derive;
-
-#[cfg(feature = "lg")]
-use crate::lg::evaluate;
+#[cfg(feature = "vs")]
+use crate::vs::evaluate;
 
 use crate::util::{report_err, FileId, FileRegistry, PError, PResult};
 
@@ -122,8 +117,8 @@ fn main() {
     if cfg!(feature = "tr") {
         opts.optflag("c", "tr", "Compile, a.k.a. translate, file(s)");
     }
-    if cfg!(feature = "lg") {
-        opts.optflag("e", "lgvm", "Evaluate with the Looking Glass VM");
+    if cfg!(feature = "vs") {
+        opts.optflag("e", "lgvm", "Evaluate with the Vorpal Sword VM");
     }
 
     opts.optflag("L", "llvm-ir", "Compile file(s) to LLVM IR");
@@ -265,7 +260,7 @@ fn match_mode(
             _included_files,
             _permanent_temp_dir,
         ),
-        #[cfg(feature = "lg")]
+        #[cfg(feature = "vs")]
         Mode::Evaluate => try_evaluate(files),
         m => help(m != Mode::Help),
     }
@@ -416,7 +411,7 @@ fn try_translate(
     Ok(())
 }
 
-#[cfg(feature = "lg")]
+#[cfg(feature = "vs")]
 fn try_evaluate(files: Vec<FileId>) -> PResult<()> {
     let program = parse_program(files)?;
     let (a, p) = analyze(program)?;
