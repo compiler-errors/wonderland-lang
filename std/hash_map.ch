@@ -9,22 +9,22 @@ object HashMap<_K, _V> {
 }
 
 impl<_K, _V> for HashMap<_K, _V> {
-  fn new() -> HashMap<_K, _V> {
+  fn new() -> HashMap<_K, _V> = {
     allocate HashMap {
       size: 0,
 
       buckets: allocate [Bucket; default_bucket_size],
       num_buckets: default_bucket_size
     }
-  }
+  }.
 
-  fn bucket_from_hash(self, hash: Int) -> Bucket<_K, _V> {
+  fn bucket_from_hash(self, hash: Int) -> Bucket<_K, _V> = {
     self:buckets[abs(hash % self:num_buckets)]
-  }
+  }.
 }
 
 impl<_K, _V> for HashMap<_K, _V> where _K: Equals<_K> + Hash {
-  fn get(self, key: _K) -> Option<_V> {
+  fn get(self, key: _K) -> Option<_V> = {
     let hash = key:hash().
 
     for (maybe_hash, maybe_key, maybe_value) in self:bucket_from_hash(hash):entries {
@@ -36,9 +36,9 @@ impl<_K, _V> for HashMap<_K, _V> where _K: Equals<_K> + Hash {
     }
 
     Option!None
-  }
+  }.
 
-  fn remove(self, key: _K) -> Option<_V> {
+  fn remove(self, key: _K) -> Option<_V> = {
     let hash = key:hash().
     let bucket = self:bucket_from_hash(hash).
 
@@ -65,9 +65,9 @@ impl<_K, _V> for HashMap<_K, _V> where _K: Equals<_K> + Hash {
     }
 
     Option!None
-  }
+  }.
 
-  fn put(self, key: _K, value: _V) -> Option<_V> {
+  fn put(self, key: _K, value: _V) -> Option<_V> = {
     let hash = key:hash().
     let bucket = self:bucket_from_hash(hash).
 
@@ -97,9 +97,9 @@ impl<_K, _V> for HashMap<_K, _V> where _K: Equals<_K> + Hash {
 
     self:try_grow().
     Option!None
-  }
+  }.
 
-  fn try_grow(self) {
+  fn try_grow(self) = {
     if (self:size as Float) > (self:num_buckets as Float) * threshold {
       let old_buckets = self:buckets.
       self:num_buckets = self:num_buckets * 2.
@@ -111,7 +111,7 @@ impl<_K, _V> for HashMap<_K, _V> where _K: Equals<_K> + Hash {
         }
       }
     }
-  }
+  }.
 }
 
 impl<_K, _V> Len for HashMap<_K, _V> {
@@ -121,28 +121,28 @@ impl<_K, _V> Len for HashMap<_K, _V> {
 impl<_K, _V> Deref<_K> for HashMap<_K, _V> where _K: Equals<_K> + Hash {
   type Result = _V.
 
-  fn deref(self, idx: _K) -> _V {
+  fn deref(self, idx: _K) -> _V = {
     match self:get(idx) {
       Option!Some(v) => v,
       Option!None => panic("No such index"),
     }
-  }
+  }.
 }
 
 impl<_K, _V> DerefAssign<_K> for HashMap<_K, _V> where _K: Equals<_K> + Hash {
   type Value = _V.
 
-  fn deref_assign(self, idx: _K, value: _V) -> _V {
+  fn deref_assign(self, idx: _K, value: _V) -> _V = {
     self:put(idx, value).
     value
-  }
+  }.
 }
 
 impl<_K, _V> Iterable for HashMap<_K, _V> {
   type Iterator = HashMapIterator<_K, _V>.
   type Item = (_K, _V).
 
-  fn iterator(self) -> HashMapIterator<_K, _V> {
+  fn iterator(self) -> HashMapIterator<_K, _V> = {
     let (next_bucket, buckets) = self:buckets:iterator():next().
 
     HashMapIterator!Iterator {
@@ -150,7 +150,7 @@ impl<_K, _V> Iterable for HashMap<_K, _V> {
       buckets,
       links: next_bucket:unwrap():entries:iterator()
     }
-  }
+  }.
 }
 
 enum HashMapIterator<_K, _V> {
@@ -164,7 +164,7 @@ enum HashMapIterator<_K, _V> {
 impl<_K, _V> Iterator for HashMapIterator<_K, _V> {
   type Item = (_K, _V).
 
-  fn next(self) -> (Option<(_K, _V)>, HashMapIterator<_K, _V>) {
+  fn next(self) -> (Option<(_K, _V)>, HashMapIterator<_K, _V>) = {
     let HashMapIterator!Iterator { size_hint, buckets, links } = self.
 
     if links:has_next() {
@@ -191,21 +191,21 @@ impl<_K, _V> Iterator for HashMapIterator<_K, _V> {
 
     assert size_hint == 0.
     (Option!None, HashMapIterator!Iterator { size_hint, buckets, links })
-  }
+  }.
 
-  fn has_next(self) -> Bool {
+  fn has_next(self) -> Bool = {
     let HashMapIterator!Iterator { size_hint, ... } = self.
     size_hint > 0
-  }
+  }.
 
-  fn size_hint(self) -> Int {
+  fn size_hint(self) -> Int = {
     let HashMapIterator!Iterator { size_hint, ... } = self.
     size_hint
-  }
+  }.
 }
 
 impl<_K, _V> Into<String> for HashMap<_K, _V> where _K: Into<String>, _V: Into<String> {
-  fn into(self) -> String {
+  fn into(self) -> String = {
       let s = "HashMap{".
       let first = true.
 
@@ -220,7 +220,7 @@ impl<_K, _V> Into<String> for HashMap<_K, _V> where _K: Into<String>, _V: Into<S
       }
 
       s + "}"
-  }
+  }.
 }
 
 object Bucket<_K, _V> {

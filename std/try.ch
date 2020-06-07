@@ -4,12 +4,12 @@ enum Result<_T, _E> {
 }
 
 impl<_T, _E> Into<String> for Result<_T, _E> where _T: Into<String>, _E: Into<String> {
-  fn into(self) -> String {
+  fn into(self) -> String = {
     match self {
       Result!Ok(s) => "Ok(\(s))",
       Result!Error(s) => "Error(\(s))",
     }
-  }
+  }.
 }
 
 trait IntoResult {

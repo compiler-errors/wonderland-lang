@@ -500,6 +500,9 @@ impl<'input> Lexer<'input> {
             "DummyGeneric" => Token::QuotationStart("DummyGeneric"),
             "Dummy" => Token::QuotationStart("Dummy"),
             "StaticCall" => Token::QuotationStart("StaticCall"),
+            "GlobalVariable" => Token::QuotationStart("GlobalVariable"),
+            "GlobalFn" => Token::QuotationStart("GlobalFn"),
+            "Closure" => Token::QuotationStart("Closure"),
             other => {
                 return perror_at!(
                     Span::new(self.file, string_start, self.current_pos),

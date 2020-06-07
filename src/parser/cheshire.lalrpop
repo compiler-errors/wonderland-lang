@@ -122,6 +122,10 @@ extern {
         "$[SpannedExpr](" => Token::QuotationStart(crate::lexer::QUOTE_SPANNEDEXPR),
         "$[SpannedPattern](" => Token::QuotationStart(crate::lexer::QUOTE_SPANNEDPATTERN),
         "$[StaticCall](" => Token::QuotationStart(crate::lexer::QUOTE_STATICCALL),
+        "$[GlobalVariable](" => Token::QuotationStart(crate::lexer::QUOTE_GLOBALVARIABLE),
+        "$[GlobalFn](" => Token::QuotationStart(crate::lexer::QUOTE_GLOBALFN),
+        "$[Closure](" => Token::QuotationStart(crate::lexer::QUOTE_CLOSURE),
+
 
         ")$" => Token::QuotationEnd,
     }
@@ -302,8 +306,6 @@ Global: AstGlobalVariable = {
 Function: AstFunction = {
     "export" "fn" <l:@L> <i:Identifier> <h:@R> <g:MaybeDeclGenerics> <p:DeclParams> <r:SMaybeReturn> <w:MaybeRestrictions> "." =>
         AstFunction::new_declaration(file, Span::new(file, l, h), i, g, p, r, w),
-    "fn" <l:@L> <i:Identifier> <h:@R> <g:MaybeDeclGenerics> <p:DeclParams> <r:SMaybeReturn> <w:MaybeRestrictions> <b:BlockExpression> =>
-        AstFunction::new_definition(file, Span::new(file, l, h), i, g, p, r, w, b),
     "fn" <l:@L> <i:Identifier> <h:@R> <g:MaybeDeclGenerics> <p:DeclParams> <r:SMaybeReturn> <w:MaybeRestrictions> "=" <e:Expression> "." =>
         AstFunction::new_definition(file, Span::new(file, l, h), i, g, p, r, w, e),
 };
@@ -565,7 +567,35 @@ CallableExpression: AstExpression = {
         AstExpression::quoted_while_loop(Span::new(file, l, h), label, LoopId(i), c, t, e),
     <l:@L> "$[For](" <label:OrUnderscore<Identifier>> "," <p:Pattern> "," <c:Expression> "," <t:Block> "," <e:Block> ")$" <h:@R> =>
         AstExpression::for_loop(Span::new(file, l, h), label, p, c, t, e),
+    <l:@L> "$[GlobalVariable](" <i:IdentifierPath> ")$" <h:@R> =>
+        AstExpression::global_variable(Span::new(file, l, h), i),
+    <l:@L> "$[GlobalFn](" <i:IdentifierPath> ")$" <h:@R> =>
+        AstExpression::global_fn(Span::new(file, l, h), i),
+    <l:@L> "$[Closure]("
+        "(" <p:CommaTrailingOrEmpty<Pattern>> ")" ","
+        <r:Type> ","
+        <e:Expression> ","
+        <c:OrUnderscore<QuotedClosureCaptures>> ","
+        <s:OrUnderscore<QuotedClosureScope>> ")$" <h:@R> =>
+        AstExpression::quoted_closure(Span::new(file, l, h), p, r, e, c, s),
 };
+
+QuotedClosureCaptures = {
+    "(" <CommaTrailingOrEmpty<QuotedClosureCapture>> ")",
+};
+
+QuotedClosureCapture = {
+    "(" <QuotedNamedVariable> "," <QuotedNamedVariable> ")",
+};
+
+QuotedClosureScope = {
+    "(" <CommaTrailingOrEmpty<QuotedClosureScopeEntry>> ")",
+};
+
+QuotedClosureScopeEntry = {
+    "(" <QuotedId> "," <QuotedNamedVariable> ")",
+};
+
 
 // These are block-like expressions, and they are important because
 // they can stand as statements without an extra `.` operator.
@@ -819,10 +849,6 @@ ImplMember: AstImplMember = {
     // Associated type
     "type" <TypeName> "=" <Type> "." => AstImplMember::Type(<>),
     // Member implementation
-    <mut f:ObjectFunctionSignature> <b:BlockExpression> => {
-        f.definition = Some(b);
-        AstImplMember::Function(f)
-    },
     <mut f:ObjectFunctionSignature> "=" <e:Expression> "." => {
         f.definition = Some(e);
         AstImplMember::Function(f)

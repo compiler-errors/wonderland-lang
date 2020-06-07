@@ -99,22 +99,12 @@ impl CheshireFormattable for AstBlock {
 
                 write!(f, "{} }}, (", expression.cheshire_display())?;
 
-                for (idx, (_, AstNamedVariable { span, name, ty, id })) in scope.iter().enumerate()
-                {
+                for (idx, (_, a)) in scope.iter().enumerate() {
                     if idx != 0 {
                         write!(f, ", ")?;
                     }
 
-                    write!(
-                        f,
-                        "$[NamedVariable]({}, {}, {}, {}, {}, {})$",
-                        span.file.0,
-                        span.start,
-                        span.end,
-                        name,
-                        ty.cheshire_display(),
-                        id.0
-                    )?;
+                    write!(f, "{}", a.cheshire_display())?;
                 }
 
                 write!(f, ") )$")?;
@@ -164,19 +154,54 @@ impl CheshireFormattable for AstExpression {
             AstExpressionData::Tuple { values } => write!(f, "({})", CheshireDisplayMany(&values))?,
             AstExpressionData::ArrayLiteral { elements } =>
                 write!(f, "[{}]", CheshireDisplayMany(&elements))?,
+            AstExpressionData::GlobalVariable { name } => {
+                write!(f, "$[GlobalVariable]({})$", name.cheshire_display())?;
+            },
+            AstExpressionData::GlobalFn { name } => {
+                write!(f, "$[GlobalFn]({})$", name.cheshire_display())?;
+            },
             AstExpressionData::Closure {
                 params,
                 return_ty,
                 expr,
-                captured: None,
-                scope: None,
-            } => write!(
-                f,
-                "|{}| -> {} {{ {} }}",
-                CheshireDisplayMany(&params),
-                return_ty.cheshire_display(),
-                expr.cheshire_display()
-            )?,
+                captured,
+                scope,
+            } => {
+                write!(
+                    f,
+                    "$[Closure](({}), {}, {},",
+                    CheshireDisplayMany(&params),
+                    return_ty.cheshire_display(),
+                    expr.cheshire_display(),
+                )?;
+
+                if let Some(captured) = captured {
+                    write!(f, "(")?;
+                    for (old, new) in captured {
+                        write!(
+                            f,
+                            "({}, {}),",
+                            old.cheshire_display(),
+                            new.cheshire_display()
+                        )?;
+                    }
+                    write!(f, "), ")?;
+                } else {
+                    write!(f, "_, ")?;
+                }
+
+                if let Some(scope) = scope {
+                    write!(f, "(")?;
+                    for (VariableId(id), var) in scope {
+                        write!(f, "({}, {}),", id, var.cheshire_display())?;
+                    }
+                    write!(f, ")")?;
+                } else {
+                    write!(f, "_")?;
+                }
+
+                write!(f, ")$")?;
+            },
             AstExpressionData::FnCall {
                 fn_name,
                 generics,
@@ -190,7 +215,7 @@ impl CheshireFormattable for AstExpression {
             )?,
             AstExpressionData::ExprCall { expr, args } => write!(
                 f,
-                "{}({})",
+                "({})({})",
                 expr.cheshire_display(),
                 CheshireDisplayMany(&args)
             )?,
@@ -557,16 +582,7 @@ impl CheshireFormattable for AstMatchPattern {
 
         match &self.data {
             AstMatchPatternData::Underscore => write!(f, "_")?,
-            AstMatchPatternData::Identifier(AstNamedVariable { span, name, ty, id }) => write!(
-                f,
-                "$[NamedVariable]({}, {}, {}, {}, {}, {})$",
-                span.file.0,
-                span.start,
-                span.end,
-                name,
-                ty.cheshire_display(),
-                id.0
-            )?,
+            AstMatchPatternData::Identifier(a) => write!(f, "{}", a.cheshire_display())?,
             AstMatchPatternData::Tuple(t) => write!(f, "({})", CheshireDisplayMany(&t))?,
             AstMatchPatternData::Literal(l) => write!(f, "{}", l.cheshire_display())?,
             AstMatchPatternData::PlainEnum {
@@ -650,22 +666,12 @@ impl CheshireFormattable for AstMatchBranch {
                     expression.cheshire_display()
                 )?;
 
-                for (idx, (_, AstNamedVariable { span, name, ty, id })) in scope.iter().enumerate()
-                {
+                for (idx, (_, a)) in scope.iter().enumerate() {
                     if idx != 0 {
                         write!(f, ", ")?;
                     }
 
-                    write!(
-                        f,
-                        "$[NamedVariable]({}, {}, {}, {}, {}, {})$",
-                        span.file.0,
-                        span.start,
-                        span.end,
-                        name,
-                        ty.cheshire_display(),
-                        id.0
-                    )?;
+                    write!(f, "{}", a.cheshire_display())?;
                 }
 
                 write!(f, ") )$")?;
@@ -673,6 +679,23 @@ impl CheshireFormattable for AstMatchBranch {
         }
 
         Ok(())
+    }
+}
+
+impl CheshireFormattable for AstNamedVariable {
+    fn cheshire_fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        let AstNamedVariable { span, name, ty, id } = self;
+
+        write!(
+            f,
+            "$[NamedVariable]({}, {}, {}, {}, {}, {})$",
+            span.file.0,
+            span.start,
+            span.end,
+            name,
+            ty.cheshire_display(),
+            id.0
+        )
     }
 }
 

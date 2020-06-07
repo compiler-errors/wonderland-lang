@@ -21,9 +21,9 @@ pub enum VError {
 
 macro_rules! vorpal_panic_at {
     ($span:expr, $($arg:tt)*) => {
-        Err(crate::vs::represent::VError::Panic { 
-            stack_trace: None, 
-            error: crate::util::PError::new_at($span, format!($($arg)*)) 
+        Err(crate::vs::represent::VError::Panic {
+            stack_trace: None,
+            error: crate::util::PError::new_at($span, format!($($arg)*))
         })
     }
 }

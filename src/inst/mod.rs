@@ -550,9 +550,9 @@ impl InstantiationAdapter {
             &mut self.program_for_analysis,
             "
             impl std::operators::lang::Into<{dyn_ty}> for <{concrete_ty}> {{
-                fn into(self) -> {dyn_ty} {{
+                fn into(self) -> {dyn_ty} = {{
                     instruction {instruction} (self, _: Self, _: {dyn_ty}) -> {dyn_ty}
-                }}
+                }}.
             }}",
             instruction = AstLiteral::String(instruction_name.to_string()),
             dyn_ty = dyn_ty,
@@ -571,9 +571,9 @@ impl InstantiationAdapter {
             &mut self.program_for_analysis,
             "
             impl std::any::Downcast for <{dyn_ty}> {{
-                fn try_downcast<_T>(self) -> std::option::Option<_T> {{
+                fn try_downcast<_T>(self) -> std::option::Option<_T> = {{
                     instruction \"ch_dynamic_unbox\" (self, _: _T) -> std::option::Option<_T>
-                }}
+                }}.
             }}",
             dyn_ty = dyn_ty,
         );

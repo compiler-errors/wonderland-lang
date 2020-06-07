@@ -7,7 +7,7 @@ trait Deref<_Idx> {
 impl<_T> Deref<Int> for [_T] {
   type Result = _T.
 
-  fn deref(self, idx: Int) -> _T {
+  fn deref(self, idx: Int) -> _T = {
       if idx < 0 |? idx >= self:len() {
           panic:<()>("Index out of bounds for \(type_string:<Self>())... length = \(self:len()), index = \(idx).").
       }
@@ -18,13 +18,13 @@ impl<_T> Deref<Int> for [_T] {
       } else impl "looking_glass" {
         instruction "array_deref" (self, idx) -> _T
       }
-  }
+  }.
 }
 
 impl<_T> Deref<RangeIterator> for [_T] {
   type Result = [_T].
 
-  fn deref(self, idx: RangeIterator) -> [_T] {
+  fn deref(self, idx: RangeIterator) -> [_T] = {
     let len = self:len().
 
     let (start, end) = match idx {
@@ -51,13 +51,13 @@ impl<_T> Deref<RangeIterator> for [_T] {
     }
 
     instruction "array_slice" (self, start, end) -> [_T]
-  }
+  }.
 }
 
 impl Deref<Int> for String {
   type Result = Char.
 
-  fn deref(self, idx: Int) -> Char {
+  fn deref(self, idx: Int) -> Char = {
     if idx < 0 |? idx >= self:len() {
       panic:<()>("Index out of bounds for String... length = \(self:len()), index = \(idx).").
     }
@@ -68,7 +68,7 @@ impl Deref<Int> for String {
     } else impl "looking_glass" {
       instruction "string_deref" (self, idx) -> Char
     }
-  }
+  }.
 }
 
 trait DerefAssign<_Idx> {
@@ -83,7 +83,7 @@ trait DerefAssign<_Idx> {
 impl<_T> DerefAssign<Int> for [_T] {
   type Value = _T.
 
-  fn deref_assign(self, idx: Int, value: _T) -> _T {
+  fn deref_assign(self, idx: Int, value: _T) -> _T = {
       if idx < 0 |? idx >= self:len() {
           panic:<()>("Index out of bounds for \(type_string:<Self>())... length = \(self:len()), index = \(idx).").
       }
@@ -96,5 +96,5 @@ impl<_T> DerefAssign<Int> for [_T] {
       }
 
       value
-  }
+  }.
 }

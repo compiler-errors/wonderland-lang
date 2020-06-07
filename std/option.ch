@@ -4,57 +4,57 @@ enum Option<_T> {
 }
 
 impl<_T> for Option<_T> {
-  fn map<_F, _O>(self, f: _F) -> Option<_O> where _F: Fn(_T) -> _O {
+  fn map<_F, _O>(self, f: _F) -> Option<_O> where _F: Fn(_T) -> _O = {
     match self {
       Option!Some(t) => Option!Some(f(t)),
       Option!None => Option!None,
     }
-  }
+  }.
 
-  fn expect(self, s: String) -> _T {
+  fn expect(self, s: String) -> _T = {
       match self {
           Option!Some(v) => v,
           _ => panic(s),
       }
-  }
+  }.
 
-  fn unwrap(self) -> _T {
+  fn unwrap(self) -> _T = {
       self:expect("No value for \(type_string:<Self>())")
-  }
+  }.
 
-  fn unwrap_or(self, other: _T) -> _T {
+  fn unwrap_or(self, other: _T) -> _T = {
       match self {
           Option!Some(v) => v,
           _ => other,
       }
-  }
+  }.
 
-  fn unwrap_or_else<_F>(self, otherwise: _F) -> _T where _F: Fn() -> _T {
+  fn unwrap_or_else<_F>(self, otherwise: _F) -> _T where _F: Fn() -> _T = {
       match self {
           Option!Some(v) => v,
           _ => otherwise(),
       }
-  }
+  }.
 
-  fn is_some(self) -> Bool {
+  fn is_some(self) -> Bool = {
       match self {
           Option!Some(_) => true,
           Option!None => false,
       }
-  }
+  }.
 
-  fn is_none(self) -> Bool {
+  fn is_none(self) -> Bool = {
       !self:is_some()
-  }
+  }.
 }
 
 impl<_T> Into<String> for Option<_T> where _T: Into<String> {
-  fn into(self) -> String {
+  fn into(self) -> String = {
     match self {
       Option!Some(s) => "Some(\(s))",
       Option!None => "None",
     }
-  }
+  }.
 }
 
 trait Default {

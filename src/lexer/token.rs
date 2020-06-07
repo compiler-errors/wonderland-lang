@@ -16,6 +16,9 @@ pub const QUOTE_NAMEDVARIABLE: &'static str = "NamedVariable";
 pub const QUOTE_SPANNEDEXPR: &'static str = "SpannedExpr";
 pub const QUOTE_SPANNEDPATTERN: &'static str = "SpannedPattern";
 pub const QUOTE_STATICCALL: &'static str = "StaticCall";
+pub const QUOTE_GLOBALVARIABLE: &'static str = "GlobalVariable";
+pub const QUOTE_GLOBALFN: &'static str = "GlobalFn";
+pub const QUOTE_CLOSURE: &'static str = "Closure";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Token {

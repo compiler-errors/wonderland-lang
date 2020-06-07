@@ -3,25 +3,25 @@ trait Len {
 }
 
 impl<_T> Len for [_T] {
-  fn len(self) -> Int {
+  fn len(self) -> Int = {
       impl "llvm" {
         instruction "getelementptr" (self, 0, 0) -> $len.
         instruction "load" ($len) -> Int
       } else impl "looking_glass" {
         instruction "array_len" (self) -> Int
       }
-  }
+  }.
 }
 
 impl Len for String {
-  fn len(self) -> Int {
+  fn len(self) -> Int = {
       impl "llvm" {
         instruction "getelementptr" (self, 0, 0) -> $len.
         instruction "load" ($len) -> Int
       } else impl "looking_glass" {
         instruction "string_len" (self) -> Int
       }
-  }
+  }.
 }
 
 trait Hash {
@@ -29,13 +29,13 @@ trait Hash {
 }
 
 impl Hash for Int {
-  fn hash(self) -> Int {
+  fn hash(self) -> Int = {
     self * -7046029254386353131
-  }
+  }.
 }
 
 impl Hash for String {
-  fn hash(self) -> Int {
+  fn hash(self) -> Int = {
     let h = 525201411107845655.
 
     for c in self {
@@ -51,11 +51,11 @@ impl Hash for String {
     }
 
     h
-  }
+  }.
 }
 
 impl Hash for Char {
-  fn hash(self) -> Int {
+  fn hash(self) -> Int = {
     let c_as_i = impl "llvm" {
       instruction "zext" (self, _ :Int) -> Int
     } else impl "looking_glass" {
@@ -63,7 +63,7 @@ impl Hash for Char {
     }.
     
     c_as_i:hash()
-  }
+  }.
 }
 
 impl Hash for Bool {
@@ -80,7 +80,7 @@ trait AllocateArray {
 }
 
 impl<_T> AllocateArray for _T where _T: Default {
-  fn allocate_array(n: Int) -> [_T] {
+  fn allocate_array(n: Int) -> [_T] = {
       let a = allocate_empty_array_internal:<_T>(n).
 
       for i in 0..n {
@@ -88,7 +88,7 @@ impl<_T> AllocateArray for _T where _T: Default {
       }
 
       a
-  }
+  }.
 }
 
 trait Into<_T> {
@@ -100,13 +100,13 @@ impl<_T> Into<_T> for _T {
 }
 
 impl Into<Float> for Int {
-  fn into(self) -> Float {
+  fn into(self) -> Float = {
     impl "llvm" {
       instruction "sitofp" (self) -> Float
     } else impl "looking_glass" {
       instruction "int_to_float" (self) -> Float
     }
-  }
+  }.
 }
 
 trait Range<_T> {

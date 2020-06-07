@@ -1101,6 +1101,32 @@ impl AstExpression {
         }
     }
 
+    pub fn quoted_closure(
+        span: Span,
+        params: Vec<AstMatchPattern>,
+        return_ty: AstType,
+        expr: AstExpression,
+        captured: Option<Vec<(AstNamedVariable, AstNamedVariable)>>,
+        scope: Option<Vec<(usize, AstNamedVariable)>>,
+    ) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::Closure {
+                params,
+                return_ty,
+                expr: Box::new(expr),
+                captured,
+                scope: scope.map(|scope| {
+                    scope
+                        .into_iter()
+                        .map(|(id, var)| (VariableId(id), var))
+                        .collect()
+                }),
+            },
+            ty: AstType::infer(),
+        }
+    }
+
     pub fn call(
         span: Span,
         fn_name: ModuleRef,
