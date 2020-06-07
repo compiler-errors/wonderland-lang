@@ -12,35 +12,35 @@ impl<_T> for Option<_T> {
   }.
 
   fn expect(self, s: String) -> _T = {
-      match self {
-          Option!Some(v) => v,
-          _ => panic(s),
-      }
+    match self {
+      Option!Some(v) => v,
+      _ => panic(s),
+    }
   }.
 
   fn unwrap(self) -> _T = {
-      self:expect("No value for \(type_string:<Self>())")
+    self:expect("No value for \(type_string:<Self>())")
   }.
 
   fn unwrap_or(self, other: _T) -> _T = {
-      match self {
-          Option!Some(v) => v,
-          _ => other,
-      }
+    match self {
+      Option!Some(v) => v,
+      _ => other,
+    }
   }.
 
   fn unwrap_or_else<_F>(self, otherwise: _F) -> _T where _F: Fn() -> _T = {
-      match self {
-          Option!Some(v) => v,
-          _ => otherwise(),
-      }
+    match self {
+      Option!Some(v) => v,
+      _ => otherwise(),
+    }
   }.
 
   fn is_some(self) -> Bool = {
-      match self {
-          Option!Some(_) => true,
-          Option!None => false,
-      }
+    match self {
+      Option!Some(_) => true,
+      Option!None => false,
+    }
   }.
 
   fn is_none(self) -> Bool = {

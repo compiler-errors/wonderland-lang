@@ -499,7 +499,7 @@ impl VorpalSword {
             },
 
             AstExpressionData::ConditionalCompilation { branches } => {
-                let block = &branches["looking_glass"];
+                let block = &branches["vorpal_sword"];
                 self.do_block(heap, thread, block)?
             },
 

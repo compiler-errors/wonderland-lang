@@ -35,11 +35,13 @@ impl<_T> for Vector<_T> {
     if self:size > 0 {
       self:size = self:size - 1.
       let elem = self:array[self:size].
+      
       self:array[self:size] = impl "llvm" {
         instruction "ch_zeroed" (_ :_T) -> _T
-      } else impl "looking_glass" {
+      } else impl "vorpal_sword" {
         instruction "undefined" () -> _T
       }.
+
       //self:try_downsize().
       Option!Some(elem)
     } else {
@@ -90,13 +92,13 @@ impl<_T> Iterator for VectorIterator<_T> {
   type Item = _T.
 
   fn next(self) -> (Option<_T>, VectorIterator<_T>) = {
-      let VectorIterator!Iterator { vector, idx } = self.
+    let VectorIterator!Iterator { vector, idx } = self.
 
-      if idx >= vector:size {
-        (Option!None, VectorIterator!Iterator { vector, idx })
-      } else {
-        (Option!Some(vector:array[idx]), VectorIterator!Iterator { vector, idx: idx + 1 })
-      }
+    if idx >= vector:size {
+      (Option!None, VectorIterator!Iterator { vector, idx })
+    } else {
+      (Option!Some(vector:array[idx]), VectorIterator!Iterator { vector, idx: idx + 1 })
+    }
   }.
 
   fn has_next(self) -> Bool = {
@@ -120,11 +122,11 @@ impl<_T> Deref<Int> for Vector<_T> {
   type Result = _T.
 
   fn deref(self, idx: Int) -> _T = {
-      if idx < 0 | idx >= self:len() {
-          panic:<()>("Index \(idx) out of bounds. Size is \(self:len())!").
-      }
+    if idx < 0 | idx >= self:len() {
+      panic:<()>("Index \(idx) out of bounds. Size is \(self:len())!").
+    }
 
-      self:array[idx]
+    self:array[idx]
   }.
 }
 
@@ -132,42 +134,42 @@ impl<_T> DerefAssign<Int> for Vector<_T> {
   type Value = _T.
 
   fn deref_assign(self, idx: Int, value: _T) -> _T = {
-      if idx < 0 | idx >= self:len() {
-          panic:<()>("Index \(idx) out of bounds. Size is \(self:len())!").
-      }
+    if idx < 0 | idx >= self:len() {
+      panic:<()>("Index \(idx) out of bounds. Size is \(self:len())!").
+    }
 
-      self:array[idx] = value.
-      value
+    self:array[idx] = value.
+    value
   }.
 }
 
 impl<_T> Into<String> for Vector<_T> where _T: Into<String> {
   fn into(self) -> String = {
-      let s = "Vector[".
-      let first = true.
+    let s = "Vector[".
+    let first = true.
 
-      for i in self {
-          if first {
-              first = false.
-          } else {
-              s = s + ", ".
-          }
-
-          s = s + (i as String).
+    for i in self {
+      if first {
+        first = false.
+      } else {
+        s = s + ", ".
       }
 
-      s + "]"
+      s = s + (i as String).
+    }
+
+    s + "]"
   }.
 }
 
 impl<_I> FromIterator<_I> for Vector<_I> {
   fn from_iterator<_It>(it: _It) -> Vector<_I> where _It: Iterator<::Item=_I> = {
-      let v = Vector:new_with_size_hint(it:size_hint()).
+    let v = Vector:new_with_size_hint(it:size_hint()).
 
-      for i in it {
-        v:push(i).
-      }
+    for i in it {
+      v:push(i).
+    }
 
-      v
+    v
   }.
 }

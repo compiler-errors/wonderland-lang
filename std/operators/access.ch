@@ -9,13 +9,13 @@ impl<_T> Deref<Int> for [_T] {
 
   fn deref(self, idx: Int) -> _T = {
       if idx < 0 |? idx >= self:len() {
-          panic:<()>("Index out of bounds for \(type_string:<Self>())... length = \(self:len()), index = \(idx).").
+        panic:<()>("Index out of bounds for \(type_string:<Self>())... length = \(self:len()), index = \(idx).").
       }
 
       impl "llvm" {
         instruction "getelementptr" (self, 0, 2, idx) -> $ptr.
         instruction "load" ($ptr) -> _T
-      } else impl "looking_glass" {
+      } else impl "vorpal_sword" {
         instruction "array_deref" (self, idx) -> _T
       }
   }.
@@ -65,7 +65,7 @@ impl Deref<Int> for String {
     impl "llvm" {
       instruction "getelementptr" (self, 0, 1, idx) -> $ptr.
       instruction "load" ($ptr) -> Char
-    } else impl "looking_glass" {
+    } else impl "vorpal_sword" {
       instruction "string_deref" (self, idx) -> Char
     }
   }.
@@ -75,9 +75,9 @@ trait DerefAssign<_Idx> {
   type Value.
 
   fn deref_assign(
-      self,
-      idx: _Idx,
-      value: <Self as DerefAssign<_Idx>>::Value) -> <Self as DerefAssign<_Idx>>::Value.
+    self,
+    idx: _Idx,
+    value: <Self as DerefAssign<_Idx>>::Value) -> <Self as DerefAssign<_Idx>>::Value.
 }
 
 impl<_T> DerefAssign<Int> for [_T] {
@@ -85,13 +85,13 @@ impl<_T> DerefAssign<Int> for [_T] {
 
   fn deref_assign(self, idx: Int, value: _T) -> _T = {
       if idx < 0 |? idx >= self:len() {
-          panic:<()>("Index out of bounds for \(type_string:<Self>())... length = \(self:len()), index = \(idx).").
+        panic:<()>("Index out of bounds for \(type_string:<Self>())... length = \(self:len()), index = \(idx).").
       }
 
       impl "llvm" {
         instruction "getelementptr" (self, 0, 2, idx) -> $ptr.
         instruction "store" ($ptr, value) -> ().
-      } else impl "looking_glass" {
+      } else impl "vorpal_sword" {
         instruction "array_store" (self, idx, value) -> ().
       }
 

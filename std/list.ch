@@ -194,18 +194,18 @@ impl<_T> for Link<_T> {
 }
 
 impl<_T> Len for List<_T> {
-    fn len(self) -> Int = self:size.
+  fn len(self) -> Int = self:size.
 }
 
 impl<_T> Deref<Int> for List<_T> {
   type Result = _T.
 
   fn deref(self, idx: Int) -> _T = {
-      if idx < 0 | idx >= self:len() {
-          panic:<()>("Index \(idx) out of bounds. Size is \(self:len())!").
-      }
+    if idx < 0 | idx >= self:len() {
+      panic:<()>("Index \(idx) out of bounds. Size is \(self:len())!").
+    }
 
-      Self:get_node_internal(self:root, idx):unwrap():item
+    Self:get_node_internal(self:root, idx):unwrap():item
   }.
 }
 
@@ -213,12 +213,12 @@ impl<_T> DerefAssign<Int> for List<_T> {
   type Value = _T.
 
   fn deref_assign(self, idx: Int, value: _T) -> _T = {
-      if idx >= self:len() {
-          panic:<()>("Index \(idx) out of bounds. Size is \(self:len())!").
-      }
+    if idx >= self:len() {
+      panic:<()>("Index \(idx) out of bounds. Size is \(self:len())!").
+    }
 
-      Self:get_node_internal(self:root, idx):unwrap():item = value.
-      value
+    Self:get_node_internal(self:root, idx):unwrap():item = value.
+    value
   }.
 }
 
@@ -249,31 +249,31 @@ impl<_T> Iterator for ListIterator<_T> {
   }.
 
   fn has_next(self) -> Bool = {
-      let ListIterator!Iterator { link, ... } = self.
-      link:is_some()
+    let ListIterator!Iterator { link, ... } = self.
+    link:is_some()
   }.
 
   fn size_hint(self) -> Int = {
-      let ListIterator!Iterator { size, ... } = self.
-      size
+    let ListIterator!Iterator { size, ... } = self.
+    size
   }.
 }
 
 impl<_T> Into<String> for List<_T> where _T: Into<String> {
   fn into(self) -> String = {
-      let s = "List[".
-      let first = true.
+    let s = "List[".
+    let first = true.
 
-      for i in self {
-          if first {
-              first = false.
-          } else {
-              s = s + ", ".
-          }
-
-          s = s + (i as String).
+    for i in self {
+      if first {
+        first = false.
+      } else {
+        s = s + ", ".
       }
 
-      s + "]"
+      s = s + (i as String).
+    }
+
+    s + "]"
   }.
 }

@@ -206,20 +206,20 @@ impl<_K, _V> Iterator for HashMapIterator<_K, _V> {
 
 impl<_K, _V> Into<String> for HashMap<_K, _V> where _K: Into<String>, _V: Into<String> {
   fn into(self) -> String = {
-      let s = "HashMap{".
-      let first = true.
+    let s = "HashMap{".
+    let first = true.
 
-      for (k, v) in self {
-          if first {
-              first = false.
-          } else {
-              s = s + ", ".
-          }
-
-          s = s + (k as String) + ": " + (v as String).
+    for (k, v) in self {
+      if first {
+        first = false.
+      } else {
+        s = s + ", ".
       }
 
-      s + "}"
+      s = s + (k as String) + ": " + (v as String).
+    }
+
+    s + "}"
   }.
 }
 

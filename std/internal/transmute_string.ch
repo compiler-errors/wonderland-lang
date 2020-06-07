@@ -7,7 +7,7 @@ impl Into<String> for Int {
   fn into(self) -> String = {
     impl "llvm" {
       int_into_string_llvm(self)
-    } else impl "looking_glass" {
+    } else impl "vorpal_sword" {
       instruction "int_to_string" (self) -> String
     }
   }.
@@ -17,7 +17,7 @@ impl Into<String> for Float {
   fn into(self) -> String = {
     impl "llvm" {
       float_into_string_llvm(self)
-    } else impl "looking_glass" {
+    } else impl "vorpal_sword" {
       instruction "float_to_string" (self) -> String
     }
   }.
@@ -27,7 +27,7 @@ impl Into<String> for Char {
   fn into(self) -> String = {
     impl "llvm" {
       char_into_string_llvm(self)
-    } else impl "looking_glass" {
+    } else impl "vorpal_sword" {
       instruction "char_to_string" (self) -> String
     }
   }.
@@ -35,28 +35,28 @@ impl Into<String> for Char {
 
 impl Into<String> for Bool {
   fn into(self) -> String = {
-      match self {
-        true => "true",
-        false => "false",
-      }
+    match self {
+      true => "true",
+      false => "false",
+    }
   }.
 }
 
 impl<_T> Into<String> for [_T] where _T: Into<String> {
   fn into(self) -> String = {
-      let s = "[".
-      let first = true.
+    let s = "[".
+    let first = true.
 
-      for i in self {
-          if first {
-              first = false.
-          } else {
-              s = s + ", ".
-          }
-
-          s = s + (i as String).
+    for i in self {
+      if first {
+        first = false.
+      } else {
+        s = s + ", ".
       }
 
-      s + "]"
+      s = s + (i as String).
+    }
+
+    s + "]"
   }.
 }

@@ -487,7 +487,7 @@ impl LookingGlass {
             },
 
             AstExpressionData::ConditionalCompilation { branches } => {
-                let branch = &branches["looking_glass"];
+                let branch = &branches["vorpal_sword"];
                 self.evaluate_block(branch, scope)?
             },
 

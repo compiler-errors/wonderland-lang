@@ -1,14 +1,14 @@
 
 impl<_Ret> Call<()> for || -> _Ret {
   type Return = _Ret.
-  
+
   fn call(self, args: ()) -> _Ret = {
     impl "llvm" {
       instruction "ch_bundleget" (self, 0) -> $fn_ptr.
       let fn_ptr_cheshire = instruction "pointercast" ($fn_ptr, _ :fn(ClosureEnvironment) -> _Ret) -> fn(ClosureEnvironment) -> _Ret.
       instruction "ch_bundleget" (self, 2) -> $env_ptr.
       instruction "call" (fn_ptr_cheshire, $env_ptr) -> _Ret
-    } else impl "looking_glass" {
+    } else impl "vorpal_sword" {
       instruction "call" (self) -> _Ret
     }
   }.
@@ -16,7 +16,7 @@ impl<_Ret> Call<()> for || -> _Ret {
 
 impl<_Ret> Call<()> for fn() -> _Ret {
   type Return = _Ret.
-  
+
   fn call(self, args: ()) -> _Ret = {
     instruction "call" (self) -> _Ret
   }.
@@ -39,14 +39,14 @@ impl Hash for ()  {
 
 impl<_Ret, _A> Call<(_A,)> for |_A| -> _Ret {
   type Return = _Ret.
-  
+
   fn call(self, args: (_A,)) -> _Ret = {
     impl "llvm" {
       instruction "ch_bundleget" (self, 0) -> $fn_ptr.
       let fn_ptr_cheshire = instruction "pointercast" ($fn_ptr, _ :fn(ClosureEnvironment, _A) -> _Ret) -> fn(ClosureEnvironment, _A) -> _Ret.
       instruction "ch_bundleget" (self, 2) -> $env_ptr.
       instruction "call" (fn_ptr_cheshire, $env_ptr, args:0) -> _Ret
-    } else impl "looking_glass" {
+    } else impl "vorpal_sword" {
       instruction "call" (self, args:0) -> _Ret
     }
   }.
@@ -54,7 +54,7 @@ impl<_Ret, _A> Call<(_A,)> for |_A| -> _Ret {
 
 impl<_Ret, _A> Call<(_A,)> for fn(_A) -> _Ret {
   type Return = _Ret.
-  
+
   fn call(self, args: (_A,)) -> _Ret = {
     instruction "call" (self, args:0) -> _Ret
   }.
@@ -77,14 +77,14 @@ impl<_A> Hash for (_A,) where _A: Hash {
 
 impl<_Ret, _A, _B> Call<(_A, _B)> for |_A, _B| -> _Ret {
   type Return = _Ret.
-  
+
   fn call(self, args: (_A, _B)) -> _Ret = {
     impl "llvm" {
       instruction "ch_bundleget" (self, 0) -> $fn_ptr.
       let fn_ptr_cheshire = instruction "pointercast" ($fn_ptr, _ :fn(ClosureEnvironment, _A, _B) -> _Ret) -> fn(ClosureEnvironment, _A, _B) -> _Ret.
       instruction "ch_bundleget" (self, 2) -> $env_ptr.
       instruction "call" (fn_ptr_cheshire, $env_ptr, args:0, args:1) -> _Ret
-    } else impl "looking_glass" {
+    } else impl "vorpal_sword" {
       instruction "call" (self, args:0, args:1) -> _Ret
     }
   }.
@@ -92,7 +92,7 @@ impl<_Ret, _A, _B> Call<(_A, _B)> for |_A, _B| -> _Ret {
 
 impl<_Ret, _A, _B> Call<(_A, _B)> for fn(_A, _B) -> _Ret {
   type Return = _Ret.
-  
+
   fn call(self, args: (_A, _B)) -> _Ret = {
     instruction "call" (self, args:0, args:1) -> _Ret
   }.
@@ -116,14 +116,14 @@ impl<_A, _B> Hash for (_A, _B) where _A: Hash, _B: Hash {
 
 impl<_Ret, _A, _B, _C> Call<(_A, _B, _C)> for |_A, _B, _C| -> _Ret {
   type Return = _Ret.
-  
+
   fn call(self, args: (_A, _B, _C)) -> _Ret = {
     impl "llvm" {
       instruction "ch_bundleget" (self, 0) -> $fn_ptr.
       let fn_ptr_cheshire = instruction "pointercast" ($fn_ptr, _ :fn(ClosureEnvironment, _A, _B, _C) -> _Ret) -> fn(ClosureEnvironment, _A, _B, _C) -> _Ret.
       instruction "ch_bundleget" (self, 2) -> $env_ptr.
       instruction "call" (fn_ptr_cheshire, $env_ptr, args:0, args:1, args:2) -> _Ret
-    } else impl "looking_glass" {
+    } else impl "vorpal_sword" {
       instruction "call" (self, args:0, args:1, args:2) -> _Ret
     }
   }.
@@ -131,7 +131,7 @@ impl<_Ret, _A, _B, _C> Call<(_A, _B, _C)> for |_A, _B, _C| -> _Ret {
 
 impl<_Ret, _A, _B, _C> Call<(_A, _B, _C)> for fn(_A, _B, _C) -> _Ret {
   type Return = _Ret.
-  
+
   fn call(self, args: (_A, _B, _C)) -> _Ret = {
     instruction "call" (self, args:0, args:1, args:2) -> _Ret
   }.
@@ -156,14 +156,14 @@ impl<_A, _B, _C> Hash for (_A, _B, _C) where _A: Hash, _B: Hash, _C: Hash {
 
 impl<_Ret, _A, _B, _C, _D> Call<(_A, _B, _C, _D)> for |_A, _B, _C, _D| -> _Ret {
   type Return = _Ret.
-  
+
   fn call(self, args: (_A, _B, _C, _D)) -> _Ret = {
     impl "llvm" {
       instruction "ch_bundleget" (self, 0) -> $fn_ptr.
       let fn_ptr_cheshire = instruction "pointercast" ($fn_ptr, _ :fn(ClosureEnvironment, _A, _B, _C, _D) -> _Ret) -> fn(ClosureEnvironment, _A, _B, _C, _D) -> _Ret.
       instruction "ch_bundleget" (self, 2) -> $env_ptr.
       instruction "call" (fn_ptr_cheshire, $env_ptr, args:0, args:1, args:2, args:3) -> _Ret
-    } else impl "looking_glass" {
+    } else impl "vorpal_sword" {
       instruction "call" (self, args:0, args:1, args:2, args:3) -> _Ret
     }
   }.
@@ -171,7 +171,7 @@ impl<_Ret, _A, _B, _C, _D> Call<(_A, _B, _C, _D)> for |_A, _B, _C, _D| -> _Ret {
 
 impl<_Ret, _A, _B, _C, _D> Call<(_A, _B, _C, _D)> for fn(_A, _B, _C, _D) -> _Ret {
   type Return = _Ret.
-  
+
   fn call(self, args: (_A, _B, _C, _D)) -> _Ret = {
     instruction "call" (self, args:0, args:1, args:2, args:3) -> _Ret
   }.
@@ -197,14 +197,14 @@ impl<_A, _B, _C, _D> Hash for (_A, _B, _C, _D) where _A: Hash, _B: Hash, _C: Has
 
 impl<_Ret, _A, _B, _C, _D, _E> Call<(_A, _B, _C, _D, _E)> for |_A, _B, _C, _D, _E| -> _Ret {
   type Return = _Ret.
-  
+
   fn call(self, args: (_A, _B, _C, _D, _E)) -> _Ret = {
     impl "llvm" {
       instruction "ch_bundleget" (self, 0) -> $fn_ptr.
       let fn_ptr_cheshire = instruction "pointercast" ($fn_ptr, _ :fn(ClosureEnvironment, _A, _B, _C, _D, _E) -> _Ret) -> fn(ClosureEnvironment, _A, _B, _C, _D, _E) -> _Ret.
       instruction "ch_bundleget" (self, 2) -> $env_ptr.
       instruction "call" (fn_ptr_cheshire, $env_ptr, args:0, args:1, args:2, args:3, args:4) -> _Ret
-    } else impl "looking_glass" {
+    } else impl "vorpal_sword" {
       instruction "call" (self, args:0, args:1, args:2, args:3, args:4) -> _Ret
     }
   }.
@@ -212,7 +212,7 @@ impl<_Ret, _A, _B, _C, _D, _E> Call<(_A, _B, _C, _D, _E)> for |_A, _B, _C, _D, _
 
 impl<_Ret, _A, _B, _C, _D, _E> Call<(_A, _B, _C, _D, _E)> for fn(_A, _B, _C, _D, _E) -> _Ret {
   type Return = _Ret.
-  
+
   fn call(self, args: (_A, _B, _C, _D, _E)) -> _Ret = {
     instruction "call" (self, args:0, args:1, args:2, args:3, args:4) -> _Ret
   }.
@@ -239,14 +239,14 @@ impl<_A, _B, _C, _D, _E> Hash for (_A, _B, _C, _D, _E) where _A: Hash, _B: Hash,
 
 impl<_Ret, _A, _B, _C, _D, _E, _F> Call<(_A, _B, _C, _D, _E, _F)> for |_A, _B, _C, _D, _E, _F| -> _Ret {
   type Return = _Ret.
-  
+
   fn call(self, args: (_A, _B, _C, _D, _E, _F)) -> _Ret = {
     impl "llvm" {
       instruction "ch_bundleget" (self, 0) -> $fn_ptr.
       let fn_ptr_cheshire = instruction "pointercast" ($fn_ptr, _ :fn(ClosureEnvironment, _A, _B, _C, _D, _E, _F) -> _Ret) -> fn(ClosureEnvironment, _A, _B, _C, _D, _E, _F) -> _Ret.
       instruction "ch_bundleget" (self, 2) -> $env_ptr.
       instruction "call" (fn_ptr_cheshire, $env_ptr, args:0, args:1, args:2, args:3, args:4, args:5) -> _Ret
-    } else impl "looking_glass" {
+    } else impl "vorpal_sword" {
       instruction "call" (self, args:0, args:1, args:2, args:3, args:4, args:5) -> _Ret
     }
   }.
@@ -254,7 +254,7 @@ impl<_Ret, _A, _B, _C, _D, _E, _F> Call<(_A, _B, _C, _D, _E, _F)> for |_A, _B, _
 
 impl<_Ret, _A, _B, _C, _D, _E, _F> Call<(_A, _B, _C, _D, _E, _F)> for fn(_A, _B, _C, _D, _E, _F) -> _Ret {
   type Return = _Ret.
-  
+
   fn call(self, args: (_A, _B, _C, _D, _E, _F)) -> _Ret = {
     instruction "call" (self, args:0, args:1, args:2, args:3, args:4, args:5) -> _Ret
   }.
@@ -282,14 +282,14 @@ impl<_A, _B, _C, _D, _E, _F> Hash for (_A, _B, _C, _D, _E, _F) where _A: Hash, _
 
 impl<_Ret, _A, _B, _C, _D, _E, _F, _G> Call<(_A, _B, _C, _D, _E, _F, _G)> for |_A, _B, _C, _D, _E, _F, _G| -> _Ret {
   type Return = _Ret.
-  
+
   fn call(self, args: (_A, _B, _C, _D, _E, _F, _G)) -> _Ret = {
     impl "llvm" {
       instruction "ch_bundleget" (self, 0) -> $fn_ptr.
       let fn_ptr_cheshire = instruction "pointercast" ($fn_ptr, _ :fn(ClosureEnvironment, _A, _B, _C, _D, _E, _F, _G) -> _Ret) -> fn(ClosureEnvironment, _A, _B, _C, _D, _E, _F, _G) -> _Ret.
       instruction "ch_bundleget" (self, 2) -> $env_ptr.
       instruction "call" (fn_ptr_cheshire, $env_ptr, args:0, args:1, args:2, args:3, args:4, args:5, args:6) -> _Ret
-    } else impl "looking_glass" {
+    } else impl "vorpal_sword" {
       instruction "call" (self, args:0, args:1, args:2, args:3, args:4, args:5, args:6) -> _Ret
     }
   }.
@@ -297,7 +297,7 @@ impl<_Ret, _A, _B, _C, _D, _E, _F, _G> Call<(_A, _B, _C, _D, _E, _F, _G)> for |_
 
 impl<_Ret, _A, _B, _C, _D, _E, _F, _G> Call<(_A, _B, _C, _D, _E, _F, _G)> for fn(_A, _B, _C, _D, _E, _F, _G) -> _Ret {
   type Return = _Ret.
-  
+
   fn call(self, args: (_A, _B, _C, _D, _E, _F, _G)) -> _Ret = {
     instruction "call" (self, args:0, args:1, args:2, args:3, args:4, args:5, args:6) -> _Ret
   }.

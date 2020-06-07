@@ -14,7 +14,7 @@ export fn print_llvm(s: String).
 fn gc() = {
   impl "llvm" {
     gc_llvm().
-  } else impl "looking_glass" {
+  } else impl "vorpal_sword" {
     instruction "gc" () -> ().
   }
 }.
@@ -22,7 +22,7 @@ fn gc() = {
 fn print(s: String) = {
   impl "llvm" {
     print_llvm(s).
-  } else impl "looking_glass" {
+  } else impl "vorpal_sword" {
     instruction "print" (s) -> ().
   }
 }.
@@ -51,12 +51,12 @@ fn type_string_of<_T>(t: _T) -> String = {
 }.
 
 fn exit<_T>(i: Int) -> _T = {
-    impl "llvm" {
-      instruction "call" ("exit", i) -> ().
-      instruction "ch_undefined" (_ :_T) -> _T
-    } else impl "looking_glass" {
-      instruction "exit" (i) -> _T
-    }
+  impl "llvm" {
+    instruction "call" ("exit", i) -> ().
+    instruction "ch_undefined" (_ :_T) -> _T
+  } else impl "vorpal_sword" {
+    instruction "exit" (i) -> _T
+  }
 }.
 
 fn breakpoint() = {
