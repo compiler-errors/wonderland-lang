@@ -28,15 +28,7 @@ impl AstAdapter for AnalyzeGlobalNames {
                 if self.0.analyzed_globals.contains_key(name) {
                     // Okay. Do nothing.
                 } else if self.0.analyzed_functions.contains_key(name) {
-                    if self.0.analyzed_functions[name].generics.len() > 0 {
-                        return perror_at!(
-                            e.span,
-                            "Cannot reference global fn `{}` since it has generics!",
-                            name.full_name()
-                        );
-                    }
-
-                    return Ok(AstExpression::global_fn(e.span, name.clone()));
+                    return Ok(AstExpression::global_fn(e.span, name.clone(), vec![]));
                 } else {
                     return perror_at!(
                         e.span,

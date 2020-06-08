@@ -1,15 +1,17 @@
-use super::represent::VResult;
+use super::represent::{VResult, VorpalThread};
 use crate::{
     ast::{AstExpression, AstMatchPattern, ModuleRef, VariableId},
-    inst::InstObjectFunctionSignature,
+    inst::{InstFunctionSignature, InstObjectFunctionSignature},
     util::Span,
 };
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     sync::atomic::{AtomicUsize, Ordering},
+    time::Instant,
 };
 
 static VORPAL_POINTER_COUNTER: AtomicUsize = AtomicUsize::new(0);
+static VORPAL_THREAD_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct VorpalHeapPointer(usize);
@@ -40,7 +42,7 @@ pub enum VorpalValue {
         variant: String,
         values: Vec<VorpalValue>,
     },
-    GlobalFn(ModuleRef),
+    GlobalFn(InstFunctionSignature),
     Closure(VorpalClosurePointer),
     DynamicBox(VorpalDynPointer),
     Undefined,
@@ -145,6 +147,7 @@ pub struct VorpalDynBox {
 }
 
 pub struct VorpalHeap<'v> {
+    pub yielded_threads: VecDeque<VorpalThread<'v>>,
     pub global_variables: HashMap<ModuleRef, VorpalValue>,
 
     pub heap_structs: HashMap<VorpalHeapPointer, Vec<VorpalValue>>,
@@ -155,10 +158,32 @@ pub struct VorpalHeap<'v> {
 impl<'v> VorpalHeap<'v> {
     pub fn new() -> VorpalHeap<'v> {
         VorpalHeap {
+            yielded_threads: VecDeque::new(),
             global_variables: HashMap::new(),
             heap_structs: HashMap::new(),
             dyn_boxes: HashMap::new(),
             closures: HashMap::new(),
+        }
+    }
+
+    pub fn new_thread(&mut self, exit_type_id: usize) -> VorpalThread<'v> {
+        let thread_id = VORPAL_THREAD_COUNTER.fetch_add(1, Ordering::Relaxed);
+
+        VorpalThread {
+            thread_id,
+            exit_type_id,
+            start: Instant::now(),
+            control: vec![],
+            variables: vec![],
+            thread_object: self.allocate_heap_object(vec![
+                /* id: Int */
+                VorpalValue::Int(thread_id as i64),
+                /* completed: Option<Dyn> */
+                VorpalValue::EnumVariant {
+                    variant: "None".to_string(),
+                    values: vec![],
+                },
+            ]),
         }
     }
 

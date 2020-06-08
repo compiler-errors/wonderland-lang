@@ -7,7 +7,7 @@ use crate::{
     util::{PError, Span},
     vs::value::VorpalValue,
 };
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Instant};
 
 pub type VResult<T> = Result<T, VError>;
 
@@ -50,23 +50,19 @@ impl VorpalControlState<'_> {
     }
 }
 
-pub struct VorpalStack<'v> {
+pub struct VorpalThread<'v> {
+    pub thread_id: usize,
+    pub exit_type_id: usize,
+    pub start: Instant,
+
     pub control: Vec<VorpalControl<'v>>,
     pub variables: Vec<HashMap<VariableId, VorpalValue>>,
+    pub thread_object: VorpalValue,
 }
 
-impl<'v> VorpalStack<'v> {
-    pub fn new() -> VorpalStack<'v> {
-        VorpalStack {
-            control: vec![],
-            variables: vec![],
-        }
-    }
-}
-
-pub enum VorpalThreadState<'v> {
+pub enum VorpalThreadState {
     Complete(VorpalValue),
-    Incomplete(VorpalStack<'v>),
+    Incomplete,
 }
 
 #[derive(Debug)]

@@ -157,8 +157,13 @@ impl CheshireFormattable for AstExpression {
             AstExpressionData::GlobalVariable { name } => {
                 write!(f, "$[GlobalVariable]({})$", name.cheshire_display())?;
             },
-            AstExpressionData::GlobalFn { name } => {
-                write!(f, "$[GlobalFn]({})$", name.cheshire_display())?;
+            AstExpressionData::GlobalFn { name, generics } => {
+                write!(
+                    f,
+                    "$[GlobalFn]({}, ({}))$",
+                    name.cheshire_display(),
+                    CheshireDisplayMany(generics)
+                )?;
             },
             AstExpressionData::Closure {
                 params,

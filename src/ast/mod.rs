@@ -119,8 +119,8 @@ impl AstModule {
     ) -> Result<AstModule, AstError> {
         let mut names = HashSet::new();
 
-        let mut uses = Vec::new();
-        let mut pub_uses = Vec::new();
+        let mut uses = vec![];
+        let mut pub_uses = vec![];
 
         let mut functions = HashMap::new();
         let mut objects = HashMap::new();
@@ -645,6 +645,7 @@ pub enum AstExpressionData {
     },
     GlobalFn {
         name: ModuleRef,
+        generics: Vec<AstType>,
     },
     Tuple {
         values: Vec<AstExpression>,
@@ -1058,10 +1059,10 @@ impl AstExpression {
         }
     }
 
-    pub fn global_fn(span: Span, name: ModuleRef) -> AstExpression {
+    pub fn global_fn(span: Span, name: ModuleRef, generics: Vec<AstType>) -> AstExpression {
         AstExpression {
             span,
-            data: AstExpressionData::GlobalFn { name },
+            data: AstExpressionData::GlobalFn { name, generics },
             ty: AstType::infer(),
         }
     }

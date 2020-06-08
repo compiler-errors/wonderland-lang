@@ -18,9 +18,9 @@ impl AstAdapter for AnalyzeFnCalls {
 
         let data = match data {
             AstExpressionData::ExprCall { expr, args } => match expr.data {
-                AstExpressionData::GlobalVariable { name } => AstExpressionData::FnCall {
+                AstExpressionData::GlobalFn { name, generics } => AstExpressionData::FnCall {
                     fn_name: name,
-                    generics: vec![],
+                    generics,
                     args,
                 },
                 _ => AstExpressionData::ExprCall { expr, args },

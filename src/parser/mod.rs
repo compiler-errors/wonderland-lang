@@ -12,7 +12,7 @@ pub mod quote;
 pub mod util;
 
 pub fn parse_program(files: Vec<FileId>) -> PResult<AstProgram> {
-    let mut modules = Vec::new();
+    let mut modules = vec![];
 
     for f in files {
         let contents = FileRegistry::open(f)?;

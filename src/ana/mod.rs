@@ -175,11 +175,11 @@ where
             Box::new(AnalyzeInfallibleEnums::analyze),
         ),
         ("analyze_variables", Box::new(AnalyzeVariables::analyze)),
-        ("analyze_fn_calls", Box::new(AnalyzeFnCalls::analyze)),
         (
             "analyze_global_names",
             Box::new(AnalyzeGlobalNames::analyze),
         ),
+        ("analyze_fn_calls", Box::new(AnalyzeFnCalls::analyze)),
         ("analyze_operators", Box::new(AnalyzeOperators::analyze)),
         (
             "analyze_control_flow",

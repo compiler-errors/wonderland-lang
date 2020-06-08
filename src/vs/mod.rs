@@ -17,12 +17,15 @@ use itertools::Itertools;
 use std::{
     collections::HashMap,
     ops::{BitXor, Shr},
+    time::Instant,
 };
 
 #[macro_use]
 mod represent;
 
 mod value;
+
+const THREAD_QUANTUM: u128 = 50;
 
 struct VorpalSword {
     pub main_fn: ModuleRef,
@@ -93,10 +96,14 @@ pub fn evaluate(program: InstantiatedProgram) -> PResult<()> {
 
     match exit_code {
         Ok(exit_code) => {
-            info!("Exited normally with code `{}'", exit_code);
+            info!("Exited normally with code `{}`", exit_code);
             Ok(())
         },
-        Err(_) => todo!("TODO: VS: "),
+        Err(VError::Exit(exit_code)) => {
+            info!("Exited with `exit({})`", exit_code);
+            Ok(())
+        },
+        Err(VError::Panic { error, .. }) => Err(error),
     }
 }
 
@@ -106,9 +113,11 @@ pub fn evaluate(program: InstantiatedProgram) -> PResult<()> {
 impl VorpalSword {
     fn run(&self) -> VResult<i64> {
         let mut heap = VorpalHeap::new();
+        // Allocate the main_thread first, so we can make sure it has thread_id == 0.
+        let mut main_thread = heap.new_thread(self.type_ids[&AstType::Int]);
 
         for (name, var) in &self.program_globals {
-            let mut global_mini_thread = VorpalStack::new();
+            let mut global_mini_thread = heap.new_thread(self.type_ids[&var.ty]);
             global_mini_thread.control.push(VorpalControl::ParkedState(
                 VorpalControlState::Expression(&var.init),
             ));
@@ -117,7 +126,7 @@ impl VorpalSword {
                 VorpalThreadState::Complete(e) => {
                     heap.global_variables.insert(name.clone(), e);
                 },
-                VorpalThreadState::Incomplete(_) => {
+                VorpalThreadState::Incomplete => {
                     return vorpal_panic_at!(
                         var.name_span,
                         "Thread was preempted during global initialization ({}). Multithreading \
@@ -129,36 +138,82 @@ impl VorpalSword {
         }
 
         let main_fun = InstFunctionSignature(self.main_fn.clone(), vec![]);
-        let mut main_thread = VorpalStack::new();
 
         // Initialize the state with a single fn call to main.
         let state = self.do_fn_call(&mut heap, &mut main_thread, main_fun, vec![])?;
         main_thread.control.push(VorpalControl::ParkedState(state));
 
-        match self.run_thread(&mut heap, &mut main_thread)? {
-            VorpalThreadState::Complete(VorpalValue::Int(exit_code)) => Ok(exit_code),
-            VorpalThreadState::Complete(e) => {
-                unreachable!(
-                    "ICE: Main function did not yield an Int, but instead `{:?}`",
-                    e
-                );
-            },
-            VorpalThreadState::Incomplete(_) => todo!("TODO: E: Multithreading is not supported"),
+        let mut current_thread = main_thread;
+        loop {
+            match self.run_thread(&mut heap, &mut current_thread)? {
+                VorpalThreadState::Complete(exit_code) if current_thread.thread_id == 0 =>
+                    if let VorpalValue::Int(exit_code) = exit_code {
+                        debug!("Main thread exited!");
+                        break Ok(exit_code);
+                    } else {
+                        unreachable!(
+                            "ICE: main thread did not return an Int, but instead: `{:?}`!",
+                            exit_code
+                        )
+                    },
+                VorpalThreadState::Complete(exit_value) => {
+                    let exit_type_id = current_thread.exit_type_id;
+
+                    let dyn_exit_value = self.make_plain_dynamic_box(
+                        &mut heap,
+                        &mut current_thread,
+                        exit_value,
+                        exit_type_id,
+                    )?;
+                    *heap.get_object_idx(current_thread.thread_object, 1) =
+                        VorpalValue::EnumVariant {
+                            variant: "Some".to_string(),
+                            values: vec![dyn_exit_value],
+                        };
+
+                    // TODO: I: We should do deadlock detection here once we have proper thread
+                    // blocking...
+                    let old_thread_id = current_thread.thread_id;
+                    current_thread = heap
+                        .yielded_threads
+                        .pop_front()
+                        .expect("ICE: expected at _least_ the main thread to be yieldable");
+                    debug!(
+                        "Switching from thread {} -> {} (thread completed)",
+                        old_thread_id, current_thread.thread_id
+                    );
+                },
+                VorpalThreadState::Incomplete =>
+                    if heap.yielded_threads.len() > 0 {
+                        let new_thread = heap.yielded_threads.pop_front().unwrap();
+                        debug!(
+                            "Switching from thread {} -> {}",
+                            current_thread.thread_id, new_thread.thread_id
+                        );
+                        heap.yielded_threads.push_back(current_thread);
+                        current_thread = new_thread;
+                    },
+            }
         }
     }
-
-    // fn run_thread_to_completion()
 
     fn run_thread<'v>(
         &'v self,
         heap: &mut VorpalHeap<'v>,
-        thread: &mut VorpalStack<'v>,
-    ) -> VResult<VorpalThreadState<'v>> {
+        thread: &mut VorpalThread<'v>,
+    ) -> VResult<VorpalThreadState> {
+        thread.start = Instant::now();
         let mut cstate = VorpalControlState::Initial;
 
         // The state machine can continue to progress until we have 1 value, with no
         // control state.
         while !thread.control.is_empty() || !cstate.is_value() {
+            if thread.start.elapsed().as_millis() > THREAD_QUANTUM && heap.yielded_threads.len() > 0
+            {
+                thread.control.push(VorpalControl::ParkedState(cstate));
+                return Ok(VorpalThreadState::Incomplete);
+            }
+
             let new_cstate = match cstate {
                 VorpalControlState::Initial => self.apply_initial(heap, thread),
                 VorpalControlState::Expression(e) => self.apply_expression(heap, thread, e),
@@ -182,7 +237,7 @@ impl VorpalSword {
     fn apply_initial<'v>(
         &'v self,
         _: &mut VorpalHeap<'v>,
-        thread: &mut VorpalStack<'v>,
+        thread: &mut VorpalThread<'v>,
     ) -> VResult<VorpalControlState<'v>> {
         assert!(
             !thread.control.is_empty(),
@@ -198,7 +253,7 @@ impl VorpalSword {
     fn apply_expression<'v>(
         &'v self,
         heap: &mut VorpalHeap<'v>,
-        thread: &mut VorpalStack<'v>,
+        thread: &mut VorpalThread<'v>,
         expr: &'v AstExpression,
     ) -> VResult<VorpalControlState<'v>> {
         Ok(match &expr.data {
@@ -245,8 +300,9 @@ impl VorpalSword {
             ),
             AstExpressionData::GlobalVariable { name } =>
                 VorpalControlState::Value(heap.get_global(expr.span, name)?.clone()),
-            AstExpressionData::GlobalFn { name } =>
-                VorpalControlState::Value(VorpalValue::GlobalFn(name.clone())),
+            AstExpressionData::GlobalFn { name, generics } => VorpalControlState::Value(
+                VorpalValue::GlobalFn(InstFunctionSignature(name.clone(), generics.clone())),
+            ),
 
             AstExpressionData::Tuple { values } =>
                 if values.is_empty() {
@@ -544,7 +600,7 @@ impl VorpalSword {
     fn apply_lval_expression<'v>(
         &'v self,
         heap: &mut VorpalHeap<'v>,
-        thread: &mut VorpalStack<'v>,
+        thread: &mut VorpalThread<'v>,
         expr: &'v AstExpression,
     ) -> VResult<VorpalControlState<'v>> {
         assert!(
@@ -620,7 +676,7 @@ impl VorpalSword {
     fn apply_statement<'v>(
         &'v self,
         _: &mut VorpalHeap<'v>,
-        thread: &mut VorpalStack<'v>,
+        thread: &mut VorpalThread<'v>,
         stmt: &'v AstStatement,
     ) -> VResult<VorpalControlState<'v>> {
         Ok(match stmt {
@@ -635,7 +691,7 @@ impl VorpalSword {
     fn apply_value<'v>(
         &'v self,
         heap: &mut VorpalHeap<'v>,
-        thread: &mut VorpalStack<'v>,
+        thread: &mut VorpalThread<'v>,
         value: VorpalValue,
     ) -> VResult<VorpalControlState<'v>> {
         assert!(
@@ -915,7 +971,7 @@ impl VorpalSword {
     fn do_block<'v>(
         &'v self,
         _: &mut VorpalHeap<'v>,
-        thread: &mut VorpalStack<'v>,
+        thread: &mut VorpalThread<'v>,
         block: &'v AstBlock,
     ) -> VResult<VorpalControlState<'v>> {
         let expr = block.expression.as_ref();
@@ -936,7 +992,7 @@ impl VorpalSword {
     fn do_fn_call<'v>(
         &'v self,
         heap: &mut VorpalHeap<'v>,
-        thread: &mut VorpalStack<'v>,
+        thread: &mut VorpalThread<'v>,
         fun: InstFunctionSignature,
         args: Vec<VorpalValue>,
     ) -> VResult<VorpalControlState<'v>> {
@@ -955,7 +1011,7 @@ impl VorpalSword {
     fn do_obj_call<'v>(
         &'v self,
         heap: &mut VorpalHeap<'v>,
-        thread: &mut VorpalStack<'v>,
+        thread: &mut VorpalThread<'v>,
         fun: InstObjectFunctionSignature,
         args: Vec<VorpalValue>,
     ) -> VResult<VorpalControlState<'v>> {
@@ -974,7 +1030,7 @@ impl VorpalSword {
     fn do_dynamic_call<'v>(
         &'v self,
         heap: &mut VorpalHeap<'v>,
-        thread: &mut VorpalStack<'v>,
+        thread: &mut VorpalThread<'v>,
         span: Span,
         fn_name: &str,
         mut args: Vec<VorpalValue>,
@@ -1010,23 +1066,20 @@ impl VorpalSword {
     fn do_value_call<'v, 's>(
         &'v self,
         heap: &'s mut VorpalHeap<'v>,
-        thread: &mut VorpalStack<'v>,
+        thread: &mut VorpalThread<'v>,
         span: Span,
         mut args: Vec<VorpalValue>,
     ) -> VResult<VorpalControlState<'v>> {
         let fun = args.remove(0);
 
-        match &fun {
-            VorpalValue::GlobalFn(f) => {
-                let fun = InstFunctionSignature(f.clone(), vec![]);
-                self.do_fn_call(heap, thread, fun, args)
-            },
+        match fun {
+            VorpalValue::GlobalFn(fun) => self.do_fn_call(heap, thread, fun, args),
             VorpalValue::Closure(c) => {
                 let VorpalClosure {
                     parameters,
                     captured,
                     expression,
-                } = heap.get_closure(*c);
+                } = heap.get_closure(c);
                 let parameters: Vec<&'v AstMatchPattern> = parameters.clone();
                 let captured = captured.clone();
                 let expression: &'v AstExpression = *expression;
@@ -1044,7 +1097,7 @@ impl VorpalSword {
     fn do_call<'v>(
         &'v self,
         _: &mut VorpalHeap<'v>,
-        thread: &mut VorpalStack<'v>,
+        thread: &mut VorpalThread<'v>,
         params: &[AstNamedVariable],
         args: Vec<VorpalValue>,
         definition: &'v AstExpression,
@@ -1072,7 +1125,7 @@ impl VorpalSword {
     fn do_closure_call<'v>(
         &'v self,
         heap: &mut VorpalHeap<'v>,
-        thread: &mut VorpalStack<'v>,
+        thread: &mut VorpalThread<'v>,
         params: &[&'v AstMatchPattern],
         captured: HashMap<VariableId, VorpalValue>,
         args: Vec<VorpalValue>,
@@ -1102,14 +1155,16 @@ impl VorpalSword {
     fn do_instruction<'v>(
         &'v self,
         heap: &mut VorpalHeap<'v>,
-        thread: &mut VorpalStack<'v>,
+        thread: &mut VorpalThread<'v>,
         span: Span,
         instruction: &str,
         mut arguments: Vec<VorpalInstructionArgument<'v>>,
         _output: &InstructionOutput,
     ) -> VResult<VorpalControlState<'v>> {
+        // TODO: X: We should really be asserting these output types are sane...
+
         Ok(match arguments.len() {
-            n if n > 1 && instruction == "call" => {
+            n if n >= 1 && instruction == "call" => {
                 let mut call_args = vec![];
                 for a in arguments {
                     match a {
@@ -1120,7 +1175,7 @@ impl VorpalSword {
 
                 self.do_value_call(heap, thread, span, call_args)?
             },
-            n if n > 2 && instruction == "ch_dynamic_dispatch" => {
+            n if n >= 2 && instruction == "ch_dynamic_dispatch" => {
                 let fn_name =
                     if let VorpalInstructionArgument::Value(VorpalValue::String(fn_name)) =
                         arguments.remove(0)
@@ -1154,13 +1209,40 @@ impl VorpalSword {
                     // VorpalValue::unit()
                     todo!("TODO: VS: ")
                 },
+                "ch_thread_yield" => {
+                    if heap.yielded_threads.len() > 0 {
+                        // Park the current state, which is just the return value of this
+                        // instruction == `()`.
+                        thread
+                            .control
+                            .push(VorpalControl::ParkedState(VorpalControlState::Value(
+                                VorpalValue::unit(),
+                            )));
+
+                        // Thread swapperoo.
+                        let new_thread = heap.yielded_threads.pop_front().unwrap();
+                        debug!(
+                            "Switching from thread {} -> {}",
+                            thread.thread_id, new_thread.thread_id
+                        );
+                        let old_thread = std::mem::replace(thread, new_thread);
+                        heap.yielded_threads.push_back(old_thread);
+
+                        // Reset the timer, and return new thread initial state
+                        thread.start = Instant::now();
+                        VorpalControlState::Initial
+                    } else {
+                        // Reset the timer, and return new thread initial state
+                        thread.start = Instant::now();
+                        VorpalControlState::Value(VorpalValue::unit())
+                    }
+                },
+                "ch_thread_current" => VorpalControlState::Value(thread.thread_object.clone()),
+                "ch_thread_count" => VorpalControlState::Value(VorpalValue::Int(
+                    heap.yielded_threads.len() as i64 + 1,
+                )),
                 _ =>
-                    return vorpal_panic_at!(
-                        span,
-                        "Unknown instruction `{}` called with args: `{:?}`",
-                        instruction,
-                        arguments
-                    ),
+                    return vorpal_panic_at!(span, "Unknown nullary instruction `{}`", instruction,),
             },
             1 => {
                 let v0 = arguments.into_iter().next().unwrap();
@@ -1207,7 +1289,7 @@ impl VorpalSword {
                     (instruction, v0) =>
                         return vorpal_panic_at!(
                             span,
-                            "Unknown instruction `{}` called with args: `{:?}`",
+                            "Unknown unary instruction `{}` called with args: `{:?}`",
                             instruction,
                             (v0,)
                         ),
@@ -1337,7 +1419,7 @@ impl VorpalSword {
                     (instruction, v0, v1) =>
                         return vorpal_panic_at!(
                             span,
-                            "Unknown instruction `{}` called with args: `{:?}`",
+                            "Unknown binary instruction `{}` called with args: `{:?}`",
                             instruction,
                             (v0, v1)
                         ),
@@ -1379,15 +1461,38 @@ impl VorpalSword {
                         let dynamic = self.transmute_dynamic_box(heap, thread, v0, v1, v2)?;
                         VorpalControlState::Value(dynamic)
                     },
+                    (
+                        "ch_thread_spawn",
+                        VorpalInstructionArgument::Value(trampoline),
+                        VorpalInstructionArgument::Value(callable),
+                        VorpalInstructionArgument::Type(exit_type),
+                    ) => {
+                        // Make a new thread
+                        let mut new_thread = heap.new_thread(self.type_ids[exit_type]);
+                        // Set up the call trampoline(callable)
+                        let state = self.do_value_call(heap, &mut new_thread, span, vec![
+                            trampoline, callable,
+                        ])?;
+                        new_thread.control.push(VorpalControl::ParkedState(state));
+                        // Then push it so we can switch to it later...
+                        let thread_object = new_thread.thread_object.clone();
+                        debug!(
+                            "Spawned thread {} (from thread {})",
+                            new_thread.thread_id, thread.thread_id
+                        );
+                        heap.yielded_threads.push_back(new_thread);
+
+                        VorpalControlState::Value(thread_object)
+                    },
                     (instruction, v0, v1, v2) => unreachable!(
-                        "Unknown instruction `{}` called with args: `{:?}`",
+                        "Unknown ternary instruction `{}` called with args: `{:?}`",
                         instruction,
                         (v0, v1, v2)
                     ),
                 }
             },
             _ => unreachable!(
-                "Unknown instruction `{}` called with args: `{:?}`",
+                "Unknown N-ary instruction `{}` called with args: `{:?}`",
                 instruction, arguments
             ),
         })
@@ -1396,7 +1501,7 @@ impl VorpalSword {
     fn match_pattern<'v>(
         &self,
         heap: &mut VorpalHeap<'v>,
-        thread: &mut VorpalStack<'v>,
+        thread: &mut VorpalThread<'v>,
         pattern: &'v AstMatchPattern,
         value: &VorpalValue,
     ) -> VResult<bool> {
@@ -1470,13 +1575,23 @@ impl VorpalSword {
         })
     }
 
+    fn make_plain_dynamic_box<'v>(
+        &'v self,
+        heap: &mut VorpalHeap<'v>,
+        _: &mut VorpalThread<'v>,
+        obj: VorpalValue,
+        obj_type_id: usize,
+    ) -> VResult<VorpalValue> {
+        Ok(heap.allocate_dynamic_box(obj_type_id, obj, HashMap::new()))
+    }
+
     fn make_dynamic_box<'v>(
         &'v self,
         heap: &mut VorpalHeap<'v>,
-        _: &mut VorpalStack<'v>,
+        _: &mut VorpalThread<'v>,
         obj: VorpalValue,
-        obj_ty: &'v AstType,
-        dyn_ty: &'v AstType,
+        obj_ty: &AstType,
+        dyn_ty: &AstType,
     ) -> VResult<VorpalValue> {
         if let AstType::DynamicType { trait_tys } = dyn_ty {
             let mut table = HashMap::new();
@@ -1500,7 +1615,7 @@ impl VorpalSword {
     fn transmute_dynamic_box<'v>(
         &'v self,
         _: &mut VorpalHeap<'v>,
-        _: &mut VorpalStack<'v>,
+        _: &mut VorpalThread<'v>,
         obj: VorpalValue,
         _: &'v AstType,
         _: &'v AstType,
@@ -1515,7 +1630,7 @@ impl VorpalSword {
     fn try_dynamic_unbox<'v>(
         &'v self,
         heap: &mut VorpalHeap<'v>,
-        _: &mut VorpalStack<'v>,
+        _: &mut VorpalThread<'v>,
         object: VorpalValue,
         target_ty: &'v AstType,
     ) -> VResult<VorpalValue> {

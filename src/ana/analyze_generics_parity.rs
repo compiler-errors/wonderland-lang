@@ -109,6 +109,10 @@ impl AstAdapter for AnalyzeGenericsParity {
                     generics,
                 }
             },
+            AstExpressionData::GlobalFn { name, generics } => {
+                let generics = self.check_generics(Some(span), &name, generics)?;
+                AstExpressionData::GlobalFn { name, generics }
+            },
             AstExpressionData::PlainEnum {
                 enumerable,
                 generics,

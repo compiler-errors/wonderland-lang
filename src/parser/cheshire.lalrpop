@@ -351,10 +351,6 @@ Block: AstBlock = {
     }
 };
 
-BlockExpression: AstExpression = {
-    <l:@L> <b:Block> <h:@R> => AstExpression::block(Span::new(file, l, h), b),
-};
-
 QuotedNamedVariable: AstNamedVariable =
     "$[NamedVariable](" <f:QuotedId> "," <l:QuotedId> "," <h:QuotedId> "," <n:Identifier> "," <t:Type> "," <i:QuotedId> ")$" =>
         AstNamedVariable::quoted_new(Span::new(FileId(f), l, h), n, t, VariableId(i));
@@ -569,8 +565,8 @@ CallableExpression: AstExpression = {
         AstExpression::for_loop(Span::new(file, l, h), label, p, c, t, e),
     <l:@L> "$[GlobalVariable](" <i:IdentifierPath> ")$" <h:@R> =>
         AstExpression::global_variable(Span::new(file, l, h), i),
-    <l:@L> "$[GlobalFn](" <i:IdentifierPath> ")$" <h:@R> =>
-        AstExpression::global_fn(Span::new(file, l, h), i),
+    <l:@L> "$[GlobalFn](" <i:IdentifierPath> "," "(" <g:CommaTrailingOrEmpty<Type>> ")" ")$" <h:@R> =>
+        AstExpression::global_fn(Span::new(file, l, h), i, g),
     <l:@L> "$[Closure]("
         "(" <p:CommaTrailingOrEmpty<Pattern>> ")" ","
         <r:Type> ","
@@ -658,8 +654,8 @@ IdentifierExpression: AstExpression = {
     },
     // Function calls with the "minifish" syntax, e.g.
     //   panic:<Int>("Yikes!")
-    <l:@L> <i:IdentifierPath> ":<" <g:CommaTrailing<Type>> ">" "(" <p:CommaTrailingOrEmpty<Expression>> ")" <h:@R>
-        => AstExpression::call(Span::new(file, l, h), i, g, p),
+    <l:@L> <i:IdentifierPath> ":<" <g:CommaTrailing<Type>> ">" <h:@R>
+        => AstExpression::global_fn(Span::new(file, l, h), i, g),
 };
 
 InterpolateBody: AstExpression = {

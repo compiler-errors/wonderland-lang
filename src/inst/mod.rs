@@ -659,7 +659,7 @@ impl InstantiationAdapter {
     fn flatten_ty(&self, t: AstType) -> PResult<Vec<AstType>> {
         match t {
             AstType::Tuple { types } => {
-                let mut flat = Vec::new();
+                let mut flat = vec![];
 
                 for t in types {
                     flat.extend(self.flatten_ty(t)?);
@@ -758,8 +758,8 @@ impl AstAdapter for InstantiationAdapter {
                     fn_generics,
                 )?;
             },
-            AstExpressionData::GlobalFn { name } => {
-                self.instantiate_function(name, &[])?;
+            AstExpressionData::GlobalFn { name, generics } => {
+                self.instantiate_function(name, generics)?;
             },
             _ => { /* Do nothing. */ },
         }

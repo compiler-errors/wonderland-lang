@@ -6,6 +6,7 @@ use pub mod::try::*.
 use pub mod::vector::*.
 use pub mod::list::*.
 use pub mod::hash_map::*.
+use pub mod::threading::*.
 
 export fn gc_llvm().
 

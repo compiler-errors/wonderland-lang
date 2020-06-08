@@ -1665,11 +1665,12 @@ impl AstAdapter for TyckSolver {
                 self.unify(true, lhs_ty, &ty)?;
             },
 
-            AstExpressionData::GlobalFn { name } => {
-                let fn_data = &self.program.analyzed_functions[name];
-                let fn_ptr_ty =
-                    AstType::fn_ptr_type(fn_data.parameters.clone(), fn_data.return_type.clone());
+            AstExpressionData::GlobalFn { name, generics } => {
+                let (params, ret_ty, restrictions) =
+                    instantiate_fn_signature(&self.program, name, generics)?;
+                let fn_ptr_ty = AstType::fn_ptr_type(params, ret_ty);
                 self.unify(true, &ty, &fn_ptr_ty)?;
+                self.satisfy_restrictions(&restrictions)?;
             },
 
             AstExpressionData::Closure {
