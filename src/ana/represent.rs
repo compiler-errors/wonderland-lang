@@ -26,18 +26,18 @@ pub struct AnalyzedProgram {
 impl AnalyzedProgram {
     pub fn empty() -> AnalyzedProgram {
         AnalyzedProgram {
-            analyzed_functions: HashMap::new(),
-            analyzed_traits: HashMap::new(),
-            analyzed_enums: HashMap::new(),
-            analyzed_objects: HashMap::new(),
-            analyzed_impls: HashMap::new(),
-            analyzed_globals: HashMap::new(),
+            analyzed_functions: hashmap! {},
+            analyzed_traits: hashmap! {},
+            analyzed_enums: hashmap! {},
+            analyzed_objects: hashmap! {},
+            analyzed_impls: hashmap! {},
+            analyzed_globals: hashmap! {},
 
-            associated_types_to_traits: HashMap::new(),
-            methods_to_traits: HashMap::new(),
-            methods_to_anonymous_impls: HashMap::new(),
+            associated_types_to_traits: hashmap! {},
+            methods_to_traits: hashmap! {},
+            methods_to_anonymous_impls: hashmap! {},
 
-            analyzed_modules: HashMap::new(),
+            analyzed_modules: hashmap! {},
             top_module: None,
         }
     }
@@ -52,15 +52,25 @@ impl AnalyzedProgram {
         }
     }
 
-    /*pub fn construct_enum_ref(&self, obj_path: &str) -> PResult<ModuleRef> {
-        let r = self.get_module_ref("enum", obj_path)?;
+    pub fn construct_obj_ref(&self, obj_path: &str) -> PResult<ModuleRef> {
+        let r = self.get_module_ref("object", obj_path)?;
 
-        if !self.analyzed_enums.contains_key(&r) {
-            return unreachable!("ICE: `{}` is not an enum", r.full_name());
+        if !self.analyzed_objects.contains_key(&r) {
+            unreachable!("ICE: `{}` is not an object", r.full_name());
         } else {
             Ok(r)
         }
-    }*/
+    }
+
+    pub fn construct_enum_ref(&self, obj_path: &str) -> PResult<ModuleRef> {
+        let r = self.get_module_ref("enum", obj_path)?;
+
+        if !self.analyzed_enums.contains_key(&r) {
+            unreachable!("ICE: `{}` is not an enum", r.full_name());
+        } else {
+            Ok(r)
+        }
+    }
 
     pub fn construct_fn_ref(&self, fn_path: &str) -> PResult<ModuleRef> {
         let r = self.get_module_ref("function", fn_path)?;
@@ -79,7 +89,6 @@ impl AnalyzedProgram {
         let mut traversed_path = vec![];
         let mut submodule = self.top_module.clone().unwrap();
 
-        path.push_front("std");
         for name in path {
             let submodule_ref = submodule.clone();
             let child = (*submodule_ref)

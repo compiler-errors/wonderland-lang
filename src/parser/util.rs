@@ -1,5 +1,5 @@
 use crate::{
-    ast::{AstNamedVariable, VariableId},
+    ast::{AstExpression, AstNamedVariable, AstType, ModuleRef, VariableId},
     util::PError,
 };
 use lalrpop_util::ParseError;
@@ -52,7 +52,7 @@ pub fn dedup_keys<K: Display + Eq + Hash, V, L, T>(
     where_at: &str,
     vec: Vec<(K, V)>,
 ) -> Result<HashMap<K, V>, ParseError<L, T, PError>> {
-    let mut map = HashMap::new();
+    let mut map = hashmap! {};
 
     for (k, v) in vec {
         if map.contains_key(&k) {
@@ -90,9 +90,23 @@ pub fn amend_variables(
     scope: Vec<AstNamedVariable>,
     map: &mut Option<HashMap<VariableId, AstNamedVariable>>,
 ) {
-    let map = map.get_or_insert_with(|| HashMap::new());
+    let map = map.get_or_insert_with(|| hashmap! {});
 
     for s in scope {
         map.insert(s.id, s);
     }
+}
+
+pub fn awaitable_type_of(t: AstType) -> AstType {
+    let module = ModuleRef::Denormalized(
+        "std::asynchronous::Awaitable"
+            .split("::")
+            .map(|s| s.to_string())
+            .collect(),
+    );
+    AstType::Object(module, vec![t])
+}
+
+pub fn async_block_of(e: AstExpression) -> AstExpression {
+    AstExpression::async_block_expr(e.span, e)
 }

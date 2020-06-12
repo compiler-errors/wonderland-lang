@@ -41,7 +41,7 @@ impl<T, S: Visit<T>> Visit<T> for Vec<S> {
 
 impl<T, K: Eq + Hash, V: Visit<T>> Visit<T> for HashMap<K, V> {
     fn visit(self, adapter: &mut T) -> PResult<HashMap<K, V>> {
-        let mut out = HashMap::new();
+        let mut out = hashmap! {};
 
         for (k, v) in self.into_iter() {
             out.insert(k, v.visit(adapter)?);
@@ -53,7 +53,7 @@ impl<T, K: Eq + Hash, V: Visit<T>> Visit<T> for HashMap<K, V> {
 
 impl<T, K: Eq + Hash + Ord, V: Visit<T>> Visit<T> for BTreeMap<K, V> {
     fn visit(self, adapter: &mut T) -> PResult<BTreeMap<K, V>> {
-        let mut out = BTreeMap::new();
+        let mut out = btreemap! {};
 
         for (k, v) in self.into_iter() {
             out.insert(k, v.visit(adapter)?);

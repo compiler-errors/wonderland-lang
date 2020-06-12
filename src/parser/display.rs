@@ -207,6 +207,47 @@ impl CheshireFormattable for AstExpression {
 
                 write!(f, ")$")?;
             },
+
+            AstExpressionData::Async {
+                return_ty,
+                expr,
+                captured,
+                scope,
+            } => {
+                write!(
+                    f,
+                    "$[Async]({}, {},",
+                    return_ty.cheshire_display(),
+                    expr.cheshire_display(),
+                )?;
+
+                if let Some(captured) = captured {
+                    write!(f, "(")?;
+                    for (old, new) in captured {
+                        write!(
+                            f,
+                            "({}, {}),",
+                            old.cheshire_display(),
+                            new.cheshire_display()
+                        )?;
+                    }
+                    write!(f, "), ")?;
+                } else {
+                    write!(f, "_, ")?;
+                }
+
+                if let Some(scope) = scope {
+                    write!(f, "(")?;
+                    for (VariableId(id), var) in scope {
+                        write!(f, "({}, {}),", id, var.cheshire_display())?;
+                    }
+                    write!(f, ")")?;
+                } else {
+                    write!(f, "_")?;
+                }
+
+                write!(f, ")$")?;
+            },
             AstExpressionData::FnCall {
                 fn_name,
                 generics,
@@ -462,6 +503,11 @@ impl CheshireFormattable for AstExpression {
             )?,
             AstExpressionData::Return { value } =>
                 write!(f, "return {}", value.cheshire_display())?,
+            AstExpressionData::Await {
+                value,
+                associated_trait: None,
+                impl_signature: None,
+            } => write!(f, "({}):await", value.cheshire_display())?,
             AstExpressionData::Assert { condition } =>
                 write!(f, "assert {}", condition.cheshire_display())?,
             AstExpressionData::ConditionalCompilation { branches } => {

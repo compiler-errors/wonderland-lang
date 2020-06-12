@@ -1,3 +1,4 @@
+use super::heap::VorpalAwaitablePointer;
 use crate::{
     ast::{
         AstBlock, AstExpression, AstMatchBranch, AstMatchPattern, AstStatement, AstType,
@@ -7,7 +8,10 @@ use crate::{
     util::{PError, Span},
     vs::value::VorpalValue,
 };
-use std::{collections::HashMap, time::Instant};
+use std::{
+    collections::{HashMap, HashSet},
+    time::Instant,
+};
 
 pub type VResult<T> = Result<T, VError>;
 
@@ -21,9 +25,18 @@ pub enum VError {
 
 macro_rules! vorpal_panic_at {
     ($span:expr, $($arg:tt)*) => {
-        Err(crate::vs::represent::VError::Panic {
+        Err(crate::vs::thread::VError::Panic {
             stack_trace: None,
             error: crate::util::PError::new_at($span, format!($($arg)*))
+        })
+    }
+}
+
+macro_rules! vorpal_panic {
+    ($($arg:tt)*) => {
+        Err(crate::vs::thread::VError::Panic {
+            stack_trace: None,
+            error: crate::util::PError::new(format!($($arg)*))
         })
     }
 }
@@ -50,13 +63,26 @@ impl VorpalControlState<'_> {
     }
 }
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct ThreadId(pub usize);
+
+impl std::fmt::Display for ThreadId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
 pub struct VorpalThread<'v> {
-    pub thread_id: usize,
-    pub exit_type_id: usize,
-    pub start: Instant,
+    pub thread_id: ThreadId,
 
     pub control: Vec<VorpalControl<'v>>,
     pub variables: Vec<HashMap<VariableId, VorpalValue>>,
+
+    pub blocking: HashSet<ThreadId>,
+    pub blocked_on: HashSet<ThreadId>,
+
+    pub exit_type_id: usize,
+    pub start: Instant,
     pub thread_object: VorpalValue,
 }
 
@@ -129,6 +155,7 @@ pub enum VorpalControl<'v> {
         else_block: &'v AstBlock,
     },
     Match {
+        span: Span,
         branches: &'v [AstMatchBranch],
     },
     PreWhile {
@@ -148,6 +175,14 @@ pub enum VorpalControl<'v> {
 
     Break(LoopId),
     Return,
+    AwaitPrePoll {
+        span: Span,
+        fun: InstObjectFunctionSignature,
+    },
+    AwaitPostPoll {
+        span: Span,
+        fun: InstObjectFunctionSignature,
+    },
 
     Instruction {
         instruction: &'v str,
@@ -156,6 +191,8 @@ pub enum VorpalControl<'v> {
         values: Vec<VorpalInstructionArgument<'v>>,
         span: Span,
     },
+
+    Async(VorpalAwaitablePointer),
 }
 
 #[derive(Debug)]

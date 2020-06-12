@@ -64,12 +64,12 @@ pub fn instantiate(
         .visit(&mut dynamic_assumptions)?;
     let analyzed_program = dynamic_assumptions.analyzed_program;
 
-    let mut fns = HashMap::new();
-    let mut objects = HashMap::new();
-    let mut enums = HashMap::new();
-    let mut impls = HashMap::new();
-    let mut obj_fns = HashMap::new();
-    let mut globals = HashMap::new();
+    let mut fns = hashmap! {};
+    let mut objects = hashmap! {};
+    let mut enums = hashmap! {};
+    let mut impls = hashmap! {};
+    let mut obj_fns = hashmap! {};
+    let mut globals = hashmap! {};
 
     for m in parsed_program.modules {
         for (_, f) in m.functions {
@@ -111,12 +111,12 @@ pub fn instantiate(
         impls,
         obj_fns,
 
-        instantiated_fns: HashMap::new(),
-        instantiated_object_fns: HashMap::new(),
-        instantiated_impls: HashMap::new(),
-        instantiated_objects: HashMap::new(),
-        instantiated_enums: HashMap::new(),
-        solved_impls: HashMap::new(),
+        instantiated_fns: hashmap! {},
+        instantiated_object_fns: hashmap! {},
+        instantiated_impls: hashmap! {},
+        instantiated_objects: hashmap! {},
+        instantiated_enums: hashmap! {},
+        solved_impls: hashmap! {},
         instantiated_types: HashSet::new(),
     };
 
@@ -127,7 +127,7 @@ pub fn instantiate(
     let main_fn = main_finder.0.unwrap();
     i.instantiate_function(&main_fn, &[])?;
 
-    let mut instantiated_globals = HashMap::new();
+    let mut instantiated_globals = hashmap! {};
     for (name, g) in globals {
         let g = i.process_simple(g, &[], &[])?;
         instantiated_globals.insert(name, g);
@@ -447,7 +447,7 @@ impl InstantiationAdapter {
                             vec![],
                             Some(trt.clone()),
                             ty.clone(),
-                            HashMap::new(),
+                            hashmap! {},
                             vec![],
                             assoc_bindings
                                 .iter()
@@ -609,7 +609,7 @@ impl InstantiationAdapter {
             .collect();
 
         let mut fields = vec![];
-        let mut variants = HashMap::new();
+        let mut variants = hashmap! {};
 
         for (name, variant) in e.variants {
             let mut free_fields: HashMap<usize, AstType> =
@@ -760,6 +760,23 @@ impl AstAdapter for InstantiationAdapter {
             },
             AstExpressionData::GlobalFn { name, generics } => {
                 self.instantiate_function(name, generics)?;
+            },
+            AstExpressionData::Await {
+                value,
+                impl_signature,
+                associated_trait,
+            } => {
+                let impl_sig = impl_signature.as_ref().unwrap();
+                let associated_trait = associated_trait.as_ref().unwrap();
+
+                self.instantiate_object_function(
+                    e.span,
+                    &value.ty,
+                    Some(&associated_trait.trt),
+                    impl_sig,
+                    "poll",
+                    &[],
+                )?;
             },
             _ => { /* Do nothing. */ },
         }

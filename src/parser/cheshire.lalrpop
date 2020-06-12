@@ -81,6 +81,8 @@ extern {
         "enum" => Token::Enum,
         "match" => Token::Match,
         "instruction" => Token::Instruction,
+        "async" => Token::Async,
+        "await" => Token::Await,
 
         "Int" => Token::Int,
         "Float" => Token::Float,
@@ -125,6 +127,7 @@ extern {
         "$[GlobalVariable](" => Token::QuotationStart(crate::lexer::QUOTE_GLOBALVARIABLE),
         "$[GlobalFn](" => Token::QuotationStart(crate::lexer::QUOTE_GLOBALFN),
         "$[Closure](" => Token::QuotationStart(crate::lexer::QUOTE_CLOSURE),
+        "$[Async](" => Token::QuotationStart(crate::lexer::QUOTE_ASYNC),
 
 
         ")$" => Token::QuotationEnd,
@@ -221,7 +224,7 @@ AssociableType<C>: AstType = {
     // That is, `as Ty<_T>` is disallowed. Instead, use "as <Ty<_T>>".
     <TypeNamePath> <MaybeExprGenerics> if C !~ ".*T.*" =>
         AstType::object_or_enum(<>),
-    <TypeNamePath> if C == "transmute" =>
+    <TypeNamePath> if C ~~ ".*T.*" =>
         AstType::object_or_enum(<>, vec![]),
 
     // An associated type, e.g. `<()>::Item`
@@ -308,6 +311,8 @@ Function: AstFunction = {
         AstFunction::new_declaration(file, Span::new(file, l, h), i, g, p, r, w),
     "fn" <l:@L> <i:Identifier> <h:@R> <g:MaybeDeclGenerics> <p:DeclParams> <r:SMaybeReturn> <w:MaybeRestrictions> "=" <e:Expression> "." =>
         AstFunction::new_definition(file, Span::new(file, l, h), i, g, p, r, w, e),
+    "async" "fn" <l:@L> <i:Identifier> <h:@R> <g:MaybeDeclGenerics> <p:DeclParams> <r:SMaybeReturn> <w:MaybeRestrictions> "=" <e:Expression> "." =>
+        AstFunction::new_definition(file, Span::new(file, l, h), i, g, p, r.map(awaitable_type_of), w, async_block_of(e)),
 };
 
 MaybeDeclGenerics = {
@@ -395,6 +400,7 @@ Expression0<PB>: AstExpression = {
 };
 Expression1<PB> = {
     <UndottableExpression> if PB !~ ".*R.*",
+    <AsyncBlockExpression>,
     <ClosureExpression<PB>>,
     <ControlFlowExpression<PB>>,
     <InstructionExpression>,
@@ -416,6 +422,11 @@ Expression9<PB> = {
     <Expression10<PB>>,
 }
 Expression10<PB> = BaseExpression<PB>;
+
+AsyncBlockExpression: AstExpression = {
+   <l:@L> "async" <bl:@L> <b:Block> <h:@R> =>
+       AstExpression::async_block_expr(Span::new(file, l, h), AstExpression::block(Span::new(file, bl, h), b)),
+};
 
 RangeEnder<PB>: AstExpression = {
     // TODO: These cases can get out of hand... I wish there were a way of appending "R" to `PB`
@@ -477,6 +488,8 @@ BaseExpression<PB>: AstExpression = {
             .map_err(|_| ParseError::User {
                 error: PError::new_at(Span::new(file, l, h), format!("Cannot parse `{}` as tuple index", id))
         })?)),
+    // Await operator
+    <l:@L> <ex:BaseExpression<PB>> ":" "await" <h:@R> => AstExpression::await_expr(Span::new(file, l, h), ex),
     // Enum constructor
     <l:@L> <e:TypeNamePath> <g:MaybeExprGenerics> "!" <v:TypeName> <a:EnumConstructorArguments<PB>> <h:@R> =>
         AstExpression::enum_constructor_from_args(Span::new(file, l, h), e, g, v, a),
@@ -484,7 +497,7 @@ BaseExpression<PB>: AstExpression = {
     // NOTE: This cannot exist in a position preceding a block,
     // e.g. `if allocate Box { item: 1 }` is illegal.
     <l:@L> "allocate" <o:TypeNamePath> <g:MaybeExprGenerics> "{" "}" <h:@R> if PB !~ ".*P.*" =>
-        AstExpression::allocate_object(Span::new(file, l, h), o, g, HashMap::new()),
+        AstExpression::allocate_object(Span::new(file, l, h), o, g, hashmap! {}),
     <l:@L> "allocate" <o:TypeNamePath> <g:MaybeExprGenerics> <f:NamedExpressionFields> <h:@R> if PB !~ ".*P.*" =>
         AstExpression::allocate_object(Span::new(file, l, h), o, g, f),
     // A transmute operator. This desugars into `<_ as Into<T>>::into(e)`
@@ -574,6 +587,12 @@ CallableExpression: AstExpression = {
         <c:OrUnderscore<QuotedClosureCaptures>> ","
         <s:OrUnderscore<QuotedClosureScope>> ")$" <h:@R> =>
         AstExpression::quoted_closure(Span::new(file, l, h), p, r, e, c, s),
+    <l:@L> "$[Async]("
+        <r:Type> ","
+        <e:Expression> ","
+        <c:OrUnderscore<QuotedClosureCaptures>> ","
+        <s:OrUnderscore<QuotedClosureScope>> ")$" <h:@R> =>
+        AstExpression::quoted_async(Span::new(file, l, h), r, e, c, s),
 };
 
 QuotedClosureCaptures = {
@@ -789,6 +808,10 @@ TraitMember: AstTraitMember = {
     "type" <TypeName> ":" <PlusSeparated<TraitTypeWithAssocs>> "." => AstTraitMember::Type(<>),
     // Object function signature, e.g. `fn add(self, i: Int) -> Int.`
     <ObjectFunctionSignature> "." => AstTraitMember::Function(<>),
+    "async" <mut f:ObjectFunctionSignature> "." => {
+        f.return_type = awaitable_type_of(f.return_type);
+        AstTraitMember::Function(f)
+    }
 };
 
 // Object function signatures are bodyless, and therefore have None definition.
@@ -847,6 +870,12 @@ ImplMember: AstImplMember = {
     // Member implementation
     <mut f:ObjectFunctionSignature> "=" <e:Expression> "." => {
         f.definition = Some(e);
+        AstImplMember::Function(f)
+    },
+
+    "async" <mut f:ObjectFunctionSignature> "=" <e:Expression> "." => {
+        f.return_type = awaitable_type_of(f.return_type);
+        f.definition = Some(async_block_of(e));
         AstImplMember::Function(f)
     },
 };

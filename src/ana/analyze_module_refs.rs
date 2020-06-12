@@ -1,9 +1,9 @@
-use super::{
-    analyze_modules::{get_module, ModuleItem},
-    represent::AnalyzedProgram,
-    represent_visitor::PureAnalysisPass,
-};
 use crate::{
+    ana::{
+        analyze_modules::{get_module, ModuleItem},
+        represent::AnalyzedProgram,
+        represent_visitor::PureAnalysisPass,
+    },
     ast::{visitor::AstAdapter, ModuleRef},
     util::PResult,
 };

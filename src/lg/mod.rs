@@ -55,7 +55,7 @@ pub fn evaluate(program: InstantiatedProgram) -> PResult<()> {
         ..
     } = program;
 
-    let mut program_object_tables: HashMap<_, HashMap<_, _>> = HashMap::new();
+    let mut program_object_tables: HashMap<_, HashMap<_, _>> = hashmap! {};
 
     for (sig, fun) in &instantiated_object_fns {
         if !is_dyn_dispatchable(fun) {
@@ -90,7 +90,7 @@ pub fn evaluate(program: InstantiatedProgram) -> PResult<()> {
             .map(|(i, t)| (t, i))
             .collect(),
 
-        global_variables: RefCell::new(HashMap::new()),
+        global_variables: RefCell::new(hashmap! {}),
     };
 
     let exit_code = lg.init_globals_and_evaluate_main();
@@ -113,7 +113,7 @@ pub fn evaluate(program: InstantiatedProgram) -> PResult<()> {
 
 impl LookingGlass {
     fn init_globals_and_evaluate_main(&mut self) -> LResult<i64> {
-        let mut global_variables = HashMap::new();
+        let mut global_variables = hashmap! {};
 
         for (var, val) in &self.program_globals {
             let mut scope = StackMap::new();
@@ -302,7 +302,7 @@ impl LookingGlass {
                 captured,
                 ..
             } => {
-                let mut env = HashMap::new();
+                let mut env = hashmap! {};
 
                 for (old, new) in captured.as_ref().unwrap() {
                     env.insert(new.id, scope.get(&old.id).clone().unwrap());
@@ -770,7 +770,7 @@ impl LookingGlass {
         dyn_ty: &AstType,
     ) -> PResult<CheshireValue> {
         if let AstType::DynamicType { trait_tys } = dyn_ty {
-            let mut table = HashMap::new();
+            let mut table = hashmap! {};
 
             for AstTraitTypeWithAssocs { trt, .. } in trait_tys {
                 let key = (obj_ty.clone(), trt.clone());

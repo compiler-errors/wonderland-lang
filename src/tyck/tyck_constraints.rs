@@ -4,7 +4,6 @@ use crate::{
     tyck::{tyck_instantiation::instantiate_associated_ty_restrictions, TYCK_MAX_DEPTH},
     util::{PError, PResult},
 };
-use std::collections::{BTreeMap, HashMap};
 
 pub struct TyckGenericConstraintAssumptionAdapter {
     pub analyzed_program: AnalyzedProgram,
@@ -44,7 +43,7 @@ impl TyckGenericConstraintAssumptionAdapter {
         let impl_id = AstImpl::new_id();
         trt_data.impls.push(impl_id);
 
-        let mut associated_tys = HashMap::new();
+        let mut associated_tys = hashmap! {};
         for (name, _) in trt_data.associated_tys.clone() {
             if &name == "Self" {
                 unreachable!(
@@ -82,7 +81,7 @@ impl TyckGenericConstraintAssumptionAdapter {
         let dummy = AnImplData {
             impl_id,
             generics: vec![],
-            methods: HashMap::new(),
+            methods: hashmap! {},
             trait_ty: Some(trt.trt.clone()),
             impl_ty: ty.clone(),
             restrictions: vec![],
@@ -128,7 +127,7 @@ impl AstAdapter for TyckGenericConstraintAssumptionAdapter {
         let self_trt = AstTraitTypeWithAssocs::new(
             t.module_ref.clone(),
             Dummifier::from_generics(&t.generics)?,
-            BTreeMap::new(),
+            btreemap! {},
         );
 
         self.assume(&self.self_ty.clone().unwrap(), &self_trt, 0)?;
@@ -162,7 +161,7 @@ impl TyckDynamicAssumptionAdapter {
         let impl_id = AstImpl::new_id();
         trt_data.impls.push(impl_id);
 
-        let mut associated_tys = HashMap::new();
+        let mut associated_tys = hashmap! {};
         for (name, _) in trt_data.associated_tys.clone() {
             if &name == "Self" {
                 unreachable!(
@@ -189,7 +188,7 @@ impl TyckDynamicAssumptionAdapter {
         let dummy = AnImplData {
             impl_id,
             generics: vec![],
-            methods: HashMap::new(),
+            methods: hashmap! {},
             trait_ty: Some(trt.trt.clone()),
             impl_ty: ty.clone(),
             restrictions: vec![],
@@ -210,7 +209,7 @@ impl TyckDynamicAssumptionAdapter {
         if let AstType::DynamicType { trait_tys } = ty {
             let into_trait = self
                 .analyzed_program
-                .construct_trt_ref("operators::lang::Into")?;
+                .construct_trt_ref("std::operators::lang::Into")?;
 
             let trt_data = self
                 .analyzed_program
@@ -229,11 +228,11 @@ impl TyckDynamicAssumptionAdapter {
             let dummy = AnImplData {
                 impl_id,
                 generics: vec![generic.clone()],
-                methods: HashMap::new(),
+                methods: hashmap! {},
                 trait_ty: Some(AstTraitType::new(into_trait.clone(), vec![ty.clone()])),
                 impl_ty: generic.clone().into(),
                 restrictions,
-                associated_tys: HashMap::new(),
+                associated_tys: hashmap! {},
 
                 kind: AnImplKind::DynamicCoersion,
             };
@@ -251,7 +250,9 @@ impl TyckDynamicAssumptionAdapter {
         // impl<_T> TryDowncast<_T> for Dyn<Trt1 + Trt2> where _T: Trt1 + Trt2
 
         if let AstType::DynamicType { .. } = ty {
-            let downcast_trait = self.analyzed_program.construct_trt_ref("any::Downcast")?;
+            let downcast_trait = self
+                .analyzed_program
+                .construct_trt_ref("std::any::Downcast")?;
 
             let trt_data = self
                 .analyzed_program
@@ -264,11 +265,11 @@ impl TyckDynamicAssumptionAdapter {
             let dummy = AnImplData {
                 impl_id,
                 generics: vec![],
-                methods: HashMap::new(),
+                methods: hashmap! {},
                 trait_ty: Some(AstTraitType::new(downcast_trait.clone(), vec![])),
                 impl_ty: ty.clone(),
                 restrictions: vec![],
-                associated_tys: HashMap::new(),
+                associated_tys: hashmap! {},
                 kind: AnImplKind::DynamicDowncast,
             };
 

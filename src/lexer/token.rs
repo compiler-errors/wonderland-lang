@@ -19,6 +19,7 @@ pub const QUOTE_STATICCALL: &'static str = "StaticCall";
 pub const QUOTE_GLOBALVARIABLE: &'static str = "GlobalVariable";
 pub const QUOTE_GLOBALFN: &'static str = "GlobalFn";
 pub const QUOTE_CLOSURE: &'static str = "Closure";
+pub const QUOTE_ASYNC: &'static str = "Async";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Token {
@@ -92,6 +93,8 @@ pub enum Token {
     Enum,
     Match,
     Instruction,
+    Async,
+    Await,
 
     // Privileged Types
     Int,
@@ -195,6 +198,8 @@ impl Display for Token {
             Token::Enum => write!(f, "enum"),
             Token::Match => write!(f, "match"),
             Token::Instruction => write!(f, "instruction"),
+            Token::Async => write!(f, "async"),
+            Token::Await => write!(f, "await"),
             Token::Int => write!(f, "Type (Int)"),
             Token::Float => write!(f, "Type (Float)"),
             Token::Bool => write!(f, "Type (Bool)"),

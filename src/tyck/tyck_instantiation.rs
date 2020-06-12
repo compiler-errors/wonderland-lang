@@ -7,7 +7,7 @@ use crate::{
     tyck::TyckAdapter,
     util::{PResult, Visit},
 };
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 
 pub fn instantiate_object_restrictions(
     program: &AnalyzedProgram,
@@ -233,7 +233,7 @@ pub fn instantiate_impl_trait_ty(
     {
         Ok(Some(AstTraitTypeWithAssocs {
             trt,
-            assoc_bindings: BTreeMap::new(),
+            assoc_bindings: btreemap! {},
         }))
     } else {
         Ok(None)

@@ -18,7 +18,7 @@ impl<K: Eq + Hash + Debug + Clone, V: Clone + Debug> StackMap<K, V> {
     }
 
     pub fn push(&mut self) {
-        self.stack.push(HashMap::new())
+        self.stack.push(hashmap! {})
     }
 
     pub fn pop(&mut self) -> HashMap<K, V> {

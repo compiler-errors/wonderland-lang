@@ -1,7 +1,7 @@
-use self::decorate::*;
 use crate::{
     ast::*,
     inst::{InstEnumRepresentation, InstEnumSignature, InstObjectSignature, InstantiatedProgram},
+    tr::decorate::*,
     util::{Context as CheshireContext, PError, PResult, ZipExact},
 };
 use either::Either;
@@ -250,16 +250,16 @@ impl<'ctx> Translator<'ctx> {
         let mut tr = Translator {
             module,
             context,
-            builtin_functions: HashMap::new(),
+            builtin_functions: hashmap! {},
 
-            break_continue: HashMap::new(),
-            variables: HashMap::new(),
-            globals: HashMap::new(),
-            instruction_values: HashMap::new(),
+            break_continue: hashmap! {},
+            variables: hashmap! {},
+            globals: hashmap! {},
+            instruction_values: hashmap! {},
 
-            type_ids: HashMap::new(),
-            closure_object_ids: HashMap::new(),
-            enums: HashMap::new(),
+            type_ids: hashmap! {},
+            closure_object_ids: hashmap! {},
+            enums: hashmap! {},
         };
 
         tr.add_function(
@@ -914,7 +914,7 @@ impl<'ctx> Translator<'ctx> {
                     .into_pointer_type();
                 let children_idxes = children_idxes.as_ref().unwrap();
 
-                let mut children_values = HashMap::new();
+                let mut children_values = hashmap! {};
                 for (name, child) in children {
                     children_values
                         .insert(name.clone(), self.translate_expression(builder, child)?);
@@ -1773,9 +1773,9 @@ impl<'ctx> Translator<'ctx> {
         {
             let id = new_type_id();
             let mut captured_ids = vec![];
-            let mut indices = HashMap::new();
-            let mut ast_tys = HashMap::new();
-            let mut tys = HashMap::new();
+            let mut indices = hashmap! {};
+            let mut ast_tys = hashmap! {};
+            let mut tys = hashmap! {};
 
             for (idx, (_, c)) in captured.iter().enumerate() {
                 captured_ids.push(c.id);
@@ -1831,7 +1831,7 @@ impl<'ctx> Translator<'ctx> {
             first_builder.position_at_end(&block);
 
             let capture_values = if captured.is_empty() {
-                HashMap::new()
+                hashmap! {}
             } else {
                 // Cast that 0th parameter to the actual capture struct type.
                 let opaque_env_ptr = llvm_fun.get_params()[0].into_pointer_value();
@@ -2662,7 +2662,7 @@ pub fn unpack_capture_values<'ctx>(
     builder: &Builder<'ctx>,
     env_struct: StructValue<'ctx>,
 ) -> PResult<HashMap<VariableId, BasicValueEnum<'ctx>>> {
-    let mut values = HashMap::new();
+    let mut values = hashmap! {};
 
     for (id, idx) in &env.indices {
         let v = builder

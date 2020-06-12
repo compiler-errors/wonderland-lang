@@ -12,6 +12,8 @@ extern crate log;
 extern crate adapter;
 #[macro_use]
 extern crate lalrpop_util;
+#[macro_use]
+extern crate maplit;
 extern crate self as wonderland;
 
 #[macro_use]

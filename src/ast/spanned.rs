@@ -10,6 +10,16 @@ impl<T> Spanned<T> {
     pub fn new(span: Span, inner: T) -> Spanned<T> {
         Spanned { span, inner }
     }
+
+    pub fn map<F, S>(self, f: F) -> Spanned<S>
+    where
+        F: FnOnce(T) -> S,
+    {
+        Spanned {
+            span: self.span,
+            inner: f(self.inner),
+        }
+    }
 }
 
 impl<T, A> Visit<A> for Spanned<T>

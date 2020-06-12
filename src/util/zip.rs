@@ -45,13 +45,13 @@ where
     K2: Eq + Hash,
 {
     fn zip_keys(self, other: S) -> HashMap<K1, (V1, V2)> {
-        let mut first = HashMap::new();
+        let mut first = hashmap! {};
 
         for (k, v) in other.into_iter() {
             first.insert(k, v);
         }
 
-        let mut second = HashMap::new();
+        let mut second = hashmap! {};
 
         for (k, v1) in self.into_iter() {
             if let Some(v2) = first.remove(k.borrow()) {

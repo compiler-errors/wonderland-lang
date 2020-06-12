@@ -19,7 +19,7 @@ impl PureAnalysisPass for AnalyzeVariables {
             analyzed_program,
             scope: StackMap::new(),
             names: StackMap::new(),
-            global_variables: HashMap::new(),
+            global_variables: hashmap! {},
         })
     }
 
@@ -140,7 +140,7 @@ impl<'a> AstAdapter for AnalyzeVariables {
                 expr,
                 return_ty,
                 captured: None,
-                ..
+                scope: None,
             } => {
                 let names = self.names.keys();
                 debug!("");
@@ -173,6 +173,40 @@ impl<'a> AstAdapter for AnalyzeVariables {
 
                 AstExpressionData::Closure {
                     params,
+                    expr,
+                    return_ty,
+                    captured: Some(captured),
+                    scope: None,
+                }
+            },
+            AstExpressionData::Async {
+                expr,
+                return_ty,
+                captured: None,
+                scope: None,
+            } => {
+                let names = self.names.keys();
+                debug!("");
+                debug!("Candidates: {:?}", names);
+                let mut i = CaptureIdentifier::new(names);
+
+                let expr = expr.visit(&mut i)?;
+                let mut captured = vec![];
+
+                self.scope.push();
+                self.names.push();
+
+                for c in i.captured {
+                    let old = self.names.get(&c).unwrap();
+                    let new = AstNamedVariable::new(old.span, old.name.clone(), old.ty.clone());
+
+                    self.assign_index(&new)?;
+                    captured.push((old, new));
+                }
+
+                debug!("Captured: {:?}", captured);
+
+                AstExpressionData::Async {
                     expr,
                     return_ty,
                     captured: Some(captured),
@@ -218,6 +252,22 @@ impl<'a> AstAdapter for AnalyzeVariables {
                     scope: Some(scope),
                 }
             },
+            AstExpressionData::Async {
+                expr,
+                captured,
+                return_ty,
+                scope: None,
+            } => {
+                let scope = self.scope.pop();
+                self.names.pop();
+
+                AstExpressionData::Async {
+                    expr,
+                    captured,
+                    return_ty,
+                    scope: Some(scope),
+                }
+            },
             e => e,
         };
 
@@ -250,7 +300,7 @@ impl<'a> AstAdapter for AnalyzeVariables {
 
     fn exit_ast_function(&mut self, mut f: AstFunction) -> PResult<AstFunction> {
         f.scope
-            .get_or_insert_with(|| HashMap::new())
+            .get_or_insert_with(|| hashmap! {})
             .extend(self.scope.pop());
         self.names.pop();
         Ok(f)
@@ -258,7 +308,7 @@ impl<'a> AstAdapter for AnalyzeVariables {
 
     fn exit_ast_block(&mut self, mut b: AstBlock) -> PResult<AstBlock> {
         b.scope
-            .get_or_insert_with(|| HashMap::new())
+            .get_or_insert_with(|| hashmap! {})
             .extend(self.scope.pop());
         self.names.pop();
         Ok(b)
@@ -266,7 +316,7 @@ impl<'a> AstAdapter for AnalyzeVariables {
 
     fn exit_ast_object_function(&mut self, mut o: AstObjectFunction) -> PResult<AstObjectFunction> {
         o.scope
-            .get_or_insert_with(|| HashMap::new())
+            .get_or_insert_with(|| hashmap! {})
             .extend(self.scope.pop());
         self.names.pop();
         Ok(o)
@@ -280,7 +330,7 @@ impl<'a> AstAdapter for AnalyzeVariables {
 
     fn exit_ast_match_branch(&mut self, mut b: AstMatchBranch) -> PResult<AstMatchBranch> {
         b.scope
-            .get_or_insert_with(|| HashMap::new())
+            .get_or_insert_with(|| hashmap! {})
             .extend(self.scope.pop());
         self.names.pop();
         Ok(b)
@@ -322,6 +372,9 @@ impl AstAdapter for CaptureIdentifier {
                 variable_id: None,
             } => {
                 self.try_capture(&name);
+            },
+            AstExpressionData::SelfRef => {
+                self.try_capture("self");
             },
             AstExpressionData::Closure { params, .. } => {
                 *params = std::mem::take(params).visit(self)?;

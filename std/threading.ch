@@ -29,7 +29,7 @@ impl for Thread {
         break value. 
       } else {
         // TODO: I: I should actually block on this thread.
-        instruction "ch_thread_yield" () -> ().
+        instruction "ch_thread_block" (self:id) -> ().
       }
     } else {
       unreachable()
@@ -50,7 +50,7 @@ impl for Thread {
     }
 
     while (instruction "ch_thread_count" () -> Int) > 1 {
-      instruction "ch_thread_yield" () -> ().
+      instruction "ch_thread_coalesce" () -> ().
     }
   }.
 

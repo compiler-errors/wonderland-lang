@@ -1,10 +1,9 @@
-use super::represent::AnImplKind;
 use crate::{
     ana::{
         analyze_modules::{ModuleMap, SharedModule},
         represent::{
-            AnEnumData, AnEnumVariantData, AnFunctionData, AnImplData, AnObjectData, AnTraitData,
-            AnalyzedProgram,
+            AnEnumData, AnEnumVariantData, AnFunctionData, AnImplData, AnImplKind, AnObjectData,
+            AnTraitData, AnalyzedProgram,
         },
     },
     ast::{visitor::AstAdapter, *},
@@ -20,15 +19,15 @@ impl AnalyzeInfo {
     pub fn new(mod_map: ModuleMap, analyzed_modules: HashMap<FileId, SharedModule>) -> AnalyzeInfo {
         AnalyzeInfo {
             analyzed_program: AnalyzedProgram {
-                analyzed_functions: HashMap::new(),
-                analyzed_traits: HashMap::new(),
-                analyzed_objects: HashMap::new(),
-                analyzed_enums: HashMap::new(),
-                analyzed_impls: HashMap::new(),
-                analyzed_globals: HashMap::new(),
-                associated_types_to_traits: HashMap::new(),
-                methods_to_traits: HashMap::new(),
-                methods_to_anonymous_impls: HashMap::new(),
+                analyzed_functions: hashmap! {},
+                analyzed_traits: hashmap! {},
+                analyzed_objects: hashmap! {},
+                analyzed_enums: hashmap! {},
+                analyzed_impls: hashmap! {},
+                analyzed_globals: hashmap! {},
+                associated_types_to_traits: hashmap! {},
+                methods_to_traits: hashmap! {},
+                methods_to_anonymous_impls: hashmap! {},
                 analyzed_modules,
                 top_module: Some(mod_map.top),
             },

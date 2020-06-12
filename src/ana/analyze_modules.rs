@@ -15,7 +15,7 @@ pub struct ModuleMap {
 impl ModuleMap {
     pub fn new() -> ModuleMap {
         ModuleMap {
-            modules: HashMap::new(),
+            modules: hashmap! {},
             top: MappedModule::new_shared(),
         }
     }
@@ -102,7 +102,7 @@ impl<T> Visit<T> for Rc<RefCell<MappedModule>> {}
 impl MappedModule {
     fn new_shared() -> SharedModule {
         Rc::new(RefCell::new(MappedModule {
-            children: HashMap::new(),
+            children: hashmap! {},
         }))
     }
 
@@ -297,7 +297,7 @@ impl<'a> AnalyzeUses<'a> {
             mod_map,
             current_mod: None,
             current_mod_name: None,
-            modules: HashMap::new(),
+            modules: hashmap! {},
         }
     }
 }

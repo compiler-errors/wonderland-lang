@@ -1,5 +1,5 @@
 mod token;
-pub use self::token::*;
+pub use crate::lexer::token::*;
 use crate::util::{FileId, PResult, Span};
 use std::str::Chars;
 
@@ -503,6 +503,7 @@ impl<'input> Lexer<'input> {
             "GlobalVariable" => Token::QuotationStart("GlobalVariable"),
             "GlobalFn" => Token::QuotationStart("GlobalFn"),
             "Closure" => Token::QuotationStart("Closure"),
+            "Async" => Token::QuotationStart("Async"),
             other => {
                 return perror_at!(
                     Span::new(self.file, string_start, self.current_pos),
@@ -653,6 +654,9 @@ impl<'input> Lexer<'input> {
             "match" => Token::Match,
 
             "instruction" => Token::Instruction,
+
+            "async" => Token::Async,
+            "await" => Token::Await,
 
             "Int" => Token::Int,
             "Float" => Token::Float,

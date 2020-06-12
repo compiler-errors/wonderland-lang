@@ -1,6 +1,5 @@
-use super::represent::AnalyzedProgram;
 use crate::{
-    ana::represent_visitor::PureAnalysisPass,
+    ana::{represent::AnalyzedProgram, represent_visitor::PureAnalysisPass},
     ast::{
         visitor::AstAdapter, AstExpression, AstExpressionData, AstLabel, AstMatchPattern, AstType,
     },

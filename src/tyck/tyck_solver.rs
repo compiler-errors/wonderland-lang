@@ -8,11 +8,11 @@ use crate::{
         tyck_instantiation::*, TyckAdapter, TyckInstantiatedImpl, TyckInstantiatedObjectFunction,
         TYCK_MAX_DEPTH,
     },
-    util::{PError, PResult, Visit, ZipExact, ZipKeys},
+    util::{IntoDisplay, PError, PResult, Visit, ZipExact, ZipKeys},
 };
 use display::DisplayTraitTypes;
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    collections::{BTreeSet, HashMap, HashSet},
     fmt::Debug,
     rc::Rc,
 };
@@ -64,13 +64,14 @@ impl TyckSolver {
         TyckSolver {
             program: analyzed_program,
             epochs: vec![TyckEpoch {
-                inferences: HashMap::new(),
-                successes: HashMap::new(),
+                inferences: hashmap! {},
+                successes: hashmap! {},
                 ambiguous: None,
             }],
             return_type: vec![],
-            variables: HashMap::new(),
-            loops: HashMap::new(),
+            variables: hashmap! {},
+            loops: hashmap! {},
+            // TODO: I: I can memoize the async object name for compiler speedification
         }
     }
 
@@ -325,7 +326,7 @@ impl TyckSolver {
     fn dedupe_trait_refs(
         trait_tys: &BTreeSet<AstTraitTypeWithAssocs>,
     ) -> HashMap<ModuleRef, Vec<AstType>> {
-        let mut unique_traits = HashMap::new();
+        let mut unique_traits = hashmap! {};
         let mut holdout_traits = HashSet::new();
 
         for AstTraitTypeWithAssocs { trt, .. } in trait_tys {
@@ -405,7 +406,7 @@ impl TyckSolver {
     fn commit_epoch(&mut self) -> PResult<()> {
         let inferences = top_epoch!(self).inferences.clone().visit(self)?;
 
-        let mut successes = HashMap::new();
+        let mut successes = hashmap! {};
         for (obj, imp) in top_epoch!(self).successes.clone() {
             let obj = match obj {
                 TyckObjective::Impl(ty, trt) =>
@@ -574,9 +575,9 @@ impl TyckSolver {
     ) -> PResult<AstImplSignature> {
         let impl_info = &self.program.clone().analyzed_impls[&impl_id];
         debug!(
-            "{}Trying impl {:?} for {:?} where {:?}",
+            "{}Trying impl {} for {} where {:?}",
             INDENT.repeat(self.epochs.len()),
-            impl_info.trait_ty,
+            impl_info.trait_ty.as_ref().display(),
             impl_info.impl_ty,
             impl_info.restrictions
         );
@@ -1162,22 +1163,35 @@ impl AstAdapter for TyckSolver {
     }
 
     fn enter_ast_expression(&mut self, e: AstExpression) -> PResult<AstExpression> {
-        if let AstExpressionData::Closure {
-            scope, return_ty, ..
-        } = &e.data
-        {
-            self.return_type.push(return_ty.clone());
-            self.variables.extend(
-                scope
-                    .as_ref()
-                    .unwrap()
-                    .iter()
-                    .map(|(_, v)| (v.id, v.ty.clone())),
-            );
-        }
-
-        if let AstExpressionData::While { id, .. } = &e.data {
-            self.loops.insert(*id, e.ty.clone());
+        match &e.data {
+            AstExpressionData::While { id, .. } => {
+                self.loops.insert(*id, e.ty.clone());
+            },
+            AstExpressionData::Closure {
+                scope, return_ty, ..
+            } => {
+                self.return_type.push(return_ty.clone());
+                self.variables.extend(
+                    scope
+                        .as_ref()
+                        .unwrap()
+                        .iter()
+                        .map(|(_, v)| (v.id, v.ty.clone())),
+                );
+            },
+            AstExpressionData::Async {
+                scope, return_ty, ..
+            } => {
+                self.return_type.push(return_ty.clone());
+                self.variables.extend(
+                    scope
+                        .as_ref()
+                        .unwrap()
+                        .iter()
+                        .map(|(_, v)| (v.id, v.ty.clone())),
+                );
+            },
+            _ => {},
         }
 
         Ok(e)
@@ -1673,21 +1687,21 @@ impl AstAdapter for TyckSolver {
                 self.satisfy_restrictions(&restrictions)?;
             },
 
-            AstExpressionData::Closure {
-                params,
-                expr,
-                return_ty,
-                ..
-            } => {
-                self.return_type.pop().unwrap();
+            AstExpressionData::Closure { params, expr, .. } => {
+                let return_ty = self.return_type.pop().unwrap();
                 let param_tys = params.iter().map(|param| param.ty.clone()).collect();
 
                 self.unify(true, &return_ty, &expr.ty)?;
-                self.unify(
-                    true,
-                    &ty,
-                    &AstType::closure_type(param_tys, return_ty.clone()),
-                )?;
+                self.unify(true, &ty, &AstType::closure_type(param_tys, return_ty))?;
+            },
+            AstExpressionData::Async { expr, .. } => {
+                let return_ty = self.return_type.pop().unwrap();
+                let awaitable_name = self
+                    .program
+                    .construct_obj_ref("std::asynchronous::Awaitable")?;
+
+                self.unify(true, &return_ty, &expr.ty)?;
+                self.unify(true, &ty, &AstType::object(awaitable_name, vec![return_ty]))?;
             },
 
             AstExpressionData::PositionalEnum {
@@ -1748,6 +1762,48 @@ impl AstAdapter for TyckSolver {
                     .clone();
 
                 self.unify(true, &value.ty, &return_ty)?;
+            },
+            AstExpressionData::Await {
+                value,
+                impl_signature,
+                associated_trait,
+            } => {
+                let pollable_ty = value.ty.clone();
+                let poll_result_ty = ty.clone();
+
+                if associated_trait.is_none() {
+                    *associated_trait = Some(AstTraitTypeWithAssocs::new(
+                        self.program.construct_trt_ref("std::asynchronous::Poll")?,
+                        vec![],
+                        btreemap! { "Result".to_string() => poll_result_ty.clone() },
+                    ));
+                }
+
+                if impl_signature.is_none() {
+                    debug!(
+                        "{}Satisfying impl for {}",
+                        INDENT.repeat(self.epochs.len()),
+                        self.normalize_ty(pollable_ty.clone())?
+                    );
+
+                    let impl_candidate = self.satisfy_method_with_trait(
+                        &pollable_ty,
+                        associated_trait.as_ref().unwrap(),
+                        "poll",
+                        &[],
+                        &[pollable_ty.clone()],
+                        &AstType::tuple(vec![
+                            AstType::enumerable(
+                                self.program
+                                    .construct_enum_ref("std::asynchronous::PollState")?,
+                                vec![poll_result_ty],
+                            ),
+                            pollable_ty.clone(),
+                        ]),
+                    )?;
+
+                    *impl_signature = impl_candidate;
+                }
             },
 
             AstExpressionData::Assert { condition } => {
@@ -1856,7 +1912,7 @@ impl TyckAdapter for TyckSolver {
 
         let trait_ty = AstTraitTypeWithAssocs {
             trt: trait_ty,
-            assoc_bindings: BTreeMap::new(),
+            assoc_bindings: btreemap! {},
         };
 
         // TODO: Can we stop doing this once we've got the signature memoized?
@@ -1907,6 +1963,7 @@ impl<'a> AstAdapter for NormalizationAdapter<'a> {
         match t {
             AstType::Infer(id) =>
                 if let Some(t) = top_epoch!(self.0).inferences.get(&id) {
+                    trace!("Normalized _{} as {}", id.0, t);
                     t.clone().visit(self)
                 } else {
                     Ok(AstType::Infer(id))

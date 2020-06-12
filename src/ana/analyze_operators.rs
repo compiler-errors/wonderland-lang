@@ -7,7 +7,6 @@ use crate::{
     cheshire_quote,
     util::{FileRegistry, PResult, Span, Visit},
 };
-use std::collections::BTreeMap;
 
 pub struct AnalyzeOperators {
     analyzed_program: AnalyzedProgram,
@@ -60,20 +59,20 @@ impl AnalyzeOperators {
         rhs: Box<AstExpression>,
     ) -> PResult<AstExpressionData> {
         let (trt_name, fn_name) = match kind {
-            BinOpKind::Multiply => ("Multiply", "mul"),
-            BinOpKind::Divide => ("Divide", "div"),
-            BinOpKind::Modulo => ("Modulo", "rem"),
-            BinOpKind::Add => ("Add", "add"),
-            BinOpKind::Subtract => ("Subtract", "sub"),
-            BinOpKind::Greater => ("Compare", "gt"),
-            BinOpKind::Less => ("Compare", "lt"),
-            BinOpKind::GreaterEqual => ("Compare", "ge"),
-            BinOpKind::LessEqual => ("Compare", "le"),
-            BinOpKind::EqualsEquals => ("Equals", "eq"),
-            BinOpKind::NotEqual => ("Equals", "ne"),
-            BinOpKind::And => ("And", "and"),
-            BinOpKind::Or => ("Or", "or"),
-            BinOpKind::Range => ("Range", "range"),
+            BinOpKind::Multiply => ("std::operators::Multiply", "mul"),
+            BinOpKind::Divide => ("std::operators::Divide", "div"),
+            BinOpKind::Modulo => ("std::operators::Modulo", "rem"),
+            BinOpKind::Add => ("std::operators::Add", "add"),
+            BinOpKind::Subtract => ("std::operators::Subtract", "sub"),
+            BinOpKind::Greater => ("std::operators::Compare", "gt"),
+            BinOpKind::Less => ("std::operators::Compare", "lt"),
+            BinOpKind::GreaterEqual => ("std::operators::Compare", "ge"),
+            BinOpKind::LessEqual => ("std::operators::Compare", "le"),
+            BinOpKind::EqualsEquals => ("std::operators::Equals", "eq"),
+            BinOpKind::NotEqual => ("std::operators::Equals", "ne"),
+            BinOpKind::And => ("std::operators::And", "and"),
+            BinOpKind::Or => ("std::operators::Or", "or"),
+            BinOpKind::Range => ("std::operators::Range", "range"),
             BinOpKind::AndShort | BinOpKind::OrShort => unreachable!(
                 "ICE: Unexpected operator `{:?}` when lifting operator to trait",
                 kind
@@ -91,7 +90,7 @@ impl AnalyzeOperators {
             associated_trait: Some(AstTraitTypeWithAssocs::new(
                 associated_trait,
                 vec![AstType::infer()],
-                BTreeMap::new(),
+                btreemap! {},
             )),
             impl_signature: None,
         })
@@ -137,9 +136,10 @@ impl AstAdapter for AnalyzeOperators {
                 fn_generics: vec![],
                 args: vec![*expr],
                 associated_trait: Some(AstTraitTypeWithAssocs::new(
-                    self.analyzed_program.construct_trt_ref("Negate")?,
+                    self.analyzed_program
+                        .construct_trt_ref("std::operators::Negate")?,
                     vec![],
-                    BTreeMap::new(),
+                    btreemap! {},
                 )),
                 impl_signature: None,
             },
@@ -149,9 +149,10 @@ impl AstAdapter for AnalyzeOperators {
                 fn_generics: vec![],
                 args: vec![*expr],
                 associated_trait: Some(AstTraitTypeWithAssocs::new(
-                    self.analyzed_program.construct_trt_ref("Not")?,
+                    self.analyzed_program
+                        .construct_trt_ref("std::operators::Not")?,
                     vec![],
-                    BTreeMap::new(),
+                    btreemap! {},
                 )),
                 impl_signature: None,
             },
@@ -170,9 +171,10 @@ impl AstAdapter for AnalyzeOperators {
                             fn_generics: vec![],
                             args: vec![*accessible, *idx, *rhs],
                             associated_trait: Some(AstTraitTypeWithAssocs::new(
-                                self.analyzed_program.construct_trt_ref("DerefAssign")?,
+                                self.analyzed_program
+                                    .construct_trt_ref("std::operators::DerefAssign")?,
                                 vec![],
-                                BTreeMap::new(),
+                                btreemap! {},
                             )),
                             impl_signature: None,
                         },
@@ -192,9 +194,10 @@ impl AstAdapter for AnalyzeOperators {
                 fn_generics: vec![],
                 args: vec![*accessible, *idx],
                 associated_trait: Some(AstTraitTypeWithAssocs::new(
-                    self.analyzed_program.construct_trt_ref("Deref")?,
+                    self.analyzed_program
+                        .construct_trt_ref("std::operators::Deref")?,
                     vec![],
-                    BTreeMap::new(),
+                    btreemap! {},
                 )),
                 impl_signature: None,
             },
@@ -208,9 +211,10 @@ impl AstAdapter for AnalyzeOperators {
                     fn_generics: vec![],
                     args: vec![*expr, args],
                     associated_trait: Some(AstTraitTypeWithAssocs::new(
-                        self.analyzed_program.construct_trt_ref("Call")?,
+                        self.analyzed_program
+                            .construct_trt_ref("std::operators::Call")?,
                         vec![AstType::tuple(arg_tys)],
-                        BTreeMap::new(),
+                        btreemap! {},
                     )),
                     impl_signature: None,
                 }
@@ -221,9 +225,10 @@ impl AstAdapter for AnalyzeOperators {
                 fn_generics: vec![],
                 args: vec![*size],
                 associated_trait: Some(AstTraitTypeWithAssocs::new(
-                    self.analyzed_program.construct_trt_ref("AllocateArray")?,
+                    self.analyzed_program
+                        .construct_trt_ref("std::operators::AllocateArray")?,
                     vec![],
-                    BTreeMap::new(),
+                    btreemap! {},
                 )),
                 impl_signature: None,
             },
@@ -233,19 +238,24 @@ impl AstAdapter for AnalyzeOperators {
                 fn_generics: vec![],
                 args: vec![*expression],
                 associated_trait: Some(AstTraitTypeWithAssocs::new(
-                    self.analyzed_program.construct_trt_ref("Into")?,
+                    self.analyzed_program
+                        .construct_trt_ref("std::operators::Into")?,
                     vec![ty],
-                    BTreeMap::new(),
+                    btreemap! {},
                 )),
                 impl_signature: None,
             },
             AstExpressionData::Assert { condition } => AstExpressionData::FnCall {
-                fn_name: self.analyzed_program.construct_fn_ref("assert_impl")?,
+                fn_name: self
+                    .analyzed_program
+                    .construct_fn_ref("std::operators::assert_impl")?,
                 generics: vec![],
                 args: vec![*condition, self.construct_where_at(span)?],
             },
             AstExpressionData::Unimplemented => AstExpressionData::FnCall {
-                fn_name: self.analyzed_program.construct_fn_ref("commalipses_impl")?,
+                fn_name: self
+                    .analyzed_program
+                    .construct_fn_ref("std::operators::commalipses_impl")?,
                 generics: vec![AstType::infer()],
                 args: vec![self.construct_where_at(span)?],
             },

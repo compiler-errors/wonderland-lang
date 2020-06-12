@@ -32,7 +32,7 @@ enum RangeIterator {
 impl Iterator for RangeIterator {
   type Item = Int.
 
-  fn next(self) -> (Option<Int>, RangeIterator) = {
+  fn next(self) -> (Option<Int>, Self) = {
     match self {
       RangeIterator!Finite(a, b) =>
         if a < b {
@@ -99,7 +99,7 @@ impl<_It, _F, _O> Iterator for Map<_It, _F> where
   _F: Fn(<_It as Iterator>::Item) -> _O {
   type Item = _O.
 
-  fn next(self) -> (Option<_O>, Map<_It, _F>) = {
+  fn next(self) -> (Option<_O>, Self) = {
     let Map!Iterator { iterator, fun } = self.
 
     let (next, iterator) = iterator:next().
@@ -128,7 +128,7 @@ enum Enumerate<_It> {
 impl<_It> Iterator for Enumerate<_It> where _It: Iterator {
   type Item = (Int, <_It as Iterator>::Item).
 
-  fn next(self) -> (Option<(Int, <_It as Iterator>::Item)>, Enumerate<_It>) = {
+  fn next(self) -> (Option<(Int, <_It as Iterator>::Item)>, Self) = {
     let Enumerate!Iterator { iterator, idx } = self.
 
     let (next, iterator) = iterator:next().
@@ -160,11 +160,11 @@ enum Limit<_It> {
 impl<_It> Iterator for Limit<_It> where _It: Iterator {
   type Item = <_It as Iterator>::Item.
 
-  fn next(self) -> (Option<<Self as Iterator>::Item>, Limit<_It>) = {
+  fn next(self) -> (Option<<Self as Iterator>::Item>, Self) = {
     let Limit!Iterator { iterator, remaining } = self.
 
     if remaining <= 0 {
-      (Option!None, Limit!Iterator { iterator, remaining })
+      (Option!None, self)
     } else {
       let (next, iterator) = iterator:next().
 
@@ -210,7 +210,7 @@ impl<_I1, _I2> Iterator for Zip<_I1, _I2> where _I1: Iterator, _I2:Iterator {
 
       (Option!Some((n1:unwrap(), n2:unwrap())), Zip!Iterator(i1, i2))
     } else {
-      (Option!None, Zip!Iterator(i1, i2))
+      (Option!None, self)
     }
   }.
 
@@ -249,12 +249,12 @@ enum ArrayIterator<_T> {
 impl<_T> Iterator for ArrayIterator<_T> {
   type Item = _T.
 
-  fn next(self) -> (Option<_T>, ArrayIterator<_T>) = {
+  fn next(self) -> (Option<_T>, Self) = {
     let ArrayIterator!Iterator { array, idx } = self.
     let len = array:len().
 
     if idx >= len {
-      (Option!None, ArrayIterator!Iterator { array, idx })
+      (Option!None, self)
     } else {
       (Option!Some(array[idx]), ArrayIterator!Iterator { array, idx: idx + 1 })
     }
@@ -326,11 +326,11 @@ impl Iterable for String {
 impl Iterator for StringIterator {
   type Item = Char.
 
-  fn next(self) -> (Option<Char>, StringIterator) = {
+  fn next(self) -> (Option<Char>, Self) = {
     let StringIterator!Iterator { str, idx } = self.
 
     if idx >= str:len() {
-      (Option!None, StringIterator!Iterator { str, idx })
+      (Option!None, self)
     } else {
       (Option!Some(str[idx]), StringIterator!Iterator { str, idx: idx + 1 })
     }

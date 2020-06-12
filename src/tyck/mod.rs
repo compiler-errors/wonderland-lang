@@ -9,7 +9,7 @@ use crate::{
     tyck::tyck_constraints::{Dummifier, TyckGenericConstraintAssumptionAdapter},
     util::{Context, FileRegistry, PResult, Visit},
 };
-use std::{collections::HashMap, fmt::Debug, rc::Rc};
+use std::{fmt::Debug, rc::Rc};
 pub use tyck_constraints::TyckDynamicAssumptionAdapter;
 
 mod tyck_constraints;
@@ -111,7 +111,7 @@ pub fn typecheck_impl(base_solver: &TyckSolver, mut imp: AstImpl) -> PResult<Ast
 
     let mut imp = typecheck_simple(&base_solver, imp)?;
 
-    let mut tycked_fns = HashMap::new();
+    let mut tycked_fns = hashmap! {};
     for (name, fun) in fns {
         let fn_generics = Dummifier::from_generics(&fun.generics)?;
 

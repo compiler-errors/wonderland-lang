@@ -1,4 +1,4 @@
-pub use self::spanned::*;
+pub use crate::ast::spanned::*;
 use crate::{
     lexer::Token,
     util::{FileId, FileRegistry, PError, Span},
@@ -122,12 +122,12 @@ impl AstModule {
         let mut uses = vec![];
         let mut pub_uses = vec![];
 
-        let mut functions = HashMap::new();
-        let mut objects = HashMap::new();
-        let mut traits = HashMap::new();
-        let mut enums = HashMap::new();
-        let mut impls = HashMap::new();
-        let mut globals = HashMap::new();
+        let mut functions = hashmap! {};
+        let mut objects = hashmap! {};
+        let mut traits = hashmap! {};
+        let mut enums = hashmap! {};
+        let mut impls = hashmap! {};
+        let mut globals = hashmap! {};
 
         for member in members {
             match member {
@@ -377,12 +377,9 @@ impl AstTraitTypeWithAssocs {
         let call_trait =
             ModuleRef::Denormalized(vec!["std".into(), "operators".into(), "Call".into()]);
 
-        let mut assoc_bindings = BTreeMap::new();
-        assoc_bindings.insert("Return".to_owned(), return_ty);
-
         AstTraitTypeWithAssocs {
             trt: AstTraitType::new(call_trait, vec![AstType::tuple(arg_tys)]),
-            assoc_bindings,
+            assoc_bindings: btreemap! { "Return".to_string() => return_ty },
         }
     }
 
@@ -391,7 +388,7 @@ impl AstTraitTypeWithAssocs {
         children: Vec<AstTypeOrBinding>,
     ) -> Result<AstTraitTypeWithAssocs, AstError> {
         let mut generics = vec![];
-        let mut assoc_bindings = BTreeMap::new();
+        let mut assoc_bindings = btreemap! {};
 
         for child in children {
             match child {
@@ -661,6 +658,13 @@ pub enum AstExpressionData {
         captured: Option<Vec<(AstNamedVariable, AstNamedVariable)>>,
         scope: Option<HashMap<VariableId, AstNamedVariable>>,
     },
+    Async {
+        expr: SubExpression,
+
+        return_ty: AstType,
+        captured: Option<Vec<(AstNamedVariable, AstNamedVariable)>>,
+        scope: Option<HashMap<VariableId, AstNamedVariable>>,
+    },
 
     /// A regular function call
     FnCall {
@@ -803,6 +807,11 @@ pub enum AstExpressionData {
     },
     Return {
         value: SubExpression,
+    },
+    Await {
+        value: SubExpression,
+        impl_signature: Option<AstImplSignature>,
+        associated_trait: Option<AstTraitTypeWithAssocs>,
     },
     Assert {
         condition: SubExpression,
@@ -1123,23 +1132,6 @@ impl AstExpression {
                         .map(|(id, var)| (VariableId(id), var))
                         .collect()
                 }),
-            },
-            ty: AstType::infer(),
-        }
-    }
-
-    pub fn call(
-        span: Span,
-        fn_name: ModuleRef,
-        generics: Vec<AstType>,
-        args: Vec<AstExpression>,
-    ) -> AstExpression {
-        AstExpression {
-            span,
-            data: AstExpressionData::FnCall {
-                fn_name,
-                generics,
-                args,
             },
             ty: AstType::infer(),
         }
@@ -1546,6 +1538,55 @@ impl AstExpression {
             ty: AstType::infer(),
         }
     }
+
+    pub fn await_expr(span: Span, value: AstExpression) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::Await {
+                value: Box::new(value),
+                associated_trait: None,
+                impl_signature: None,
+            },
+            ty: AstType::infer(),
+        }
+    }
+
+    pub fn async_block_expr(span: Span, expr: AstExpression) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::Async {
+                expr: Box::new(expr),
+                return_ty: AstType::infer(),
+                captured: None,
+                scope: None,
+            },
+            ty: AstType::infer(),
+        }
+    }
+
+    pub fn quoted_async(
+        span: Span,
+        return_ty: AstType,
+        expr: AstExpression,
+        captured: Option<Vec<(AstNamedVariable, AstNamedVariable)>>,
+        scope: Option<Vec<(usize, AstNamedVariable)>>,
+    ) -> AstExpression {
+        AstExpression {
+            span,
+            data: AstExpressionData::Async {
+                return_ty,
+                expr: Box::new(expr),
+                captured,
+                scope: scope.map(|scope| {
+                    scope
+                        .into_iter()
+                        .map(|(id, var)| (VariableId(id), var))
+                        .collect()
+                }),
+            },
+            ty: AstType::infer(),
+        }
+    }
 }
 
 #[Adapter("crate::ast::visitor::AstAdapter")]
@@ -1924,8 +1965,8 @@ impl AstTrait {
         restrictions: Vec<AstTypeRestriction>,
         members: Vec<AstTraitMember>,
     ) -> Result<AstTrait, AstError> {
-        let mut functions = HashMap::new();
-        let mut associated_types = HashMap::new();
+        let mut functions = hashmap! {};
+        let mut associated_types = hashmap! {};
 
         for member in members {
             match member {
@@ -2063,8 +2104,8 @@ impl AstImpl {
         restrictions: Vec<AstTypeRestriction>,
         members: Vec<AstImplMember>,
     ) -> Result<AstImpl, AstError> {
-        let mut functions = HashMap::new();
-        let mut associated_types = HashMap::new();
+        let mut functions = hashmap! {};
+        let mut associated_types = hashmap! {};
 
         for member in members {
             match member {

@@ -1,7 +1,6 @@
 use crate::util::result::PResult;
 
-use super::PError;
-use crate::util::Span;
+use crate::util::{PError, Span};
 use std::{
     collections::{HashMap, HashSet},
     ffi::{OsStr, OsString},
@@ -27,10 +26,10 @@ pub struct FileRegistry {
 lazy_static! {
     static ref FILE_ID_COUNTER: RwLock<usize> = RwLock::new(1);
     static ref FILE_REGISTRY: RwLock<FileRegistry> = RwLock::new(FileRegistry {
-        file_ids: HashMap::new(),
-        paths: HashMap::new(),
-        files: HashMap::new(),
-        mod_paths: HashMap::new(),
+        file_ids: hashmap! {},
+        paths: hashmap! {},
+        files: hashmap! {},
+        mod_paths: hashmap! {},
         temporary_files: vec![]
     });
     static ref EXTENSIONS: HashSet<OsString> = {
