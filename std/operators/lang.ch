@@ -1,26 +1,32 @@
+// Transmute all basic types to string
+extern fn internal_itos(i: Int) -> String.
+extern fn internal_ftos(f: Float) -> String.
+extern fn internal_ctos(c: Char) -> String.
+
+// ctoi is basically a no-op in VS, and itof is just widening
+extern fn internal_ctoi(c: Char) -> Int.
+extern fn internal_itof(c: Int) -> Float.
+
+// Allocate an array full of undefined values
+extern fn internal_alloc_empty_array<_T>(n: Int) -> [_T].
+
+// Length functions
+extern fn internal_array_len<_T>(a: [_T]) -> Int.
+extern fn internal_string_len(s: String) -> Int.
+
 trait Len {
   fn len(self) -> Int.
 }
 
 impl<_T> Len for [_T] {
   fn len(self) -> Int = {
-    impl "llvm" {
-      instruction "getelementptr" (self, 0, 0) -> $len.
-      instruction "load" ($len) -> Int
-    } else impl "vorpal_sword" {
-      instruction "array_len" (self) -> Int
-    }
+    internal_array_len(self)
   }.
 }
 
 impl Len for String {
   fn len(self) -> Int = {
-    impl "llvm" {
-      instruction "getelementptr" (self, 0, 0) -> $len.
-      instruction "load" ($len) -> Int
-    } else impl "vorpal_sword" {
-      instruction "string_len" (self) -> Int
-    }
+    internal_string_len(self)
   }.
 }
 
@@ -39,15 +45,11 @@ impl Hash for String {
     let h = 525201411107845655.
 
     for c in self {
-      let c_as_i = impl "llvm" {
-        instruction "zext" (c, _ :Int) -> Int
-      } else impl "vorpal_sword" {
-        instruction "reinterpret" (c, _ :Int) -> Int
-      }.
+      let c_as_i = internal_ctoi(c).
 
-      h = instruction "xor" (h, c_as_i) -> Int.
+      h = internal_xor(h, c_as_i).
       h = h * 6616326155283851669.
-      h = instruction "xor" (h, instruction "lshr" (c_as_i, 47) -> Int) -> Int.
+      h = internal_xor(h, internal_lshr(c_as_i, 47)).
     }
 
     h
@@ -56,11 +58,7 @@ impl Hash for String {
 
 impl Hash for Char {
   fn hash(self) -> Int = {
-    let c_as_i = impl "llvm" {
-      instruction "zext" (self, _ :Int) -> Int
-    } else impl "vorpal_sword" {
-      instruction "reinterpret" (self, _ :Int) -> Int
-    }.
+    let c_as_i = internal_ctoi(self).
 
     c_as_i:hash()
   }.
@@ -81,7 +79,7 @@ trait AllocateArray {
 
 impl<_T> AllocateArray for _T where _T: Default {
   fn allocate_array(n: Int) -> [_T] = {
-    let a = allocate_empty_array_internal:<_T>(n).
+    let a = internal_alloc_empty_array:<_T>(n).
 
     for i in 0..n {
       a[i] = <_T>:default().
@@ -101,11 +99,53 @@ impl<_T> Into<_T> for _T {
 
 impl Into<Float> for Int {
   fn into(self) -> Float = {
-    impl "llvm" {
-      instruction "sitofp" (self) -> Float
-    } else impl "vorpal_sword" {
-      instruction "int_to_float" (self) -> Float
+    internal_itof(self)
+  }.
+}
+
+impl Into<String> for Int {
+  fn into(self) -> String = {
+    internal_itos(self)
+  }.
+}
+
+impl Into<String> for Float {
+  fn into(self) -> String = {
+    internal_ftos(self)
+  }.
+}
+
+impl Into<String> for Char {
+  fn into(self) -> String = {
+    internal_ctos(self)
+  }.
+}
+
+impl Into<String> for Bool {
+  fn into(self) -> String = {
+    match self {
+      true => "true",
+      false => "false",
     }
+  }.
+}
+
+impl<_T> Into<String> for [_T] where _T: Into<String> {
+  fn into(self) -> String = {
+    let s = "[".
+    let first = true.
+
+    for i in self {
+      if first {
+        first = false.
+      } else {
+        s = s + ", ".
+      }
+
+      s = s + (i as String).
+    }
+
+    s + "]"
   }.
 }
 
@@ -125,3 +165,14 @@ impl Range<Int> for Int {
   fn range(self, t: Int) -> RangeIterator =
     RangeIterator!Finite(self, t).
 }
+
+/* TODO: Not really an internal fn, but I can't resize arrays that have slices to them. It's too risky!! */
+fn internal_resize_array<_T>(a: [_T], n: Int) -> [_T] = {
+  let a_new = internal_alloc_empty_array:<_T>(n).
+
+  for (i, x) in a:iterator():enumerate():limit(n) {
+    a_new[i] = x.
+  }
+
+  a_new
+}.

@@ -1,3 +1,11 @@
+// Array internal operations
+extern fn internal_array_deref<_T>(a: [_T], n: Int) -> _T.
+extern fn internal_array_store<_T>(a: [_T], n: Int, i: _T) -> _T.
+extern fn internal_array_slice<_T>(a: [_T], b: Int, c: Int) -> [_T].
+
+// Get a char from a string
+extern fn internal_string_deref(a: String, n: Int) -> Char.
+
 trait Deref<_Idx> {
   type Result.
 
@@ -12,12 +20,7 @@ impl<_T> Deref<Int> for [_T] {
         panic:<()>("Index out of bounds for \(type_string:<Self>())... length = \(self:len()), index = \(idx).").
       }
 
-      impl "llvm" {
-        instruction "getelementptr" (self, 0, 2, idx) -> $ptr.
-        instruction "load" ($ptr) -> _T
-      } else impl "vorpal_sword" {
-        instruction "array_deref" (self, idx) -> _T
-      }
+      internal_array_deref(self, idx)
   }.
 }
 
@@ -50,7 +53,7 @@ impl<_T> Deref<RangeIterator> for [_T] {
       panic:<()>("End index of array slice is out of bounds. End = \(start), length = \(len).").
     }
 
-    instruction "array_slice" (self, start, end) -> [_T]
+    internal_array_slice(self, start, end)
   }.
 }
 
@@ -62,12 +65,7 @@ impl Deref<Int> for String {
       panic:<()>("Index out of bounds for String... length = \(self:len()), index = \(idx).").
     }
 
-    impl "llvm" {
-      instruction "getelementptr" (self, 0, 1, idx) -> $ptr.
-      instruction "load" ($ptr) -> Char
-    } else impl "vorpal_sword" {
-      instruction "string_deref" (self, idx) -> Char
-    }
+    internal_string_deref(self, idx)
   }.
 }
 
@@ -88,13 +86,6 @@ impl<_T> DerefAssign<Int> for [_T] {
         panic:<()>("Index out of bounds for \(type_string:<Self>())... length = \(self:len()), index = \(idx).").
       }
 
-      impl "llvm" {
-        instruction "getelementptr" (self, 0, 2, idx) -> $ptr.
-        instruction "store" ($ptr, value) -> ().
-      } else impl "vorpal_sword" {
-        instruction "array_store" (self, idx, value) -> ().
-      }
-
-      value
+      internal_array_store(self, idx, value)
   }.
 }

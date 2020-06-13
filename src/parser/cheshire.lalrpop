@@ -56,7 +56,7 @@ extern {
         "pub" => Token::Pub,
         "mod" => Token::Mod,
         "fn" => Token::Fn,
-        "export" => Token::Export,
+        "extern" => Token::Extern,
         "let" => Token::Let,
         "trait" => Token::Trait,
         "impl" => Token::Impl,
@@ -307,7 +307,7 @@ Global: AstGlobalVariable = {
 /// --- Function --- ///
 
 Function: AstFunction = {
-    "export" "fn" <l:@L> <i:Identifier> <h:@R> <g:MaybeDeclGenerics> <p:DeclParams> <r:SMaybeReturn> <w:MaybeRestrictions> "." =>
+    "extern" "fn" <l:@L> <i:Identifier> <h:@R> <g:MaybeDeclGenerics> <p:DeclParams> <r:SMaybeReturn> <w:MaybeRestrictions> "." =>
         AstFunction::new_declaration(file, Span::new(file, l, h), i, g, p, r, w),
     "fn" <l:@L> <i:Identifier> <h:@R> <g:MaybeDeclGenerics> <p:DeclParams> <r:SMaybeReturn> <w:MaybeRestrictions> "=" <e:Expression> "." =>
         AstFunction::new_definition(file, Span::new(file, l, h), i, g, p, r, w, e),

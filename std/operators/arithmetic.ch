@@ -1,3 +1,22 @@
+extern fn internal_add(a: Int, b: Int) -> Int.
+extern fn internal_sub(a: Int, b: Int) -> Int.
+extern fn internal_mul(a: Int, b: Int) -> Int.
+extern fn internal_div(a: Int, b: Int) -> Int.
+extern fn internal_rem(a: Int, b: Int) -> Int.
+extern fn internal_xor(a: Int, b: Int) -> Int.
+extern fn internal_lshr(a: Int, b: Int) -> Int.
+extern fn internal_neg(a: Int) -> Int.
+
+extern fn internal_csub(a: Char, b: Char) -> Int.
+
+extern fn internal_fadd(a: Float, b: Float) -> Float.
+extern fn internal_fsub(a: Float, b: Float) -> Float.
+extern fn internal_fmul(a: Float, b: Float) -> Float.
+extern fn internal_fdiv(a: Float, b: Float) -> Float.
+extern fn internal_fneg(a: Float) -> Float.
+
+extern fn internal_string_add(a: String, b: String) -> String.
+
 trait Add<_T> {
   type Result.
   fn add(self, other: _T) -> <Self as Add<_T>>::Result.
@@ -7,7 +26,7 @@ impl Add<Int> for Int {
   type Result = Int.
 
   fn add(self, other: Int) -> Int = {
-    instruction "add" (self, other) -> Int
+    internal_add(self, other)
   }.
 }
 
@@ -15,7 +34,7 @@ impl Add<Float> for Float {
   type Result = Float.
 
   fn add(self, other: Float) -> Float = {
-    instruction "fadd" (self, other) -> Float
+    internal_fadd(self, other)
   }.
 }
 
@@ -23,11 +42,7 @@ impl Add<String> for String {
   type Result = String.
 
   fn add(self, other: String) -> String = {
-    impl "llvm" {
-      add_string_internal(self, other)
-    } else impl "vorpal_sword" {
-      instruction "add_string" (self, other) -> String
-    }
+    internal_string_add(self, other)
   }.
 }
 
@@ -56,12 +71,7 @@ impl Subtract<Char> for Char {
   type Result = Int.
 
   fn sub(self, other: Char) -> Int = {
-    impl "llvm" {
-      instruction "sub" (self, other) -> $tmp.
-      instruction "sext" ($tmp, _ :Int) -> Int
-    } else impl "vorpal_sword" {
-      instruction "csub" (self, other) -> Int
-    }
+    internal_csub(self, other)
   }.
 }
 
@@ -74,7 +84,7 @@ impl Multiply<Int> for Int {
   type Result = Int.
 
   fn mul(self, other: Int) -> Int = {
-    instruction "mul" (self, other) -> Int
+    internal_mul(self, other)
   }.
 }
 
@@ -82,7 +92,7 @@ impl Multiply<Float> for Float {
   type Result = Float.
 
   fn mul(self, other: Float) -> Float = {
-    instruction "fmul" (self, other) -> Float
+    internal_fmul(self, other)
   }.
 }
 
@@ -95,7 +105,7 @@ impl Divide<Int> for Int {
   type Result = Int.
 
   fn div(self, other: Int) -> Int = {
-    instruction "sdiv" (self, other) -> Int
+    internal_div(self, other)
   }.
 }
 
@@ -103,7 +113,7 @@ impl Divide<Float> for Float {
   type Result = Float.
 
   fn div(self, other: Float) -> Float = {
-    instruction "fdiv" (self, other) -> Float
+    internal_fdiv(self, other)
   }.
 }
 
@@ -116,7 +126,7 @@ impl Modulo<Int> for Int {
   type Result = Int.
 
   fn rem(self, other: Int) -> Int = {
-    instruction "srem" (self, other) -> Int
+    internal_rem(self, other)
   }.
 }
 
@@ -129,7 +139,7 @@ impl Negate for Int {
   type Result = Int.
 
   fn negate(self) -> Int = {
-    instruction "neg" (self) -> Int
+    internal_neg(self)
   }.
 }
 
@@ -137,7 +147,7 @@ impl Negate for Float {
   type Result = Float.
 
   fn negate(self) -> Float = {
-    instruction "fneg" (self) -> Float
+    internal_fneg(self)
   }.
 }
 

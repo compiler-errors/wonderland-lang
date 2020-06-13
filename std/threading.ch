@@ -26,7 +26,7 @@ impl for Thread {
 
     while true {
       if let Option!Some(value) = self:completed {
-        break value. 
+        break value.
       } else {
         // TODO: I: I should actually block on this thread.
         instruction "ch_thread_block" (self:id) -> ().
@@ -36,13 +36,13 @@ impl for Thread {
     }
   }.
 
-  // Convenience function. Same as Thread:join, but explicitly downcast. 
+  // Convenience function. Same as Thread:join, but explicitly downcast.
   // Panics if the joined value isn't the specified concrete type.
   fn join_as<_T>(self) -> _T = {
     self:join():downcast()
   }.
 
-  // Waits until all threads are finished. This is only allowed to be executed 
+  // Waits until all threads are finished. This is only allowed to be executed
   // on the main thread, will panic otherwise.
   fn coalesce() = {
     if Thread:current():id != 0 {

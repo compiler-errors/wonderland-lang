@@ -115,15 +115,30 @@ impl TyckSolver {
     }
 
     fn unify(&mut self, full_unify: bool, a: &AstType, b: &AstType) -> PResult<()> {
-        debug!(
-            "{}Unifying {} and {} (full? {})",
-            INDENT.repeat(self.epochs.len()),
-            a,
-            b,
-            full_unify
-        );
-
+        let (old_a, old_b) = (a, b);
         let (a, b) = (self.normalize_ty(a.clone())?, self.normalize_ty(b.clone())?);
+
+        if a == b {
+            trace!(
+                "{}Unifying {} and {} (pre-norm {} and {}) (FULL? {})",
+                INDENT.repeat(self.epochs.len()),
+                a,
+                b,
+                old_a,
+                old_b,
+                full_unify
+            );
+        } else {
+            debug!(
+                "{}Unifying {} and {} (pre-norm {} and {}) (FULL? {})",
+                INDENT.repeat(self.epochs.len()),
+                a,
+                b,
+                old_a,
+                old_b,
+                full_unify
+            );
+        }
 
         match (a, b) {
             /* Generics should have been repl'ed out. */
@@ -1266,11 +1281,15 @@ impl AstAdapter for TyckSolver {
             )?)?;
 
             for (name, ty) in &i.associated_types {
-                let restrictions: Vec<_> =
-                    instantiate_associated_ty_restrictions(&self.program, trait_ty, &name, &ty)?
-                        .into_iter()
-                        .map(|trt| AstTypeRestriction::new(ty.clone(), trt))
-                        .collect();
+                let restrictions: Vec<_> = instantiate_associated_ty_restrictions(
+                    &self.program,
+                    trait_ty,
+                    &name,
+                    &i.impl_ty,
+                )?
+                .into_iter()
+                .map(|trt| AstTypeRestriction::new(ty.clone(), trt))
+                .collect();
 
                 self.satisfy_restrictions(&restrictions)?;
             }
@@ -1938,11 +1957,15 @@ impl AnAdapter for TyckSolver {
             )?)?;
 
             for (name, ty) in &i.associated_tys {
-                let restrictions: Vec<_> =
-                    instantiate_associated_ty_restrictions(&self.program, trait_ty, &name, &ty)?
-                        .into_iter()
-                        .map(|trt| AstTypeRestriction::new(ty.clone(), trt))
-                        .collect();
+                let restrictions: Vec<_> = instantiate_associated_ty_restrictions(
+                    &self.program,
+                    trait_ty,
+                    &name,
+                    &i.impl_ty,
+                )?
+                .into_iter()
+                .map(|trt| AstTypeRestriction::new(ty.clone(), trt))
+                .collect();
 
                 self.satisfy_restrictions(&restrictions)?;
             }

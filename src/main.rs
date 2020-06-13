@@ -1,7 +1,10 @@
 #![deny(unused_must_use)]
+#![allow(incomplete_features)] // I'm in danger (:
 #![feature(result_cloned)]
 #![feature(option_expect_none)]
 #![feature(move_ref_pattern)]
+#![feature(const_generics)]
+#![feature(const_compare_raw_pointers)]
 
 #[macro_use]
 extern crate lazy_static;
@@ -407,7 +410,7 @@ fn try_translate(
     let (a, p) = analyze(program)?;
 
     typecheck(&a, &p)?;
-    let i = instantiate(a, p)?;
+    let (i, _) = instantiate(a, p)?;
     translate(i, llvm_ir, output_file, included_files, permanent_temp_dir)?;
 
     Ok(())
@@ -419,8 +422,8 @@ fn try_evaluate(files: Vec<FileId>) -> PResult<()> {
     let (a, p) = analyze(program)?;
 
     typecheck(&a, &p)?;
-    let i = instantiate(a, p)?;
-    evaluate(i)?;
+    let (i, a) = instantiate(a, p)?;
+    evaluate(i, a)?;
 
     Ok(())
 }

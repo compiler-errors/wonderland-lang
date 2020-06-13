@@ -1,4 +1,5 @@
 use super::{
+    exported::VorpalExternFn,
     thread::{ThreadId, VResult, VorpalControl, VorpalControlState, VorpalThread},
     value::VorpalValue,
 };
@@ -59,6 +60,7 @@ pub struct VorpalHeap<'v> {
     blocked_threads: HashMap<ThreadId, VorpalThread<'v>>,
 
     pub global_variables: HashMap<ModuleRef, VorpalValue>,
+    pub extern_fns: HashMap<ModuleRef, VorpalExternFn>,
 
     heap_structs: HashMap<VorpalHeapPointer, Vec<VorpalValue>>,
     dyn_boxes: HashMap<VorpalDynPointer, VorpalDynBox>,
@@ -67,7 +69,7 @@ pub struct VorpalHeap<'v> {
 }
 
 impl<'v> VorpalHeap<'v> {
-    pub fn new() -> VorpalHeap<'v> {
+    pub fn new(extern_fns: HashMap<ModuleRef, VorpalExternFn>) -> VorpalHeap<'v> {
         VorpalHeap {
             thread_schedule: VecDeque::new(),
             blocked_threads: hashmap! {},
@@ -77,6 +79,7 @@ impl<'v> VorpalHeap<'v> {
             dyn_boxes: hashmap! {},
             closures: hashmap! {},
             awaitables: hashmap! {},
+            extern_fns,
         }
     }
 
@@ -105,16 +108,24 @@ impl<'v> VorpalHeap<'v> {
         }
     }
 
-    pub fn get_object_idx(&mut self, v: VorpalValue, idx: usize) -> &mut VorpalValue {
+    pub fn get_object_idx(&mut self, v: VorpalValue, idx: usize) -> VResult<&mut VorpalValue> {
         if let VorpalValue::HeapCollection { id, offset, limit } = v {
             let adj_idx = idx + offset;
-            assert!(adj_idx < limit);
 
-            self.heap_structs
+            if adj_idx >= limit {
+                return vorpal_panic!(
+                    "ICE: Index of array slice ({}) cannot be greater than limit ({}).",
+                    idx,
+                    limit - offset,
+                );
+            }
+
+            Ok(self
+                .heap_structs
                 .get_mut(&id)
                 .expect("ICE: null pointer")
                 .get_mut(idx)
-                .expect("Object/Array is too small to get indexed value")
+                .expect("Object/Array is too small to get indexed value"))
         } else {
             unreachable!(
                 "ICE: Can only get heap child from Array or Object, got `{:?}`",

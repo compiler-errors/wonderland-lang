@@ -1,3 +1,4 @@
+use super::thread::VResult;
 use crate::{inst::InstFunctionSignature, vs::heap::*};
 
 #[derive(Clone, Debug)]
@@ -70,41 +71,32 @@ impl VorpalValue {
         }
     }
 
-    pub fn get_object_len(&self) -> usize {
-        if let VorpalValue::HeapCollection { offset, limit, .. } = self {
-            limit - offset
-        } else {
-            unreachable!(
-                "ICE: Can only get length from Array or Object, got `{:?}`",
-                self
-            )
-        }
-    }
-
-    pub fn get_object_slice(self, start: usize, end: usize) -> VorpalValue {
+    pub fn get_object_slice(self, start: usize, end: usize) -> VResult<VorpalValue> {
         if let VorpalValue::HeapCollection { id, offset, limit } = &self {
             let adj_start = start + *offset;
             let adj_end = end + *offset;
 
             if adj_end < adj_start {
-                unreachable!(
+                return vorpal_panic!(
                     "ICE: Start of array slice ({}) cannot be greater than end ({}).",
-                    adj_start, adj_end
+                    start,
+                    end
                 );
             }
 
             if *limit < adj_end {
-                unreachable!(
+                return vorpal_panic!(
                     "ICE: End of array slice ({}) cannot be past end of array ({})",
-                    adj_end, limit
+                    end,
+                    *limit - *offset
                 );
             }
 
-            VorpalValue::HeapCollection {
+            Ok(VorpalValue::HeapCollection {
                 id: *id,
                 offset: adj_start,
                 limit: adj_end,
-            }
+            })
         } else {
             unreachable!("ICE: Can only take a slice of an array, got `{:?}`", self);
         }

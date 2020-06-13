@@ -167,8 +167,8 @@ pub fn report_err(err: PError) -> ! {
 
         let arrow = format!("{}^", "-".repeat(start_col - 1));
         println!(
-            "... at {}, {}:{} to {}:{}.\n{}\n{}",
-            path, start_row, start_col, end_row, end_col, line, arrow
+            "... at {}:{}:{} to {}:{}:{}.\n{}\n{}",
+            path, start_row, start_col, path, end_row, end_col, line, arrow
         );
     } else {
         println!();

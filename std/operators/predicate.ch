@@ -1,3 +1,11 @@
+extern fn internal_gt(a: Int, b: Int) -> Bool.
+extern fn internal_eq(a: Int, b: Int) -> Bool.
+
+extern fn internal_fgt(a: Float, b: Float) -> Bool.
+extern fn internal_feq(a: Float, b: Float) -> Bool.
+
+extern fn internal_string_eq(a: String, b: String) -> Bool.
+
 trait PartialCompare<_T> {
   fn compare(self, other: _T) -> Int.
 }
@@ -10,9 +18,9 @@ impl PartialCompare<Int> for Int {
 
 impl PartialCompare<Float> for Float {
   fn compare(self, other: Float) -> Int = {
-    if instruction "fcmp eq" (self, other) -> Bool {
+    if internal_feq(self, other) {
       0
-    } else if instruction "fcmp gt" (self, other) -> Bool {
+    } else if internal_fgt(self, other) {
       1
     } else {
       -1
@@ -36,12 +44,12 @@ trait Compare<_T> {
 impl<_S, _T> Compare<_T> for _S where _S: PartialCompare<_T> {
   fn gt(self, other: _T) -> Bool = {
     let res = self:compare(other).
-    instruction "icmp sgt" (res, 0) -> Bool
+    internal_gt(res, 0)
   }.
 
   fn lt(self, other: _T) -> Bool = {
     let res = self:compare(other).
-    instruction "icmp sgt" (0, res) -> Bool
+    internal_gt(0, res)
   }.
 
   fn ge(self, other: _T) -> Bool = {
@@ -61,7 +69,7 @@ trait Equals<_T> {
 impl<_S, _T> Equals<_T> for _S where _S: PartialCompare<_T> {
   fn eq(self, other: _T) -> Bool = {
     let res = self:compare(other).
-    instruction "icmp eq" (res, 0) -> Bool
+    internal_eq(res, 0)
   }.
 
   fn ne(self, other: _T) -> Bool = {
@@ -71,19 +79,11 @@ impl<_S, _T> Equals<_T> for _S where _S: PartialCompare<_T> {
 
 impl Equals<String> for String {
   fn eq(self, other: String) -> Bool = {
-    impl "llvm" {
-      eq_string_internal(self, other)
-    } else impl "vorpal_sword" {
-      instruction "string_eq" (self, other) -> Bool
-    }
+    internal_string_eq(self, other)
   }.
 
   fn ne(self, other: String) -> Bool = {
-    impl "llvm" {
-      !eq_string_internal(self, other)
-    } else impl "vorpal_sword" {
-      !(instruction "string_eq" (self, other) -> Bool)
-    }
+    !internal_string_eq(self, other)
   }.
 }
 

@@ -47,8 +47,8 @@ impl<_T> Wait for _T where _T: Poll {
 }
 
 trait Join {
-    // type Result.
-    type Joined. //: Poll<::Result = <Self as Join>::Result>.
+    type Result.
+    type Joined: Poll<::Result = <Self as Join>::Result>.
 
     fn join(self) -> <Self as Join>::Joined.
 }
@@ -61,7 +61,7 @@ enum Join2<_PT, _T, _PS, _S> {
 }
 
 impl<_PT, _T, _PS, _S> Join for (_PT, _PS) where _PT: Poll<::Result = _T>, _PS: Poll<::Result = _S> {
-    // type Result = (_T, _S).
+    type Result = (_T, _S).
     type Joined = Join2<_PT, _T, _PS, _S>.
 
     fn join(self) -> Join2<_PT, _T, _PS, _S> =

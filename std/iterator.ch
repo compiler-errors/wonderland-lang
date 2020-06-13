@@ -40,7 +40,7 @@ impl Iterator for RangeIterator {
         } else {
           (Option!None, self)
         },
-      RangeIterator!Infinite(a) => 
+      RangeIterator!Infinite(a) =>
         (Option!Some(a), RangeIterator!Infinite(a + 1)),
     }
   }.
@@ -278,11 +278,11 @@ impl<_I> FromIterator<_I> for [_I] {
     let s = it:size_hint().
     let last = -1.
 
-    let a = allocate_empty_array_internal:<_I>(s).
+    let a = internal_alloc_empty_array:<_I>(s).
 
     for (i, x) in it:enumerate() {
       if i >= a:len() {
-        a = resize_array_internal(a, a:len() * 2).
+        a = internal_resize_array(a, a:len() * 2).
       }
 
       a[i] = x.
@@ -292,20 +292,10 @@ impl<_I> FromIterator<_I> for [_I] {
     if a:len() == last + 1 {
       a
     } else {
-      resize_array_internal(a, last + 1)
+      internal_resize_array(a, last + 1)
     }
   }.
 }
-
-fn resize_array_internal<_T>(a: [_T], n: Int) -> [_T] = {
-  let a_new = allocate_empty_array_internal:<_T>(n).
-
-  for (i, x) in a:iterator():enumerate():limit(n) {
-    a_new[i] = x.
-  }
-
-  a_new
-}.
 
 enum StringIterator {
   Iterator {

@@ -1,4 +1,5 @@
 use crate::{
+    ana::represent::AnalyzedProgram,
     ast::{
         AstBlock, AstExpression, AstExpressionData, AstFunction, AstGlobalVariable, AstLiteral,
         AstMatchPattern, AstMatchPatternData, AstNamedVariable, AstObject, AstObjectFunction,
@@ -13,15 +14,13 @@ use crate::{
     util::{PResult, Span, ZipExact},
     vs::{heap::*, thread::*, value::*},
 };
+use exported::{get_extern_fns, VorpalExternFn};
 use itertools::Itertools;
-use std::{
-    collections::HashMap,
-    ops::{BitXor, Shr},
-    time::Instant,
-};
+use std::{collections::HashMap, rc::Rc, time::Instant};
 
 #[macro_use]
 mod thread;
+mod exported;
 mod heap;
 mod value;
 
@@ -43,7 +42,10 @@ struct VorpalSword {
     pub type_ids: HashMap<AstType, usize>,
 }
 
-pub fn evaluate(program: InstantiatedProgram) -> PResult<()> {
+pub fn evaluate(
+    instantiated_program: InstantiatedProgram,
+    analyzed_program: Rc<AnalyzedProgram>,
+) -> PResult<()> {
     let InstantiatedProgram {
         main_fn,
 
@@ -55,7 +57,7 @@ pub fn evaluate(program: InstantiatedProgram) -> PResult<()> {
 
         instantiated_types,
         ..
-    } = program;
+    } = instantiated_program;
 
     let mut program_object_tables: HashMap<_, HashMap<_, _>> = hashmap! {};
 
@@ -93,7 +95,9 @@ pub fn evaluate(program: InstantiatedProgram) -> PResult<()> {
             .collect(),
     };
 
-    let exit_code = vs.run();
+    let extern_fns = get_extern_fns(&analyzed_program)?;
+
+    let exit_code = vs.run(extern_fns);
 
     match exit_code {
         Ok(exit_code) => {
@@ -112,8 +116,8 @@ pub fn evaluate(program: InstantiatedProgram) -> PResult<()> {
 // leaf fn `do_*`)
 
 impl VorpalSword {
-    fn run(&self) -> VResult<i64> {
-        let mut heap = VorpalHeap::new();
+    fn run(&self, extern_fns: HashMap<ModuleRef, VorpalExternFn>) -> VResult<i64> {
+        let mut heap = VorpalHeap::new(extern_fns);
         // Allocate the main_thread first, so we can make sure it has thread_id == 0.
         let mut main_thread = heap.new_thread(self.type_ids[&AstType::Int]);
         assert_eq!(main_thread.thread_id, MAIN_THREAD_ID);
@@ -133,7 +137,7 @@ impl VorpalSword {
                         e.clone(),
                         exit_type_id,
                     )?;
-                    *heap.get_object_idx(global_mini_thread.thread_object, 1) =
+                    *heap.get_object_idx(global_mini_thread.thread_object, 1)? =
                         VorpalValue::EnumVariant {
                             variant: "Some".to_string(),
                             values: vec![dyn_exit_value],
@@ -180,7 +184,7 @@ impl VorpalSword {
                         exit_value,
                         exit_type_id,
                     )?;
-                    *heap.get_object_idx(current_thread.thread_object, 1) =
+                    *heap.get_object_idx(current_thread.thread_object, 1)? =
                         VorpalValue::EnumVariant {
                             variant: "Some".to_string(),
                             values: vec![dyn_exit_value],
@@ -889,7 +893,7 @@ impl VorpalSword {
                 VorpalControlState::Value(value)
             },
             VorpalControl::ObjectAccess(idx) =>
-                VorpalControlState::Value(heap.get_object_idx(value, idx).clone()),
+                VorpalControlState::Value(heap.get_object_idx(value, idx)?.clone()),
             VorpalControl::If { block, else_block } =>
                 if value.as_boolean() {
                     self.do_block(heap, thread, block)?
@@ -1116,7 +1120,7 @@ impl VorpalSword {
                 mem_idx,
                 indices_rev,
             } => {
-                let mut lval = heap.get_object_idx(value, mem_idx);
+                let mut lval = heap.get_object_idx(value, mem_idx)?;
 
                 for idx in indices_rev.into_iter().rev() {
                     lval = lval.get_tuple_idx_mut(idx);
@@ -1176,19 +1180,22 @@ impl VorpalSword {
         &'v self,
         heap: &mut VorpalHeap<'v>,
         thread: &mut VorpalThread<'v>,
-        fun: InstFunctionSignature,
+        fun_sig: InstFunctionSignature,
         args: Vec<VorpalValue>,
     ) -> VResult<VorpalControlState<'v>> {
-        let fun = &self.program_fns[&fun];
-        self.do_call(
-            heap,
-            thread,
-            &fun.parameter_list,
-            args,
-            fun.definition
-                .as_ref()
-                .expect("ICE: can only dispatch to functions with a definition"),
-        )
+        let fun = &self.program_fns[&fun_sig];
+
+        if let Some(definition) = &fun.definition {
+            self.do_call(heap, thread, &fun.parameter_list, args, definition)
+        } else if let Some(definition) = heap.extern_fns.get(&fun.module_ref) {
+            let value = definition(heap, thread, &fun_sig.1, args)?;
+            Ok(VorpalControlState::Value(value))
+        } else {
+            unreachable!(
+                "ICE: Undefined extern function: `{}`",
+                fun.module_ref.full_name()
+            );
+        }
     }
 
     fn do_obj_call<'v>(
@@ -1342,12 +1349,12 @@ impl VorpalSword {
         span: Span,
         instruction: &str,
         mut arguments: Vec<VorpalInstructionArgument<'v>>,
-        _output: &InstructionOutput,
+        output: &InstructionOutput,
     ) -> VResult<VorpalControlState<'v>> {
         // TODO: X: We should really be asserting these output types are sane...
 
         Ok(match arguments.len() {
-            n if n >= 1 && instruction == "call" => {
+            n if n >= 1 && instruction == "ch_call" => {
                 let mut call_args = vec![];
                 for a in arguments {
                     match a {
@@ -1381,14 +1388,8 @@ impl VorpalSword {
 
                 self.do_dynamic_call(heap, thread, span, &fn_name, call_args)?
             },
-            0 => match instruction {
-                "undefined_value" => VorpalControlState::Value(VorpalValue::Undefined),
-                "breakpoint" => {
-                    self.breakpoint();
-                    VorpalControlState::Value(VorpalValue::unit())
-                },
-                "gc" => todo!("TODO: VS: "),
-                "ch_thread_yield" => {
+            0 => match (instruction, output) {
+                ("ch_thread_yield", InstructionOutput::Type(AstType::Tuple { types })) if types.is_empty() => {
                     if heap.num_ready_threads() > 0 {
                         // Park the current state, which is just the return value of this
                         // instruction == `()`.
@@ -1416,7 +1417,7 @@ impl VorpalSword {
                         VorpalControlState::Value(VorpalValue::unit())
                     }
                 },
-                "ch_thread_coalesce" => {
+                ("ch_thread_coalesce", InstructionOutput::Type(AstType::Tuple { types })) if types.is_empty() => {
                     if heap.num_all_threads(true) > 1 {
                         // Park the current state, which is just the return value of this
                         // instruction == `()`.
@@ -1443,58 +1444,22 @@ impl VorpalSword {
                         VorpalControlState::Value(VorpalValue::unit())
                     }
                 },
-                "ch_thread_current" => VorpalControlState::Value(thread.thread_object.clone()),
-                "ch_thread_count" =>
+                ("ch_thread_current", InstructionOutput::Type(AstType::Object(_name, generics))) 
+                    if /* TODO: S: heap.symbolizer.name_matches(name, "std::threading", "Thread") && */  generics.is_empty()
+                    => VorpalControlState::Value(thread.thread_object.clone()),
+                ("ch_thread_count", InstructionOutput::Type(AstType::Int)) =>
                     VorpalControlState::Value(VorpalValue::Int(heap.num_all_threads(true) as i64)),
-                _ =>
+                (_, _) =>
                     return vorpal_panic_at!(span, "Unknown nullary instruction `{}`", instruction,),
             },
             1 => {
                 let v0 = arguments.into_iter().next().unwrap();
-                match (instruction, v0) {
-                    ("neg", VorpalInstructionArgument::Value(VorpalValue::Int(v0))) =>
-                        VorpalControlState::Value(VorpalValue::Int(-v0)),
-                    ("fneg", VorpalInstructionArgument::Value(VorpalValue::Float(v0))) =>
-                        VorpalControlState::Value(VorpalValue::Float(-v0)),
-                    ("print", VorpalInstructionArgument::Value(VorpalValue::String(v0))) => {
-                        print!("{}", v0);
-                        VorpalControlState::Value(VorpalValue::unit())
-                    },
-                    ("int_to_float", VorpalInstructionArgument::Value(VorpalValue::Int(v0))) =>
-                        VorpalControlState::Value(VorpalValue::Float(v0 as f64)),
-                    ("int_to_string", VorpalInstructionArgument::Value(VorpalValue::Int(v0))) =>
-                        VorpalControlState::Value(VorpalValue::String(format!("{}", v0))),
-                    ("char_to_string", VorpalInstructionArgument::Value(VorpalValue::Int(v0))) =>
-                        VorpalControlState::Value(VorpalValue::String(format!(
-                            "{}",
-                            v0 as u8 as char
-                        ))),
-                    (
-                        "float_to_string",
-                        VorpalInstructionArgument::Value(VorpalValue::Float(v0)),
-                    ) => VorpalControlState::Value(VorpalValue::String(format!("{}", v0))),
-                    ("ch_typestring", VorpalInstructionArgument::Type(v0)) =>
-                        VorpalControlState::Value(VorpalValue::String(format!("{}", v0))),
-                    (
-                        "allocate_array_undefined",
-                        VorpalInstructionArgument::Value(VorpalValue::Int(v0)),
-                    ) => VorpalControlState::Value(
-                        heap.allocate_heap_object(vec![VorpalValue::Undefined; v0 as usize]),
-                    ),
-                    ("exit", VorpalInstructionArgument::Value(VorpalValue::Int(v0))) =>
-                        return Err(VError::Exit(v0)),
-                    (
-                        "array_len",
-                        VorpalInstructionArgument::Value(v0 @ VorpalValue::HeapCollection { .. }),
-                    ) => VorpalControlState::Value(VorpalValue::Int(v0.get_object_len() as i64)),
-                    ("string_len", VorpalInstructionArgument::Value(VorpalValue::String(v0))) =>
-                        VorpalControlState::Value(VorpalValue::Int(v0.len() as i64)),
-                    ("reinterpret", VorpalInstructionArgument::Value(v0)) =>
-                        VorpalControlState::Value(v0),
+                match (instruction, v0, output) {
                     (
                         "ch_thread_block",
                         VorpalInstructionArgument::Value(VorpalValue::Int(other_id)),
-                    ) => {
+                        InstructionOutput::Type(AstType::Tuple { types }),
+                    ) if types.is_empty() => {
                         let other_id = ThreadId(other_id as usize);
 
                         if heap.is_thread_live(other_id) {
@@ -1522,8 +1487,9 @@ impl VorpalSword {
                     (
                         "ch_awaitable_poll",
                         VorpalInstructionArgument::Value(VorpalValue::Awaitable(id)),
+                        _, // TODO: S:
                     ) => self.do_await(heap, thread, span, id)?,
-                    (instruction, v0) =>
+                    (instruction, v0, _) =>
                         return vorpal_panic_at!(
                             span,
                             "Unknown unary instruction `{}` called with args: `{:?}`",
@@ -1534,126 +1500,17 @@ impl VorpalSword {
             },
             2 => {
                 let (v0, v1) = arguments.into_iter().tuples().next().unwrap();
-                match (instruction, v0, v1) {
-                    (
-                        "add",
-                        VorpalInstructionArgument::Value(VorpalValue::Int(v0)),
-                        VorpalInstructionArgument::Value(VorpalValue::Int(v1)),
-                    ) => VorpalControlState::Value(VorpalValue::Int(v0.wrapping_add(v1))),
-                    (
-                        "fadd",
-                        VorpalInstructionArgument::Value(VorpalValue::Float(v0)),
-                        VorpalInstructionArgument::Value(VorpalValue::Float(v1)),
-                    ) => VorpalControlState::Value(VorpalValue::Float(v0 + v1)),
-                    (
-                        "mul",
-                        VorpalInstructionArgument::Value(VorpalValue::Int(v0)),
-                        VorpalInstructionArgument::Value(VorpalValue::Int(v1)),
-                    ) => VorpalControlState::Value(VorpalValue::Int(v0.wrapping_mul(v1))),
-                    (
-                        "fmul",
-                        VorpalInstructionArgument::Value(VorpalValue::Float(v0)),
-                        VorpalInstructionArgument::Value(VorpalValue::Float(v1)),
-                    ) => VorpalControlState::Value(VorpalValue::Float(v0 * v1)),
-                    (
-                        "sdiv",
-                        VorpalInstructionArgument::Value(VorpalValue::Int(v0)),
-                        VorpalInstructionArgument::Value(VorpalValue::Int(v1)),
-                    ) => VorpalControlState::Value(VorpalValue::Int(v0 / v1)),
-                    (
-                        "fdiv",
-                        VorpalInstructionArgument::Value(VorpalValue::Float(v0)),
-                        VorpalInstructionArgument::Value(VorpalValue::Float(v1)),
-                    ) => VorpalControlState::Value(VorpalValue::Float(v0 / v1)),
-                    (
-                        "srem",
-                        VorpalInstructionArgument::Value(VorpalValue::Int(v0)),
-                        VorpalInstructionArgument::Value(VorpalValue::Int(v1)),
-                    ) => VorpalControlState::Value(VorpalValue::Int(v0 % v1)),
-                    (
-                        "csub",
-                        VorpalInstructionArgument::Value(VorpalValue::Int(v0)),
-                        VorpalInstructionArgument::Value(VorpalValue::Int(v1)),
-                    ) => VorpalControlState::Value(VorpalValue::Int(v0 - v1)),
-                    (
-                        "xor",
-                        VorpalInstructionArgument::Value(VorpalValue::Int(v0)),
-                        VorpalInstructionArgument::Value(VorpalValue::Int(v1)),
-                    ) => VorpalControlState::Value(VorpalValue::Int(v0.bitxor(v1))),
-                    (
-                        "lshr",
-                        VorpalInstructionArgument::Value(VorpalValue::Int(v0)),
-                        VorpalInstructionArgument::Value(VorpalValue::Int(v1)),
-                    ) => VorpalControlState::Value(VorpalValue::Int(
-                        (v0 as u64).shr(v1 as u64) as i64
-                    )),
-                    (
-                        "icmp eq",
-                        VorpalInstructionArgument::Value(VorpalValue::Int(v0)),
-                        VorpalInstructionArgument::Value(VorpalValue::Int(v1)),
-                    ) => VorpalControlState::Value(VorpalValue::boolean(v0 == v1)),
-                    (
-                        "icmp sgt",
-                        VorpalInstructionArgument::Value(VorpalValue::Int(v0)),
-                        VorpalInstructionArgument::Value(VorpalValue::Int(v1)),
-                    ) => VorpalControlState::Value(VorpalValue::boolean(v0 > v1)),
-                    (
-                        "fcmp eq",
-                        VorpalInstructionArgument::Value(VorpalValue::Float(v0)),
-                        VorpalInstructionArgument::Value(VorpalValue::Float(v1)),
-                    ) => VorpalControlState::Value(VorpalValue::boolean(v0 == v1)),
-                    (
-                        "fcmp gt",
-                        VorpalInstructionArgument::Value(VorpalValue::Float(v0)),
-                        VorpalInstructionArgument::Value(VorpalValue::Float(v1)),
-                    ) => VorpalControlState::Value(VorpalValue::boolean(v0 > v1)),
-                    (
-                        "add_string",
-                        VorpalInstructionArgument::Value(VorpalValue::String(v0)),
-                        VorpalInstructionArgument::Value(VorpalValue::String(v1)),
-                    ) => VorpalControlState::Value(VorpalValue::String(v0 + &v1)),
-                    (
-                        "array_deref",
-                        VorpalInstructionArgument::Value(v0 @ VorpalValue::HeapCollection { .. }),
-                        VorpalInstructionArgument::Value(VorpalValue::Int(v1)),
-                    ) => {
-                        if v0.get_object_len() as i64 <= v1 || v1 < 0 {
-                            return vorpal_panic_at!(
-                                span,
-                                "Cannot dereference object (len={}) at index {}",
-                                v0.get_object_len(),
-                                v1
-                            );
-                        }
-                        VorpalControlState::Value(heap.get_object_idx(v0, v1 as usize).clone())
-                    },
-                    (
-                        "string_deref",
-                        VorpalInstructionArgument::Value(VorpalValue::String(v0)),
-                        VorpalInstructionArgument::Value(VorpalValue::Int(v1)),
-                    ) => {
-                        if v0.len() as i64 <= v1 || v1 < 0 {
-                            return vorpal_panic_at!(
-                                span,
-                                "Cannot dereference string `{}` (len={}) at index {}",
-                                v0,
-                                v0.len(),
-                                v1
-                            );
-                        }
-                        VorpalControlState::Value(VorpalValue::Int(
-                            v0.chars().nth(v1 as usize).unwrap() as i64,
-                        ))
-                    },
+                match (instruction, v0, v1, output) {
                     (
                         "ch_dynamic_unbox",
                         VorpalInstructionArgument::Value(v0 @ VorpalValue::DynamicBox(_)),
                         VorpalInstructionArgument::Type(v1),
+                        _, // TODO: S: type is Option of v1
                     ) => {
                         let value = self.try_dynamic_unbox(heap, thread, v0, v1)?;
                         VorpalControlState::Value(value)
                     },
-                    (instruction, v0, v1) =>
+                    (instruction, v0, v1, _) =>
                         return vorpal_panic_at!(
                             span,
                             "Unknown binary instruction `{}` called with args: `{:?}`",
@@ -1664,28 +1521,14 @@ impl VorpalSword {
             },
             3 => {
                 let (v0, v1, v2) = arguments.into_iter().tuples().next().unwrap();
-                match (instruction, v0, v1, v2) {
-                    (
-                        "array_slice",
-                        VorpalInstructionArgument::Value(v0 @ VorpalValue::HeapCollection { .. }),
-                        VorpalInstructionArgument::Value(VorpalValue::Int(v1)),
-                        VorpalInstructionArgument::Value(VorpalValue::Int(v2)),
-                    ) => VorpalControlState::Value(v0.get_object_slice(v1 as usize, v2 as usize)),
-                    (
-                        "array_store",
-                        VorpalInstructionArgument::Value(v0 @ VorpalValue::HeapCollection { .. }),
-                        VorpalInstructionArgument::Value(VorpalValue::Int(v1)),
-                        VorpalInstructionArgument::Value(v2),
-                    ) => {
-                        *heap.get_object_idx(v0, v1 as usize) = v2;
-                        VorpalControlState::Value(VorpalValue::unit())
-                    },
+                match (instruction, v0, v1, v2, output) {
                     (
                         "ch_dynamic_box",
-                        VorpalInstructionArgument::Value(v0 @ VorpalValue::DynamicBox(_)),
+                        VorpalInstructionArgument::Value(v0),
                         VorpalInstructionArgument::Type(v1),
                         VorpalInstructionArgument::Type(v2),
-                    ) => {
+                        InstructionOutput::Type(v3),
+                    ) if v2 == v3 => {
                         let dynamic = self.make_dynamic_box(heap, thread, v0, v1, v2)?;
                         VorpalControlState::Value(dynamic)
                     },
@@ -1694,7 +1537,8 @@ impl VorpalSword {
                         VorpalInstructionArgument::Value(v0 @ VorpalValue::DynamicBox(_)),
                         VorpalInstructionArgument::Type(v1),
                         VorpalInstructionArgument::Type(v2),
-                    ) => {
+                        InstructionOutput::Type(v3),
+                    ) if v2 == v3 => {
                         let dynamic = self.transmute_dynamic_box(heap, thread, v0, v1, v2)?;
                         VorpalControlState::Value(dynamic)
                     },
@@ -1703,6 +1547,7 @@ impl VorpalSword {
                         VorpalInstructionArgument::Value(trampoline),
                         VorpalInstructionArgument::Value(callable),
                         VorpalInstructionArgument::Type(exit_type),
+                        _, // TODO: S: type is std::threading::Thread
                     ) => {
                         // Make a new thread
                         let mut new_thread = heap.new_thread(self.type_ids[exit_type]);
@@ -1721,7 +1566,7 @@ impl VorpalSword {
 
                         VorpalControlState::Value(thread_object)
                     },
-                    (instruction, v0, v1, v2) => unreachable!(
+                    (instruction, v0, v1, v2, _) => unreachable!(
                         "Unknown ternary instruction `{}` called with args: `{:?}`",
                         instruction,
                         (v0, v1, v2)
@@ -1957,9 +1802,6 @@ impl VorpalSword {
             }
         }
     }
-
-    #[inline(never)]
-    fn breakpoint(&self) {}
 }
 
 pub fn is_dyn_dispatchable(fun: &AstObjectFunction) -> bool {

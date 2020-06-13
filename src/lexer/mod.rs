@@ -625,7 +625,7 @@ impl<'input> Lexer<'input> {
             "mod" => Token::Mod,
 
             "fn" => Token::Fn,
-            "export" => Token::Export,
+            "extern" => Token::Extern,
             "trait" => Token::Trait,
             "impl" => Token::Impl,
             "where" => Token::Where,

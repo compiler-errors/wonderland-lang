@@ -1,6 +1,3 @@
-use std::operators::allocate_empty_array_internal.
-use std::iterator::resize_array_internal.
-
 let default_size: Int = 8.
 
 object Vector<_T> {
@@ -11,7 +8,7 @@ object Vector<_T> {
 impl<_T> for Vector<_T> {
   fn new() -> Vector<_T> = {
     allocate Vector<_T> {
-      array: allocate_empty_array_internal:<_T>(8),
+      array: internal_alloc_empty_array:<_T>(8),
       size: 0
     }
   }.
@@ -20,7 +17,7 @@ impl<_T> for Vector<_T> {
     n = if n < 0 { 0 } else { n }.
 
     allocate Vector<_T> {
-      array: allocate_empty_array_internal:<_T>(n),
+      array: internal_alloc_empty_array:<_T>(n),
       size: 0
     }
   }.
@@ -35,12 +32,8 @@ impl<_T> for Vector<_T> {
     if self:size > 0 {
       self:size = self:size - 1.
       let elem = self:array[self:size].
-      
-      self:array[self:size] = impl "llvm" {
-        instruction "ch_zeroed" (_ :_T) -> _T
-      } else impl "vorpal_sword" {
-        instruction "undefined" () -> _T
-      }.
+
+      self:array[self:size] = (instruction "ch_undefined" () -> _T).
 
       //self:try_downsize().
       Option!Some(elem)
@@ -59,13 +52,13 @@ impl<_T> for Vector<_T> {
       new_size = new_size * 2.
     }
 
-    self:array = resize_array_internal:<_T>(self:array, new_size).
+    self:array = internal_resize_array:<_T>(self:array, new_size).
     assert self:array:len() >= n.
   }.
 
   fn into_array(self) -> [_T] = {
     if self:array:len() != self:size {
-      resize_array_internal(self:array, self:size)
+      internal_resize_array(self:array, self:size)
     } else {
       self:array
     }

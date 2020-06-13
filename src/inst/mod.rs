@@ -55,7 +55,7 @@ pub struct InstantiatedProgram {
 pub fn instantiate(
     analyzed_program: AnalyzedProgram,
     parsed_program: AstProgram,
-) -> PResult<InstantiatedProgram> {
+) -> PResult<(InstantiatedProgram, Rc<AnalyzedProgram>)> {
     let mut main_finder = MainFinder(None);
 
     let mut dynamic_assumptions = TyckDynamicAssumptionAdapter::new(analyzed_program);
@@ -133,16 +133,19 @@ pub fn instantiate(
         instantiated_globals.insert(name, g);
     }
 
-    Ok(InstantiatedProgram {
-        main_fn,
-        instantiated_globals,
-        instantiated_fns: unwrap_values(i.instantiated_fns),
-        instantiated_object_fns: unwrap_values(i.instantiated_object_fns),
-        instantiated_impls: unwrap_values(i.instantiated_impls),
-        instantiated_objects: unwrap_values(i.instantiated_objects),
-        instantiated_enums: unwrap_values(i.instantiated_enums),
-        instantiated_types: i.instantiated_types,
-    })
+    Ok((
+        InstantiatedProgram {
+            main_fn,
+            instantiated_globals,
+            instantiated_fns: unwrap_values(i.instantiated_fns),
+            instantiated_object_fns: unwrap_values(i.instantiated_object_fns),
+            instantiated_impls: unwrap_values(i.instantiated_impls),
+            instantiated_objects: unwrap_values(i.instantiated_objects),
+            instantiated_enums: unwrap_values(i.instantiated_enums),
+            instantiated_types: i.instantiated_types,
+        },
+        i.analyzed_program,
+    ))
 }
 
 fn unwrap_values<K: Eq + Hash, V>(map: HashMap<K, Option<V>>) -> HashMap<K, V> {
