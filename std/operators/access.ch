@@ -16,9 +16,9 @@ impl<_T> Deref<Int> for [_T] {
   type Result = _T.
 
   fn deref(self, idx: Int) -> _T = {
-      if idx < 0 |? idx >= self:len() {
-        panic:<()>("Index out of bounds for \(type_string:<Self>())... length = \(self:len()), index = \(idx).").
-      }
+      // if idx < 0 |? idx >= self:len() {
+      //  panic:<()>("Index out of bounds for \(type_string:<Self>())... length = \(self:len()), index = \(idx).").
+      // }
 
       internal_array_deref(self, idx)
   }.

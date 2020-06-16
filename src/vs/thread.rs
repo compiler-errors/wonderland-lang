@@ -5,41 +5,13 @@ use crate::{
         InstructionArgument, InstructionOutput, LoopId, VariableId,
     },
     inst::{InstFunctionSignature, InstObjectFunctionSignature},
-    util::{PError, Span},
+    util::{Context, PError, Span},
     vs::value::VorpalValue,
 };
 use std::{
     collections::{HashMap, HashSet},
     time::Instant,
 };
-
-pub type VResult<T> = Result<T, VError>;
-
-pub enum VError {
-    Exit(i64),
-    Panic {
-        stack_trace: Option<String>,
-        error: PError,
-    },
-}
-
-macro_rules! vorpal_panic_at {
-    ($span:expr, $($arg:tt)*) => {
-        Err(crate::vs::thread::VError::Panic {
-            stack_trace: None,
-            error: crate::util::PError::new_at($span, format!($($arg)*))
-        })
-    }
-}
-
-macro_rules! vorpal_panic {
-    ($($arg:tt)*) => {
-        Err(crate::vs::thread::VError::Panic {
-            stack_trace: None,
-            error: crate::util::PError::new(format!($($arg)*))
-        })
-    }
-}
 
 #[derive(Debug)]
 pub enum VorpalControlState<'v> {
@@ -200,4 +172,80 @@ pub enum VorpalInstructionArgument<'v> {
     Value(VorpalValue),
     Type(&'v AstType),
     Anonymous(&'v str),
+}
+
+pub type VResult<T> = Result<T, VError>;
+
+impl<T> Context for VResult<T> {
+    fn add_context(&mut self, span: Span) {
+        if let Err(VError::Panic { error, .. }) = self {
+            if error.main_message.span.is_none() {
+                error.main_message.span = Some(span);
+            }
+        }
+    }
+
+    fn with_context(mut self, span: Span) -> Self {
+        self.add_context(span);
+        self
+    }
+
+    fn add_comment<F>(&mut self, comment: F)
+    where
+        F: Fn() -> String,
+    {
+        if let Err(VError::Panic { error, .. }) = self {
+            error.comments.push(comment());
+        }
+    }
+
+    fn with_comment<F>(mut self, comment: F) -> Self
+    where
+        F: Fn() -> String,
+    {
+        self.add_comment(comment);
+        self
+    }
+
+    fn add_context_comment<F>(&mut self, span: Span, comment: F)
+    where
+        F: Fn() -> String,
+    {
+        self.add_context(span);
+        self.add_comment(comment);
+    }
+
+    fn with_context_comment<F>(mut self, span: Span, comment: F) -> Self
+    where
+        F: Fn() -> String,
+    {
+        self.add_context_comment(span, comment);
+        self
+    }
+}
+
+pub enum VError {
+    Exit(i64),
+    Panic {
+        stack_trace: Option<String>,
+        error: PError,
+    },
+}
+
+macro_rules! vorpal_panic_at {
+    ($span:expr, $($arg:tt)*) => {
+        Err(crate::vs::thread::VError::Panic {
+            stack_trace: None,
+            error: crate::util::PError::new_at($span, format!($($arg)*))
+        })
+    }
+}
+
+macro_rules! vorpal_panic {
+    ($($arg:tt)*) => {
+        Err(crate::vs::thread::VError::Panic {
+            stack_trace: None,
+            error: crate::util::PError::new(format!($($arg)*))
+        })
+    }
 }

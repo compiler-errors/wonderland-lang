@@ -7,6 +7,7 @@ use pub mod::vector::*.
 use pub mod::list::*.
 use pub mod::hash_map::*.
 use pub mod::threading::*.
+use pub mod::asynchronous::*.
 
 extern fn gc().
 extern fn print(s: String).

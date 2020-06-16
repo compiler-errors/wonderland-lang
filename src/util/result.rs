@@ -10,18 +10,18 @@ macro_rules! perror_at {
 }
 
 #[derive(Debug)]
-struct SpanString {
-    span: Option<Span>,
-    string: String,
+pub struct SpanString {
+    pub span: Option<Span>,
+    pub string: String,
 }
 
 #[derive(Debug)]
 /// An error with a location, error string, and possible comments
 pub struct PError {
-    main_message: SpanString,
-    comments: Vec<String>,
+    pub main_message: SpanString,
+    pub comments: Vec<String>,
 
-    related_messages: Vec<SpanString>,
+    pub related_messages: Vec<SpanString>,
 }
 
 impl PError {

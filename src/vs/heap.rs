@@ -114,7 +114,7 @@ impl<'v> VorpalHeap<'v> {
 
             if adj_idx >= limit {
                 return vorpal_panic!(
-                    "ICE: Index of array slice ({}) cannot be greater than limit ({}).",
+                    "Array deref out of bounds, idx={}, len={}",
                     idx,
                     limit - offset,
                 );
@@ -125,7 +125,7 @@ impl<'v> VorpalHeap<'v> {
                 .get_mut(&id)
                 .expect("ICE: null pointer")
                 .get_mut(idx)
-                .expect("Object/Array is too small to get indexed value"))
+                .expect("ICE: Object/Array is too small to get indexed value"))
         } else {
             unreachable!(
                 "ICE: Can only get heap child from Array or Object, got `{:?}`",

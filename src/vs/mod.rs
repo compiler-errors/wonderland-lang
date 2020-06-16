@@ -11,7 +11,7 @@ use crate::{
         InstFunctionSignature, InstObjectFunctionSignature, InstObjectSignature,
         InstantiatedProgram,
     },
-    util::{PResult, Span, ZipExact},
+    util::{Context, PResult, Span, ZipExact},
     vs::{heap::*, thread::*, value::*},
 };
 use exported::{get_extern_fns, VorpalExternFn};
@@ -1188,7 +1188,7 @@ impl VorpalSword {
         if let Some(definition) = &fun.definition {
             self.do_call(heap, thread, &fun.parameter_list, args, definition)
         } else if let Some(definition) = heap.extern_fns.get(&fun.module_ref) {
-            let value = definition(heap, thread, &fun_sig.1, args)?;
+            let value = definition(heap, thread, &fun_sig.1, args).with_context(fun.name_span)?;
             Ok(VorpalControlState::Value(value))
         } else {
             unreachable!(
@@ -1444,7 +1444,7 @@ impl VorpalSword {
                         VorpalControlState::Value(VorpalValue::unit())
                     }
                 },
-                ("ch_thread_current", InstructionOutput::Type(AstType::Object(_name, generics))) 
+                ("ch_thread_current", InstructionOutput::Type(AstType::Object(_name, generics)))
                     if /* TODO: S: heap.symbolizer.name_matches(name, "std::threading", "Thread") && */  generics.is_empty()
                     => VorpalControlState::Value(thread.thread_object.clone()),
                 ("ch_thread_count", InstructionOutput::Type(AstType::Int)) =>

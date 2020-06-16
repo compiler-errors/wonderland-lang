@@ -436,7 +436,7 @@ fn array_deref<'v>(
 
     if let (v0 @ VorpalValue::HeapCollection { .. }, VorpalValue::Int(idx)) = (v0, v1) {
         if idx < 0 {
-            return vorpal_panic!("ICE: Array index ({}) cannot be less than 0.", idx,);
+            return vorpal_panic!("Array index ({}) cannot be less than 0.", idx,);
         }
 
         Ok(heap.get_object_idx(v0, idx as usize)?.clone())
@@ -456,7 +456,7 @@ fn array_store<'v>(
 
     if let (v0 @ VorpalValue::HeapCollection { .. }, VorpalValue::Int(idx)) = (v0, v1) {
         if idx < 0 {
-            return vorpal_panic!("ICE: Array index ({}) cannot be less than 0.", idx,);
+            return vorpal_panic!("Array index ({}) cannot be less than 0.", idx,);
         }
 
         *heap.get_object_idx(v0, idx as usize)? = v2.clone();
@@ -479,11 +479,11 @@ fn array_slice<'v>(
         (v0, v1, v2)
     {
         if v1 < 0 {
-            return vorpal_panic!("ICE: Start of array slice ({}) cannot be less than 0.", v1,);
+            return vorpal_panic!("Start of array slice ({}) cannot be less than 0.", v1,);
         }
 
         if v2 < 0 {
-            return vorpal_panic!("ICE: End of array slice ({}) cannot be less than 0.", v2,);
+            return vorpal_panic!("End of array slice ({}) cannot be less than 0.", v2,);
         }
 
         Ok(v0.get_object_slice(v1 as usize, v2 as usize)?)
