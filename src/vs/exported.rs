@@ -186,12 +186,14 @@ fn print<'v>(
 }
 
 fn gc<'v>(
-    _: &mut VorpalHeap<'v>,
-    _: &mut VorpalThread<'v>,
+    heap: &mut VorpalHeap<'v>,
+    thread: &mut VorpalThread<'v>,
     _: &[AstType],
-    _: Vec<VorpalValue>,
+    values: Vec<VorpalValue>,
 ) -> VResult<VorpalValue> {
-    todo!("TODO: F: GC")
+    assert!(values.is_empty(), TYCK_COMPLAINT);
+    heap.gc(&thread);
+    Ok(VorpalValue::unit())
 }
 
 fn unreachable<'v>(

@@ -213,6 +213,216 @@ impl<'v> VorpalHeap<'v> {
     pub fn save_awaitable_complete(&mut self, id: VorpalAwaitablePointer, value: VorpalValue) {
         *self.get_awaitable(id) = VorpalAwaitable::Complete(value)
     }
+
+    pub fn gc(&mut self, current_thread: &VorpalThread) {
+        let mut gc = VorpalGc::new();
+
+        self.visit_thread(&mut gc, current_thread);
+
+        for t in self
+            .blocked_threads
+            .values()
+            .chain(self.ready_threads.values())
+        {
+            self.visit_thread(&mut gc, t);
+        }
+
+        for g in self.global_variables.values() {
+            self.visit(&mut gc, g);
+        }
+
+        debug!(
+            "Removed structs: {:?}",
+            self.heap_structs
+                .keys()
+                .filter(|k| !gc.heap_structs.contains(k))
+                .collect::<Vec<_>>()
+        );
+        debug!(
+            "Removed dyn boxes: {:?}",
+            self.dyn_boxes
+                .keys()
+                .filter(|k| !gc.dyn_boxes.contains(k))
+                .collect::<Vec<_>>()
+        );
+        debug!(
+            "Removed closures: {:?}",
+            self.closures
+                .keys()
+                .filter(|k| !gc.closures.contains(k))
+                .collect::<Vec<_>>()
+        );
+        debug!(
+            "Removed awaitables: {:?}",
+            self.awaitables
+                .keys()
+                .filter(|k| !gc.awaitables.contains(k))
+                .collect::<Vec<_>>()
+        );
+
+        self.heap_structs.retain(|k, _| gc.heap_structs.contains(k));
+        self.dyn_boxes.retain(|k, _| gc.dyn_boxes.contains(k));
+        self.closures.retain(|k, _| gc.closures.contains(k));
+        self.awaitables.retain(|k, _| gc.awaitables.contains(k));
+    }
+
+    fn visit(&self, gc: &mut VorpalGc, v: &VorpalValue) {
+        match v {
+            VorpalValue::Int(_)
+            | VorpalValue::Float(_)
+            | VorpalValue::String(_)
+            | VorpalValue::GlobalFn(_)
+            | VorpalValue::Undefined => {},
+            VorpalValue::ValueCollection { values } =>
+                for v in values {
+                    self.visit(gc, v);
+                },
+            VorpalValue::EnumVariant { values, .. } =>
+                for v in values {
+                    self.visit(gc, v);
+                },
+            VorpalValue::HeapCollection { id, .. } =>
+                if gc.heap_structs.insert(*id) {
+                    for v in &self.heap_structs[id] {
+                        self.visit(gc, v);
+                    }
+                },
+            VorpalValue::Closure(id) =>
+                if gc.closures.insert(*id) {
+                    let VorpalClosure { captured, .. } = &self.closures[id];
+
+                    for v in captured.values() {
+                        self.visit(gc, v);
+                    }
+                },
+            VorpalValue::DynamicBox(id) =>
+                if gc.dyn_boxes.insert(*id) {
+                    let VorpalDynBox { object, .. } = &self.dyn_boxes[id];
+                    self.visit(gc, object);
+                },
+            VorpalValue::Awaitable(id) =>
+                if gc.awaitables.insert(*id) {
+                    match &self.awaitables[id] {
+                        VorpalAwaitable::Complete(v) => {
+                            self.visit(gc, v);
+                        },
+                        VorpalAwaitable::Incomplete {
+                            stack_rev,
+                            state,
+                            variables,
+                        } => {
+                            self.visit_state(gc, state);
+
+                            for s in stack_rev {
+                                self.visit_control(gc, s);
+                            }
+
+                            for v in variables.values() {
+                                self.visit(gc, v);
+                            }
+                        },
+                        VorpalAwaitable::Evaluating => {},
+                    }
+                },
+        }
+    }
+
+    fn visit_thread(&self, gc: &mut VorpalGc, t: &VorpalThread) {
+        self.visit(gc, &t.thread_object);
+
+        for c in &t.control {
+            self.visit_control(gc, c);
+        }
+
+        for vs in &t.variables {
+            for v in vs.values() {
+                self.visit(gc, v);
+            }
+        }
+    }
+
+    fn visit_control(&self, gc: &mut VorpalGc, c: &VorpalControl<'v>) {
+        match c {
+            VorpalControl::Block { .. } => {},
+            VorpalControl::CallBody => {},
+            VorpalControl::ApplyToLval(_) => {},
+            VorpalControl::ApplyToLet(_) => {},
+            VorpalControl::TupleAccess(_) => {},
+            VorpalControl::ObjectAccess(_) => {},
+            VorpalControl::If { .. } => {},
+            VorpalControl::Match { .. } => {},
+            VorpalControl::Break(_) => {},
+            VorpalControl::Return => {},
+            VorpalControl::AwaitPrePoll { .. } => {},
+            VorpalControl::AwaitPostPoll { .. } => {},
+            VorpalControl::ParkedState(s) => {
+                self.visit_state(gc, s);
+            },
+            VorpalControl::CallFn { args, .. } =>
+                for v in args {
+                    self.visit(gc, v);
+                },
+            VorpalControl::CallObjFn { args, .. } =>
+                for v in args {
+                    self.visit(gc, v);
+                },
+            VorpalControl::ApplyRval { rval, .. } => {
+                self.visit(gc, rval);
+            },
+            VorpalControl::ApplyRvalToObject { rval, .. } => {
+                self.visit(gc, rval);
+            },
+            VorpalControl::Tuple { values, .. } =>
+                for v in values {
+                    self.visit(gc, v);
+                },
+            VorpalControl::Array { values, .. } =>
+                for v in values {
+                    self.visit(gc, v);
+                },
+            VorpalControl::Object { values, .. } =>
+                for v in values {
+                    self.visit(gc, v);
+                },
+            VorpalControl::Enum { values, .. } =>
+                for v in values {
+                    self.visit(gc, v);
+                },
+            VorpalControl::PreWhile { exit_value, .. } =>
+                if let Some(v) = exit_value {
+                    self.visit(gc, v);
+                },
+            VorpalControl::PostWhile { exit_value, .. } =>
+                if let Some(v) = exit_value {
+                    self.visit(gc, v);
+                },
+            VorpalControl::Instruction { values, .. } =>
+                for v in values {
+                    match v {
+                        super::thread::VorpalInstructionArgument::Value(v) => {
+                            self.visit(gc, v);
+                        },
+                        super::thread::VorpalInstructionArgument::Type(_)
+                        | super::thread::VorpalInstructionArgument::Anonymous(_) => {},
+                    }
+                },
+            VorpalControl::Async(a) => {
+                self.visit(gc, &VorpalValue::Awaitable(*a));
+            },
+        }
+    }
+
+    fn visit_state(&self, gc: &mut VorpalGc, s: &VorpalControlState<'v>) {
+        match s {
+            VorpalControlState::Initial
+            | VorpalControlState::LvalExpression(_)
+            | VorpalControlState::Statement(_)
+            | VorpalControlState::Expression(_) => {},
+            VorpalControlState::Value(v) => {
+                self.visit(gc, v);
+            },
+        }
+    }
 }
 
 impl<'v> VorpalHeap<'v> {
@@ -350,5 +560,23 @@ impl<'v> VorpalHeap<'v> {
 
     pub fn is_thread_live(&self, other_id: ThreadId) -> bool {
         self.ready_threads.contains_key(&other_id) || self.blocked_threads.contains_key(&other_id)
+    }
+}
+
+struct VorpalGc {
+    heap_structs: HashSet<VorpalHeapPointer>,
+    dyn_boxes: HashSet<VorpalDynPointer>,
+    closures: HashSet<VorpalClosurePointer>,
+    awaitables: HashSet<VorpalAwaitablePointer>,
+}
+
+impl VorpalGc {
+    fn new() -> VorpalGc {
+        VorpalGc {
+            heap_structs: HashSet::new(),
+            dyn_boxes: HashSet::new(),
+            closures: HashSet::new(),
+            awaitables: HashSet::new(),
+        }
     }
 }
